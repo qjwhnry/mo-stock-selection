@@ -1,0 +1,25 @@
+# 本地开发用：一键起 PostgreSQL 15
+# 使用：docker compose up -d pg
+services:
+  pg:
+    image: postgres:15-alpine
+    container_name: mo_stock_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mo_stock
+      POSTGRES_PASSWORD: mo_stock
+      POSTGRES_DB: mo_stock
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - mo_stock_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mo_stock -d mo_stock"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mo_stock_pgdata:

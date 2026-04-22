@@ -1,0 +1,55 @@
+# ==============================================================
+# 选股权重配置（可热调，无需改代码）
+# 所有权重在 combine 前做归一化，相加不强制 = 1，但 5 维度相对值决定贡献比
+# ==============================================================
+
+# 5 维度权重（规则层综合分计算）
+dimension_weights:
+  limit: 0.25      # 异动涨停
+  moneyflow: 0.25  # 主力资金流向
+  lhb: 0.20        # 龙虎榜
+  sector: 0.15     # 板块 / 行业
+  sentiment: 0.15  # 新闻公告 + 研报情绪
+
+# 规则分 vs AI 分 的融合权重（Phase 3 启用）
+combine:
+  rule_weight: 0.6
+  ai_weight: 0.4
+
+# 硬规则：触发任一则直接淘汰（不入 selection_result.picked）
+hard_reject:
+  # 标的黑名单关键词（匹配股票名称或最近公告标题）
+  negative_announcement_keywords:
+    - "立案调查"
+    - "实际控制人变更"
+    - "商誉减值"
+    - "财务造假"
+    - "暂停上市"
+    - "退市风险警示"
+  # 仅作板块信号，不推荐次日追高
+  exclude_today_limit_up: true
+  # 次新过滤：上市不满 N 日
+  min_list_days: 60
+  # ST / *ST 直接排除
+  exclude_st: true
+
+# 涨停维度细则
+limit_filter:
+  first_board_bonus: 20    # 首板加分
+  second_board_bonus: 30   # 连板首日（2 连板）
+  broken_board_rebound_bonus: 10  # 断板反包
+  open_times_penalty: 10   # 每次开板扣分
+  seal_amount_tier:        # 封单额分档加分（亿元）
+    - threshold: 1.0
+      score: 10
+    - threshold: 5.0
+      score: 20
+    - threshold: 10.0
+      score: 30
+
+# 资金流维度细则
+moneyflow_filter:
+  today_net_inflow_bonus: 20      # 当日主力净流入为正加分
+  rolling_3d_bonus: 15            # 近 3 日累计为正再加
+  big_order_ratio_threshold: 0.4  # 大单+超大单净流入占比阈值
+  small_up_big_down_penalty: 30   # 小单流入大单流出惩罚
