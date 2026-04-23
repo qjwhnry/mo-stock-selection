@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -48,7 +48,10 @@ class StockBasic(Base):
     sw_l1: Mapped[str | None] = mapped_column(String(50), index=True)   # 申万一级
     list_date: Mapped[date | None] = mapped_column(Date)
     is_st: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+    )
 
 
 class TradeCal(Base):
@@ -308,7 +311,10 @@ class AiAnalysis(Base):
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     cache_creation_tokens: Mapped[int | None] = mapped_column(Integer)
     cache_read_tokens: Mapped[int | None] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+    )
 
     __table_args__ = (
         UniqueConstraint("trade_date", "ts_code", name="uq_ai_analysis_key"),
@@ -329,7 +335,10 @@ class SelectionResult(Base):
     final_score: Mapped[float] = mapped_column(Numeric(5, 2))
     picked: Mapped[bool] = mapped_column(Boolean, default=True)
     reject_reason: Mapped[str | None] = mapped_column(String(200))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+    )
 
     __table_args__ = (
         UniqueConstraint("trade_date", "ts_code", name="uq_selection_key"),

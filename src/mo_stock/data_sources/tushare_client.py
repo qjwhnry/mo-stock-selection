@@ -133,7 +133,7 @@ class TushareClient:
         return self._call(
             "stock_basic",
             list_status=list_status,
-            fields="ts_code,symbol,name,area,industry,list_date,market",
+            fields="ts_code,symbol,name,area,industry,list_date",
         )
 
     def trade_cal(self, start_date: str, end_date: str) -> pd.DataFrame:
@@ -162,6 +162,7 @@ class TushareClient:
             ts_code=ts_code,
             start_date=start_date,
             end_date=end_date,
+            fields="ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol,amount",
         )
 
     def daily_basic(
@@ -186,6 +187,11 @@ class TushareClient:
             trade_date=trade_date,
             limit_type=limit_type,
             limiter=_strict_limiter,
+            fields=(
+                "ts_code,trade_date,industry,name,close,pct_chg,amount,"
+                "limit_amount,float_mv,total_mv,turnover_ratio,fd_amount,"
+                "first_time,last_time,open_times,up_stat,limit_times,limit"
+            ),
         )
 
     def top_list(self, trade_date: str) -> pd.DataFrame:
@@ -194,6 +200,11 @@ class TushareClient:
             "top_list",
             trade_date=trade_date,
             limiter=_strict_limiter,
+            fields=(
+                "trade_date,ts_code,name,close,pct_change,turnover_rate,amount,"
+                "l_sell,l_buy,l_amount,net_amount,net_rate,amount_rate,"
+                "float_values,reason"
+            ),
         )
 
     def top_inst(self, trade_date: str) -> pd.DataFrame:
@@ -202,6 +213,7 @@ class TushareClient:
             "top_inst",
             trade_date=trade_date,
             limiter=_strict_limiter,
+            fields="trade_date,ts_code,exalter,side,buy,buy_rate,sell,sell_rate,net_buy,reason",
         )
 
     def moneyflow(
@@ -215,6 +227,14 @@ class TushareClient:
             trade_date=trade_date,
             ts_code=ts_code,
             limiter=_strict_limiter,
+            fields=(
+                "ts_code,trade_date,"
+                "buy_sm_amount,sell_sm_amount,"
+                "buy_md_amount,sell_md_amount,"
+                "buy_lg_amount,sell_lg_amount,"
+                "buy_elg_amount,sell_elg_amount,"
+                "net_mf_amount"
+            ),
         )
 
     # ---------- 板块 ----------
@@ -230,6 +250,10 @@ class TushareClient:
             trade_date=trade_date,
             ts_code=ts_code,
             limiter=_strict_limiter,
+            fields=(
+                "ts_code,name,trade_date,open,high,low,close,"
+                "pct_change,vol,amount,turnover_rate"
+            ),
         )
 
     # ---------- 情绪：新闻 / 公告 ----------
@@ -241,6 +265,7 @@ class TushareClient:
             start_date=start_date,
             end_date=end_date,
             limiter=_strict_limiter,
+            fields="title,content,pub_time,src",
         )
 
     def anns_d(
@@ -256,6 +281,7 @@ class TushareClient:
             start_date=start_date,
             end_date=end_date,
             limiter=_strict_limiter,
+            fields="ts_code,name,ann_date,title,url,ann_type",
         )
 
 

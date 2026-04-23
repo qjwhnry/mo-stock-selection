@@ -11,7 +11,7 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# 项目根目录（本文件的上两级）
+# 项目根目录：config/settings.py → config/ → 项目根
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
 

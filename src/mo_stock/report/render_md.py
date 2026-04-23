@@ -195,7 +195,10 @@ def render_daily_report(
 
 
 def _format_detail(detail: dict | None, max_items: int = 4) -> str:
-    """把 detail 字典格式化成一行简短字符串。"""
+    """把 detail 字典格式化成一行简短字符串。
+
+    对 tuple 值做安全格式化：仅当第二项是 int/float 时才用 `:+g` 格式。
+    """
     if not detail:
         return "-"
     parts = []
@@ -203,7 +206,7 @@ def _format_detail(detail: dict | None, max_items: int = 4) -> str:
         if i >= max_items:
             parts.append("...")
             break
-        if isinstance(v, tuple) and len(v) == 2:
+        if isinstance(v, tuple) and len(v) == 2 and isinstance(v[1], (int, float)):
             parts.append(f"{k}={v[0]}({v[1]:+g})")
         elif isinstance(v, float):
             parts.append(f"{k}={v:.2f}")

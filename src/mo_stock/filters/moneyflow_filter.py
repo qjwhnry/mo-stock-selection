@@ -45,15 +45,12 @@ class MoneyflowFilter(FilterBase):
             net_mf = row.net_mf_amount or 0.0
             detail["net_mf_wan"] = round(net_mf, 2)  # 万元
 
-            # 1. 当日主力净流入
-            if net_mf > 0:
-                score += today_bonus
-                detail["today_bonus"] = today_bonus
-            else:
-                detail["today_bonus"] = 0
-                # 当日净流出直接不考虑（不进候选池）
-                results.append(ScoreResult(row.ts_code, trade_date, self.dim, 0.0, detail))
+            # 1. 当日主力净流入。净流出的股**不 append**，视为该维度缺失
+            #    —— 避免下游 combine 聚合时被 0 分稀释 TOP 股综合分。
+            if net_mf <= 0:
                 continue
+            score += today_bonus
+            detail["today_bonus"] = today_bonus
 
             # 2. 大单+超大单占比
             buy_big = (row.buy_lg_amount or 0) + (row.buy_elg_amount or 0)
