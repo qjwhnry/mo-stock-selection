@@ -101,7 +101,12 @@ class GthtClient:
         """
         self.ensure_auth()
 
-        skill_dir = settings.mo_skills_root / "gtht-skills" / skill
+        gtht_skills_root = settings.mo_skills_root / "gtht-skills"
+        skill_dir = gtht_skills_root / skill
+        try:
+            skill_dir.resolve().relative_to(gtht_skills_root.resolve())
+        except ValueError as exc:
+            raise GthtError(f"非法 skill 路径（越界）: {skill}") from exc
         if not skill_dir.exists():
             raise GthtError(f"GTHT skill 目录不存在: {skill_dir}")
 

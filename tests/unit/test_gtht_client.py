@@ -132,7 +132,10 @@ def _make_completed(
 
 class TestCall:
     def test_success_returns_parsed_dict(
-        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+        self,
+        authed_client: GthtClient,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         mock_run = MagicMock(return_value=_make_completed(stdout='{"data": [1, 2, 3]}'))
         monkeypatch.setattr(subprocess, "run", mock_run)
@@ -156,6 +159,12 @@ class TestCall:
             "research",
         ]
         assert "query=600519" in cmd
+
+        # 验证 cwd 指向 skill 目录（spec §9 关键，跨平台 node 解析依赖）
+        expected_cwd = (
+            tmp_path / "mo-skills" / "gtht-skills" / "lingxi-researchreport-skill"
+        )
+        assert mock_run.call_args.kwargs["cwd"] == expected_cwd
 
     def test_nonzero_exit_raises(
         self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
@@ -225,3 +234,12 @@ class TestCall:
         )
         with pytest.raises(GthtError, match="skill 目录不存在"):
             GthtClient().call("lingxi-researchreport-skill", "researchreport", "research")
+
+    def test_skill_path_traversal_raises(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """case: skill 名带 ../ 试图越界 → 抛 GthtError（防御性检查）"""
+        # subprocess 不应被调到（path 校验在前）
+        monkeypatch.setattr(subprocess, "run", MagicMock())
+        with pytest.raises(GthtError, match="非法 skill 路径"):
+            authed_client.call("../../../etc", "researchreport", "research")
