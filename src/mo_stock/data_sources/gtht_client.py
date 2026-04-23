@@ -11,6 +11,8 @@
 from __future__ import annotations
 
 import json
+import subprocess  # noqa: S404 - 调用本地 node skill 是设计要求
+from typing import Any
 
 from loguru import logger
 
@@ -77,3 +79,63 @@ class GthtClient:
             encoding="utf-8",
         )
         logger.info("GTHT entry written -> {} (key={}***)", entry_path, key[:4])
+
+    # ---------- 底层调用 ----------
+
+    def call(
+        self,
+        skill: str,
+        gateway: str,
+        tool: str,
+        **kwargs: Any,
+    ) -> dict:
+        """执行 `node skill-entry.js mcpClient call <gateway> <tool> k=v ...`。
+
+        参数:
+            skill: skill 目录名，如 "lingxi-researchreport-skill"
+            gateway: 网关名（见 SKILL.md），如 "researchreport"
+            tool: 工具名，如 "research"
+            **kwargs: 工具参数，会按 `k=v` 格式拼到命令尾部
+
+        返回 stdout 解析后的 dict；失败统一抛 GthtError。
+        """
+        self.ensure_auth()
+
+        skill_dir = settings.mo_skills_root / "gtht-skills" / skill
+        if not skill_dir.exists():
+            raise GthtError(f"GTHT skill 目录不存在: {skill_dir}")
+
+        cmd: list[str] = ["node", "skill-entry.js", "mcpClient", "call", gateway, tool]
+        for k, v in kwargs.items():
+            cmd.append(f"{k}={v}")
+
+        logger.debug("GTHT call: cwd={} cmd={}", skill_dir, cmd)
+
+        try:
+            proc = subprocess.run(  # noqa: S603 - 命令为受信常量 + 校验过的 skill
+                cmd,
+                cwd=skill_dir,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise GthtError("node 未安装或不在 PATH 中") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise GthtError(f"GTHT 调用超时: {skill}/{gateway}/{tool}") from exc
+
+        if proc.returncode != 0:
+            raise GthtError(
+                f"GTHT 调用失败 (exit {proc.returncode}): {proc.stderr.strip()}"
+            )
+
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError as exc:
+            raise GthtError(f"GTHT 返回非 JSON: {proc.stdout[:200]}") from exc
+
+        if isinstance(data, dict) and "error" in data:
+            raise GthtError(f"GTHT 错误: {data['error']}")
+
+        return data

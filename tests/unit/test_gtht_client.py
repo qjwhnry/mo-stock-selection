@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -101,3 +102,126 @@ class TestEnsureAuth:
         client = GthtClient()
         with pytest.raises(GthtError, match="GTHT_API_KEY 未配置"):
             client.ensure_auth()
+
+
+@pytest.fixture
+def authed_client(
+    tmp_entry_path: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> GthtClient:
+    """已授权的 GthtClient + mo_skills_root 指到 tmp 目录，并预建 skill 目录。"""
+    tmp_entry_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_entry_path.write_text(json.dumps({"apiKey": "TEST_KEY"}))
+    _set_env_key(monkeypatch, "TEST_KEY")
+
+    skills_root = tmp_path / "mo-skills"
+    monkeypatch.setattr(
+        "mo_stock.data_sources.gtht_client.settings.mo_skills_root", skills_root
+    )
+    skill_dir = skills_root / "gtht-skills" / "lingxi-researchreport-skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    return GthtClient()
+
+
+def _make_completed(
+    stdout: str = "{}", stderr: str = "", returncode: int = 0
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(
+        args=["node"], returncode=returncode, stdout=stdout, stderr=stderr
+    )
+
+
+class TestCall:
+    def test_success_returns_parsed_dict(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_run = MagicMock(return_value=_make_completed(stdout='{"data": [1, 2, 3]}'))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        result = authed_client.call(
+            "lingxi-researchreport-skill",
+            "researchreport",
+            "research",
+            query="600519",
+        )
+        assert result == {"data": [1, 2, 3]}
+
+        # 验证命令拼接：node skill-entry.js mcpClient call <gateway> <tool> k=v
+        cmd = mock_run.call_args.args[0]
+        assert cmd[:6] == [
+            "node",
+            "skill-entry.js",
+            "mcpClient",
+            "call",
+            "researchreport",
+            "research",
+        ]
+        assert "query=600519" in cmd
+
+    def test_nonzero_exit_raises(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            MagicMock(return_value=_make_completed(returncode=1, stderr="boom")),
+        )
+        with pytest.raises(GthtError, match="GTHT 调用失败"):
+            authed_client.call("lingxi-researchreport-skill", "researchreport", "research")
+
+    def test_node_not_found_raises(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            subprocess, "run", MagicMock(side_effect=FileNotFoundError("node"))
+        )
+        with pytest.raises(GthtError, match="node 未安装"):
+            authed_client.call("lingxi-researchreport-skill", "researchreport", "research")
+
+    def test_timeout_raises(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            MagicMock(side_effect=subprocess.TimeoutExpired(cmd="node", timeout=60)),
+        )
+        with pytest.raises(GthtError, match="GTHT 调用超时"):
+            authed_client.call("lingxi-researchreport-skill", "researchreport", "research")
+
+    def test_invalid_json_raises(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            MagicMock(return_value=_make_completed(stdout="not json at all")),
+        )
+        with pytest.raises(GthtError, match="GTHT 返回非 JSON"):
+            authed_client.call("lingxi-researchreport-skill", "researchreport", "research")
+
+    def test_stdout_error_field_raises(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            MagicMock(return_value=_make_completed(stdout='{"error": "Unauthorized"}')),
+        )
+        with pytest.raises(GthtError, match="Unauthorized"):
+            authed_client.call("lingxi-researchreport-skill", "researchreport", "research")
+
+    def test_skill_dir_missing_raises(
+        self,
+        tmp_entry_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        tmp_entry_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_entry_path.write_text(json.dumps({"apiKey": "K"}))
+        _set_env_key(monkeypatch, "K")
+        monkeypatch.setattr(
+            "mo_stock.data_sources.gtht_client.settings.mo_skills_root",
+            tmp_path / "nonexistent",
+        )
+        with pytest.raises(GthtError, match="skill 目录不存在"):
+            GthtClient().call("lingxi-researchreport-skill", "researchreport", "research")
