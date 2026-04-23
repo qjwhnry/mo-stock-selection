@@ -126,7 +126,7 @@ class GthtAgent:
         )
         self._model = settings.gtht_llm_model
 
-    def ask(self, query: str, max_iters: int = 5) -> dict:
+    def ask(self, query: str, max_iters: int = 5) -> dict[str, Any]:
         """让辅助 LLM 自主选择并调用 GTHT skill tool 回答 query。
 
         返回 {"answer": str, "tool_trace": list[dict]}。

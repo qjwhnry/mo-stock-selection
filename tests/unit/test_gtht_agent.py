@@ -57,7 +57,7 @@ def _llm_message(content: str | None = None, tool_calls: list | None = None) -> 
     msg = MagicMock()
     msg.content = content
     msg.tool_calls = tool_calls
-    msg.model_dump = lambda exclude_none=False: {  # noqa: ARG005
+    msg.model_dump = lambda exclude_none=False, **kwargs: {  # noqa: ARG005
         "role": "assistant",
         "content": content,
         "tool_calls": tool_calls,
@@ -176,3 +176,42 @@ class TestAsk:
 
         with pytest.raises(GthtError, match="max_iters"):
             agent.ask("?", max_iters=2)
+
+    def test_multiple_tool_calls_in_single_response(
+        self, configured_env: None
+    ) -> None:
+        """LLM 一次返回 2 个 tool_calls → 都派发到 client，loop 继续直到 LLM 给最终答案"""
+        client = MagicMock()
+        client.call.side_effect = [
+            {"data": "研报数据"},
+            {"data": "热榜数据"},
+        ]
+        agent = GthtAgent(client=client)
+        agent._llm = MagicMock()
+
+        # 第一轮：LLM 返回 2 个 tool_calls
+        first = _llm_response(
+            _llm_message(
+                tool_calls=[
+                    _tool_call("c1", "research_report", {"query": "600519"}),
+                    _tool_call("c2", "rank_list", {"query": "今日热榜"}),
+                ]
+            )
+        )
+        # 第二轮：LLM 看到 2 个 tool 结果后给出最终答案
+        second = _llm_response(_llm_message(content="综合分析：..."))
+        agent._llm.chat.completions.create.side_effect = [first, second]
+
+        result = agent.ask("查 600519 + 热榜")
+
+        assert result["answer"] == "综合分析：..."
+        assert client.call.call_count == 2
+        # 顺序与 tool_calls 一致：研报先，热榜后
+        client.call.assert_any_call(
+            "lingxi-researchreport-skill", "researchreport", "research", query="600519"
+        )
+        client.call.assert_any_call(
+            "lingxi-ranklist-skill", "ranklist", "ranklist", query="今日热榜"
+        )
+        assert len(result["tool_trace"]) == 2
+        assert {t["tool"] for t in result["tool_trace"]} == {"research_report", "rank_list"}
