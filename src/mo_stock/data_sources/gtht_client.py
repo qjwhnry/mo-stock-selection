@@ -149,14 +149,19 @@ class GthtClient:
 
     _DEFAULT_SKILL_FOR_AUTH = "lingxi-researchreport-skill"
 
-    def check_auth(self) -> bool:
-        """透传到 node skill-entry.js authChecker check。"""
+    def _run_authchecker(self, subcommand: str) -> subprocess.CompletedProcess[str]:
+        """运行 `node skill-entry.js authChecker <subcommand>`。
+
+        用于 check_auth / clear_auth 等不返回业务数据、只看退出码的子命令。
+        """
         skill_dir = (
             settings.mo_skills_root / "gtht-skills" / self._DEFAULT_SKILL_FOR_AUTH
         )
+        if not skill_dir.exists():
+            raise GthtError(f"GTHT skill 目录不存在: {skill_dir}")
         try:
-            proc = subprocess.run(  # noqa: S603
-                ["node", "skill-entry.js", "authChecker", "check"],
+            return subprocess.run(  # noqa: S603
+                ["node", "skill-entry.js", "authChecker", subcommand],
                 cwd=skill_dir,
                 capture_output=True,
                 text=True,
@@ -165,21 +170,11 @@ class GthtClient:
             )
         except FileNotFoundError as exc:
             raise GthtError("node 未安装或不在 PATH 中") from exc
-        return proc.returncode == 0
+
+    def check_auth(self) -> bool:
+        """透传到 node skill-entry.js authChecker check。返回 True 表示已授权。"""
+        return self._run_authchecker("check").returncode == 0
 
     def clear_auth(self) -> None:
-        """透传到 node skill-entry.js authChecker clear。"""
-        skill_dir = (
-            settings.mo_skills_root / "gtht-skills" / self._DEFAULT_SKILL_FOR_AUTH
-        )
-        try:
-            subprocess.run(  # noqa: S603
-                ["node", "skill-entry.js", "authChecker", "clear"],
-                cwd=skill_dir,
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
-            )
-        except FileNotFoundError as exc:
-            raise GthtError("node 未安装或不在 PATH 中") from exc
+        """透传到 node skill-entry.js authChecker clear（fire-and-forget）。"""
+        self._run_authchecker("clear")

@@ -247,26 +247,66 @@ class TestCall:
 
 class TestAuthSubcommands:
     def test_check_auth_true_when_node_exit_zero(
-        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+        self,
+        authed_client: GthtClient,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
-        monkeypatch.setattr(
-            subprocess, "run", MagicMock(return_value=_make_completed(returncode=0))
-        )
+        mock_run = MagicMock(return_value=_make_completed(returncode=0))
+        monkeypatch.setattr(subprocess, "run", mock_run)
         assert authed_client.check_auth() is True
+        # cwd 必须指向默认 auth skill 目录
+        expected_cwd = (
+            tmp_path / "mo-skills" / "gtht-skills" / "lingxi-researchreport-skill"
+        )
+        assert mock_run.call_args.kwargs["cwd"] == expected_cwd
 
     def test_check_auth_false_when_node_exit_nonzero(
-        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+        self,
+        authed_client: GthtClient,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
-        monkeypatch.setattr(
-            subprocess, "run", MagicMock(return_value=_make_completed(returncode=1))
-        )
+        mock_run = MagicMock(return_value=_make_completed(returncode=1))
+        monkeypatch.setattr(subprocess, "run", mock_run)
         assert authed_client.check_auth() is False
+        # cwd 必须指向默认 auth skill 目录
+        expected_cwd = (
+            tmp_path / "mo-skills" / "gtht-skills" / "lingxi-researchreport-skill"
+        )
+        assert mock_run.call_args.kwargs["cwd"] == expected_cwd
 
     def test_clear_auth_invokes_authchecker_clear(
-        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+        self,
+        authed_client: GthtClient,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
     ) -> None:
         mock_run = MagicMock(return_value=_make_completed())
         monkeypatch.setattr(subprocess, "run", mock_run)
         authed_client.clear_auth()
         cmd = mock_run.call_args.args[0]
         assert cmd == ["node", "skill-entry.js", "authChecker", "clear"]
+        # cwd 必须指向默认 auth skill 目录
+        expected_cwd = (
+            tmp_path / "mo-skills" / "gtht-skills" / "lingxi-researchreport-skill"
+        )
+        assert mock_run.call_args.kwargs["cwd"] == expected_cwd
+
+    def test_check_auth_raises_when_skill_dir_missing(
+        self,
+        tmp_entry_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """case: _DEFAULT_SKILL_FOR_AUTH 目录不存在 → 抛 GthtError（与 call 对齐）"""
+        tmp_entry_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_entry_path.write_text(json.dumps({"apiKey": "K"}))
+        _set_env_key(monkeypatch, "K")
+        # 故意不创建 skill_dir
+        monkeypatch.setattr(
+            "mo_stock.data_sources.gtht_client.settings.mo_skills_root",
+            tmp_path / "no-skills",
+        )
+        with pytest.raises(GthtError, match="skill 目录不存在"):
+            GthtClient().check_auth()
