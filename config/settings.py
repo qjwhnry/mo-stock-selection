@@ -25,6 +25,23 @@ class Settings(BaseSettings):
         description="Tushare Pro API 自定义 HTTP 地址；留空则用官方默认域名",
     )
 
+    # ---------- GTHT 灵犀 ----------
+    gtht_api_key: str = Field(
+        default="",
+        description="国泰海通灵犀 API Key；首次使用时自动落盘到 gtht_entry_json_path",
+    )
+
+    # ---------- GTHT 辅助 LLM（OpenAI 兼容）----------
+    gtht_llm_api_key: str = Field(default="", description="辅助 LLM 的 API Key")
+    gtht_llm_base_url: str = Field(
+        default="",
+        description="OpenAI 兼容的 base_url，如 https://api.deepseek.com/v1",
+    )
+    gtht_llm_model: str = Field(
+        default="",
+        description="辅助 LLM 模型名，如 deepseek-chat / qwen-plus / moonshot-v1-8k",
+    )
+
     # ---------- Claude ----------
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
     anthropic_base_url: str = Field(
