@@ -243,3 +243,30 @@ class TestCall:
         monkeypatch.setattr(subprocess, "run", MagicMock())
         with pytest.raises(GthtError, match="非法 skill 路径"):
             authed_client.call("../../../etc", "researchreport", "research")
+
+
+class TestAuthSubcommands:
+    def test_check_auth_true_when_node_exit_zero(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            subprocess, "run", MagicMock(return_value=_make_completed(returncode=0))
+        )
+        assert authed_client.check_auth() is True
+
+    def test_check_auth_false_when_node_exit_nonzero(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            subprocess, "run", MagicMock(return_value=_make_completed(returncode=1))
+        )
+        assert authed_client.check_auth() is False
+
+    def test_clear_auth_invokes_authchecker_clear(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_run = MagicMock(return_value=_make_completed())
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        authed_client.clear_auth()
+        cmd = mock_run.call_args.args[0]
+        assert cmd == ["node", "skill-entry.js", "authChecker", "clear"]

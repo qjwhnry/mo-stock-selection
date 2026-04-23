@@ -144,3 +144,42 @@ class GthtClient:
             raise GthtError(f"GTHT 错误: {data['error']}")
 
         return data
+
+    # ---------- 授权状态查询 ----------
+
+    _DEFAULT_SKILL_FOR_AUTH = "lingxi-researchreport-skill"
+
+    def check_auth(self) -> bool:
+        """透传到 node skill-entry.js authChecker check。"""
+        skill_dir = (
+            settings.mo_skills_root / "gtht-skills" / self._DEFAULT_SKILL_FOR_AUTH
+        )
+        try:
+            proc = subprocess.run(  # noqa: S603
+                ["node", "skill-entry.js", "authChecker", "check"],
+                cwd=skill_dir,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise GthtError("node 未安装或不在 PATH 中") from exc
+        return proc.returncode == 0
+
+    def clear_auth(self) -> None:
+        """透传到 node skill-entry.js authChecker clear。"""
+        skill_dir = (
+            settings.mo_skills_root / "gtht-skills" / self._DEFAULT_SKILL_FOR_AUTH
+        )
+        try:
+            subprocess.run(  # noqa: S603
+                ["node", "skill-entry.js", "authChecker", "clear"],
+                cwd=skill_dir,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise GthtError("node 未安装或不在 PATH 中") from exc
