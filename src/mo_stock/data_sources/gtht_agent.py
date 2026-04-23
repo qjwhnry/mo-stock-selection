@@ -138,8 +138,8 @@ class GthtAgent:
         for it in range(max_iters):
             response = self._llm.chat.completions.create(
                 model=self._model,
-                messages=messages,
-                tools=_TOOLS,
+                messages=messages,  # type: ignore[arg-type]
+                tools=_TOOLS,  # type: ignore[arg-type]
             )
             msg = response.choices[0].message
 
@@ -151,9 +151,9 @@ class GthtAgent:
             messages.append(msg.model_dump(exclude_none=True))
 
             for tc in msg.tool_calls:
-                tool_name = tc.function.name
+                tool_name = tc.function.name  # type: ignore[union-attr]
                 try:
-                    args = json.loads(tc.function.arguments or "{}")
+                    args = json.loads(tc.function.arguments or "{}")  # type: ignore[union-attr]
                 except json.JSONDecodeError:
                     args = {}
 

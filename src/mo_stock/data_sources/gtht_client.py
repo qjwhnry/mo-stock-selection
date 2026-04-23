@@ -143,7 +143,7 @@ class GthtClient:
         if isinstance(data, dict) and "error" in data:
             raise GthtError(f"GTHT 错误: {data['error']}")
 
-        return data
+        return data  # type: ignore[no-any-return]
 
     # ---------- 授权状态查询 ----------
 
