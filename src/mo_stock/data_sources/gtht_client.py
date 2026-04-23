@@ -11,8 +11,6 @@
 from __future__ import annotations
 
 import json
-import subprocess  # noqa: S404 - 调用本地 node skill 是设计要求
-from typing import Any
 
 from loguru import logger
 
@@ -48,19 +46,21 @@ class GthtClient:
         env_key = (settings.gtht_api_key or "").strip()
 
         file_key = ""
+        file_parse_failed = False
         if entry_path.exists():
             try:
                 data = json.loads(entry_path.read_text(encoding="utf-8"))
                 file_key = str(data.get("apiKey", "")).strip()
             except (json.JSONDecodeError, OSError) as exc:
-                logger.warning("gtht-entry.json 解析失败，将尝试覆写: {}", exc)
+                logger.warning("gtht-entry.json 解析失败，将视为缺失: {}", exc)
+                file_parse_failed = True
 
-            if env_key and env_key != file_key:
-                self._write_entry(env_key)
-            # 其余情况：文件已可用，或 .env 空兜底用文件，均不写
-            return
+            if not file_parse_failed:
+                if env_key and env_key != file_key:
+                    self._write_entry(env_key)
+                return  # 文件可用（.env 同步或空兜底），结束
 
-        # 文件不存在
+        # 文件不存在 或 解析失败
         if not env_key:
             raise GthtError(
                 "GTHT_API_KEY 未配置；请检查 .env 或手动跑 "

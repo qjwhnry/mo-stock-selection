@@ -89,3 +89,15 @@ class TestEnsureAuth:
         client.ensure_auth()  # 不应抛错
         # 文件内容保持
         assert json.loads(tmp_entry_path.read_text())["apiKey"] == "EXISTING_KEY"
+
+    def test_corrupt_file_and_env_empty_raises(
+        self, tmp_entry_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """case: 文件存在但内容损坏 + .env 空 → 抛 GthtError（不静默成功）"""
+        tmp_entry_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_entry_path.write_text("{ this is not valid json")
+
+        _set_env_key(monkeypatch, "")
+        client = GthtClient()
+        with pytest.raises(GthtError, match="GTHT_API_KEY 未配置"):
+            client.ensure_auth()
