@@ -29,6 +29,7 @@ dependencies = [
 
     # AI
     "anthropic>=0.40",
+    "openai>=1.50",
 
     # 调度 / 重试 / 日志
     "apscheduler>=3.10",
