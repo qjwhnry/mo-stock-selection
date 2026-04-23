@@ -7,12 +7,16 @@
 """
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any
 
 from openai import OpenAI
 
 from config.settings import settings
 from mo_stock.data_sources.gtht_client import GthtClient, GthtError
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Tools schema：OpenAI function calling 格式
@@ -121,3 +125,58 @@ class GthtAgent:
             base_url=settings.gtht_llm_base_url,
         )
         self._model = settings.gtht_llm_model
+
+    def ask(self, query: str, max_iters: int = 5) -> dict:
+        """让辅助 LLM 自主选择并调用 GTHT skill tool 回答 query。
+
+        返回 {"answer": str, "tool_trace": list[dict]}。
+        超过 max_iters 抛 GthtError 防止死循环。
+        """
+        messages: list[dict[str, Any]] = [{"role": "user", "content": query}]
+        tool_trace: list[dict[str, Any]] = []
+
+        for it in range(max_iters):
+            response = self._llm.chat.completions.create(
+                model=self._model,
+                messages=messages,
+                tools=_TOOLS,
+            )
+            msg = response.choices[0].message
+
+            # 无 tool_calls → 终止，返回最终答案
+            if not msg.tool_calls:
+                return {"answer": msg.content or "", "tool_trace": tool_trace}
+
+            # 把 assistant 的 tool_calls 消息回写到 messages
+            messages.append(msg.model_dump(exclude_none=True))
+
+            for tc in msg.tool_calls:
+                tool_name = tc.function.name
+                try:
+                    args = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+
+                if tool_name not in _TOOL_DISPATCH:
+                    tool_result: Any = {"error": f"未知工具: {tool_name}"}
+                else:
+                    skill, gateway, tool = _TOOL_DISPATCH[tool_name]
+                    try:
+                        tool_result = self._client.call(skill, gateway, tool, **args)
+                    except GthtError as exc:
+                        tool_result = {"error": str(exc)}
+
+                tool_trace.append(
+                    {"tool": tool_name, "args": args, "result": tool_result}
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(tool_result, ensure_ascii=False),
+                    }
+                )
+
+            logger.debug("GthtAgent iter %d done, %d tool_calls", it + 1, len(msg.tool_calls))
+
+        raise GthtError(f"LLM tool loop exceeded max_iters={max_iters}")
