@@ -8,15 +8,13 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
+from loguru import logger
 from openai import OpenAI
 
 from config.settings import settings
 from mo_stock.data_sources.gtht_client import GthtClient, GthtError
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Tools schema：OpenAI function calling 格式
@@ -177,6 +175,6 @@ class GthtAgent:
                     }
                 )
 
-            logger.debug("GthtAgent iter %d done, %d tool_calls", it + 1, len(msg.tool_calls))
+            logger.debug("GthtAgent iter {} done, {} tool_calls", it + 1, len(msg.tool_calls))
 
         raise GthtError(f"LLM tool loop exceeded max_iters={max_iters}")

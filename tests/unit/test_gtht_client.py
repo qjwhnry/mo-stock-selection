@@ -103,6 +103,19 @@ class TestEnsureAuth:
         with pytest.raises(GthtError, match="GTHT_API_KEY 未配置"):
             client.ensure_auth()
 
+    def test_corrupt_file_and_env_set_overwrites(
+        self, tmp_entry_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """case: 文件存在但内容损坏 + .env 有值 → 用 .env 覆盖"""
+        tmp_entry_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_entry_path.write_text("{ broken json")
+
+        _set_env_key(monkeypatch, "FRESH_KEY")
+        client = GthtClient()
+        client.ensure_auth()
+        # 损坏文件应被 .env 值覆盖
+        assert json.loads(tmp_entry_path.read_text())["apiKey"] == "FRESH_KEY"
+
 
 @pytest.fixture
 def authed_client(
@@ -243,6 +256,18 @@ class TestCall:
         monkeypatch.setattr(subprocess, "run", MagicMock())
         with pytest.raises(GthtError, match="非法 skill 路径"):
             authed_client.call("../../../etc", "researchreport", "research")
+
+    def test_top_level_json_array_raises(
+        self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """case: stdout 顶层是 JSON 数组 → 抛 GthtError（GTHT call 契约要求 dict）"""
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            MagicMock(return_value=_make_completed(stdout='[1, 2, 3]')),
+        )
+        with pytest.raises(GthtError, match="GTHT 返回非 dict"):
+            authed_client.call("lingxi-researchreport-skill", "researchreport", "research")
 
 
 class TestAuthSubcommands:

@@ -43,7 +43,13 @@ class GthtClient:
         - .env 有值 + 文件存在且 key 相同 → 不动
         - .env 空 + 文件存在 → 用文件中已有 key（兜底）
         - .env 空 + 文件缺 → 抛 GthtError
+
+        首次成功后会缓存 _auth_ok=True，后续 call() 直接跳过；如需强制重检，
+        可手动 self._auth_ok = False 后再调用。
         """
+        if getattr(self, "_auth_ok", False):
+            return
+
         entry_path = settings.gtht_entry_json_path
         env_key = (settings.gtht_api_key or "").strip()
 
@@ -60,6 +66,7 @@ class GthtClient:
             if not file_parse_failed:
                 if env_key and env_key != file_key:
                     self._write_entry(env_key)
+                self._auth_ok = True
                 return  # 文件可用（.env 同步或空兜底），结束
 
         # 文件不存在 或 解析失败
@@ -69,6 +76,7 @@ class GthtClient:
                 "`node skill-entry.js authChecker auth` 完成扫码授权"
             )
         self._write_entry(env_key)
+        self._auth_ok = True
 
     def _write_entry(self, key: str) -> None:
         """将 API Key 写入 gtht-entry.json 文件。"""
@@ -140,10 +148,14 @@ class GthtClient:
         except json.JSONDecodeError as exc:
             raise GthtError(f"GTHT 返回非 JSON: {proc.stdout[:200]}") from exc
 
-        if isinstance(data, dict) and "error" in data:
+        if not isinstance(data, dict):
+            raise GthtError(
+                f"GTHT 返回非 dict: {type(data).__name__} (期望 JSON 对象)"
+            )
+        if "error" in data:
             raise GthtError(f"GTHT 错误: {data['error']}")
 
-        return data  # type: ignore[no-any-return]
+        return data
 
     # ---------- 授权状态查询 ----------
 
