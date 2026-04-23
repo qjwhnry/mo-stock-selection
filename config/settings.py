@@ -20,6 +20,10 @@ class Settings(BaseSettings):
 
     # ---------- Tushare ----------
     tushare_token: str = Field(default="", description="Tushare Pro API token")
+    tushare_http_url: str = Field(
+        default="",
+        description="Tushare Pro API 自定义 HTTP 地址；留空则用官方默认域名",
+    )
 
     # ---------- Claude ----------
     anthropic_api_key: str = Field(default="", description="Anthropic API key")

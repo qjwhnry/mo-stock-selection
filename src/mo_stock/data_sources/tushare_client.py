@@ -95,6 +95,14 @@ class TushareClient:
 
         ts.set_token(token)
         self._pro = ts.pro_api()
+
+        # 可选：覆盖 HTTP 地址（走内网/镜像时使用）
+        # 注意：_DataApi__http_url 为 name-mangled 私有属性，tushare 无公开 setter
+        http_url = settings.tushare_http_url
+        if http_url:
+            self._pro._DataApi__http_url = http_url  # noqa: SLF001
+            logger.info("TushareClient http_url overridden -> {}", http_url)
+
         logger.info("TushareClient initialized (token={}***)", token[:4])
 
     # ---------- 底层调用器 ----------
