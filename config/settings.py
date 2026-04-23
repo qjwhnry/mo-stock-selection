@@ -27,6 +27,10 @@ class Settings(BaseSettings):
 
     # ---------- Claude ----------
     anthropic_api_key: str = Field(default="", description="Anthropic API key")
+    anthropic_base_url: str = Field(
+        default="",
+        description="Anthropic API 自定义 base_url；留空则用官方默认（https://api.anthropic.com）",
+    )
     anthropic_model: str = Field(
         default="claude-sonnet-4-6",
         description="默认模型；周末深度复盘可切 claude-opus-4-7[1m]",

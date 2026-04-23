@@ -6,6 +6,7 @@
     mo-stock refresh-cal --start 2024-01-01     # 刷新交易日历
     mo-stock backfill --days 180                # 回填历史
     mo-stock run-once --date 2026-04-22         # 跑一次选股
+    mo-stock analyze 600519.SH --date 2026-04-22 # 单股分析（不写库）
     mo-stock scheduler                          # 启动常驻调度
 """
 from __future__ import annotations
@@ -18,6 +19,7 @@ import click
 from loguru import logger
 
 from config.settings import settings
+from mo_stock.analyzer import analyze_stock
 from mo_stock.filters.base import load_weights_yaml
 from mo_stock.filters.limit_filter import LimitFilter
 from mo_stock.filters.moneyflow_filter import MoneyflowFilter
@@ -160,6 +162,68 @@ def run_once(date_str: str | None, skip_ingest: bool) -> None:
         )
 
     click.echo(f"✓ 报告已生成：\n  {md_path}\n  {json_path}")
+
+
+@cli.command("analyze")
+@click.argument("ts_code")
+@click.option("--date", "date_str", default=None, help="分析的交易日 YYYY-MM-DD，默认今日")
+@click.option("--json", "as_json", is_flag=True, help="以 JSON 格式输出（便于脚本解析）")
+def analyze(ts_code: str, date_str: str | None, as_json: bool) -> None:
+    """对单只股票跑一次规则层分析（不写库）。
+
+    示例：
+        mo-stock analyze 600519.SH --date 2026-04-22
+    """
+    import json as _json
+
+    trade_date = _parse_date(date_str) if date_str else date.today()
+
+    with get_session() as session:
+        result = analyze_stock(session, ts_code, trade_date)
+
+    # JSON 模式：原样输出，date 对象用 default=str 序列化
+    if as_json:
+        click.echo(_json.dumps(result, ensure_ascii=False, indent=2, default=str))
+        return
+
+    # 人类友好文本输出
+    basic = result["basic"]
+    name = basic["name"] if basic else "-"
+    click.echo(f"=== {ts_code} {name}  @ {trade_date} ===")
+
+    if basic:
+        click.echo(
+            f"行业: {basic.get('industry') or '-'}  |  申万一级: {basic.get('sw_l1') or '-'}"
+            f"  |  上市日: {basic.get('list_date') or '-'}  |  ST: {basic.get('is_st')}"
+        )
+    else:
+        click.echo("（stock_basic 表无此股记录，请先跑 refresh-basics）")
+
+    # 当日行情
+    kline = result["kline"]
+    if kline:
+        close = kline.get("close")
+        pct = kline.get("pct_chg")
+        close_str = f"{close:.2f}" if close is not None else "-"
+        pct_str = f"{pct:+.2f}%" if pct is not None else "-"
+        click.echo(f"K 线: 收盘 {close_str}  涨跌幅 {pct_str}")
+    else:
+        click.echo("K 线: 当日无数据")
+
+    # 综合分 + 各维度
+    click.echo(f"规则综合分 rule_score = {result['rule_score']:.2f}")
+    if result["dimensions"]:
+        for dim, info in result["dimensions"].items():
+            click.echo(f"  [{dim:>10}] {info['score']:.2f}  detail={info['detail']}")
+    else:
+        click.echo("  （本股在当日所有维度均无得分记录）")
+
+    # 硬规则
+    hr = result["hard_reject"]
+    if hr["rejected"]:
+        click.echo(f"硬规则命中：{hr['reason']}")
+    else:
+        click.echo("硬规则：通过")
 
 
 @cli.command("scheduler")

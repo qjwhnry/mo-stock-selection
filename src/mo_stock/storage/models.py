@@ -5,6 +5,8 @@
 - 结果表（filter_score_daily / ai_analysis / selection_result）：永久保留供回测
 - JSON 字段一律用 PG JSONB
 - 时间字段用 timestamptz
+- **所有字段/表都带 comment**，执行 `create_all()` 或 `mo-stock apply-comments` 后
+  可用 `\\d+ <table>` 在 psql 里查看中文说明
 """
 from __future__ import annotations
 
@@ -40,18 +42,38 @@ class StockBasic(Base):
 
     __tablename__ = "stock_basic"
 
-    ts_code: Mapped[str] = mapped_column(String(12), primary_key=True)  # 600519.SH
-    symbol: Mapped[str] = mapped_column(String(10), index=True)         # 600519
-    name: Mapped[str] = mapped_column(String(50))
-    area: Mapped[str | None] = mapped_column(String(20))
-    industry: Mapped[str | None] = mapped_column(String(50), index=True)
-    sw_l1: Mapped[str | None] = mapped_column(String(50), index=True)   # 申万一级
-    list_date: Mapped[date | None] = mapped_column(Date)
-    is_st: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    ts_code: Mapped[str] = mapped_column(
+        String(12), primary_key=True,
+        comment="Tushare 股票代码，形如 600519.SH / 000001.SZ",
+    )
+    symbol: Mapped[str] = mapped_column(
+        String(10), index=True,
+        comment="纯数字代码，形如 600519",
+    )
+    name: Mapped[str] = mapped_column(String(50), comment="股票简称")
+    area: Mapped[str | None] = mapped_column(String(20), comment="所在省份")
+    industry: Mapped[str | None] = mapped_column(
+        String(50), index=True,
+        comment="Tushare 行业分类（较粗）",
+    )
+    sw_l1: Mapped[str | None] = mapped_column(
+        String(50), index=True,
+        comment="申万一级行业名称（用于板块维度匹配）",
+    )
+    list_date: Mapped[date | None] = mapped_column(
+        Date, comment="上市日期；硬规则 min_list_days 依赖此字段过滤次新",
+    )
+    is_st: Mapped[bool] = mapped_column(
+        Boolean, default=False, index=True,
+        comment="是否 ST / *ST；硬规则 exclude_st 依赖此字段",
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
+        comment="本行最近一次从 Tushare 刷新的时间",
     )
+
+    __table_args__ = ({"comment": "A 股股票基础信息（名称、行业、上市日、ST 标记），周度刷新"},)
 
 
 class TradeCal(Base):
@@ -59,9 +81,18 @@ class TradeCal(Base):
 
     __tablename__ = "trade_cal"
 
-    cal_date: Mapped[date] = mapped_column(Date, primary_key=True)
-    is_open: Mapped[bool] = mapped_column(Boolean, index=True)
-    pretrade_date: Mapped[date | None] = mapped_column(Date)
+    cal_date: Mapped[date] = mapped_column(
+        Date, primary_key=True, comment="自然日日期",
+    )
+    is_open: Mapped[bool] = mapped_column(
+        Boolean, index=True,
+        comment="是否交易日：True=开市、False=休市",
+    )
+    pretrade_date: Mapped[date | None] = mapped_column(
+        Date, comment="对应的上一个交易日（节假日后拿到的是节前最后一个交易日）",
+    )
+
+    __table_args__ = ({"comment": "交易日历；调度器判断是否交易日 / 硬规则回看 N 日时依赖此表"},)
 
 
 # ========================================================================
@@ -73,20 +104,23 @@ class DailyKline(Base):
 
     __tablename__ = "daily_kline"
 
-    ts_code: Mapped[str] = mapped_column(String(12))
-    trade_date: Mapped[date] = mapped_column(Date)
-    open: Mapped[float | None] = mapped_column(Float)
-    high: Mapped[float | None] = mapped_column(Float)
-    low: Mapped[float | None] = mapped_column(Float)
-    close: Mapped[float | None] = mapped_column(Float)
-    pre_close: Mapped[float | None] = mapped_column(Float)
-    pct_chg: Mapped[float | None] = mapped_column(Float)
-    vol: Mapped[float | None] = mapped_column(Float)      # 手
-    amount: Mapped[float | None] = mapped_column(Float)   # 千元
+    ts_code: Mapped[str] = mapped_column(String(12), comment="股票代码")
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    open: Mapped[float | None] = mapped_column(Float, comment="开盘价")
+    high: Mapped[float | None] = mapped_column(Float, comment="最高价")
+    low: Mapped[float | None] = mapped_column(Float, comment="最低价")
+    close: Mapped[float | None] = mapped_column(Float, comment="收盘价（前复权前原始价）")
+    pre_close: Mapped[float | None] = mapped_column(Float, comment="昨收盘价")
+    pct_chg: Mapped[float | None] = mapped_column(
+        Float, comment="涨跌幅（%）= (close-pre_close)/pre_close*100",
+    )
+    vol: Mapped[float | None] = mapped_column(Float, comment="成交量（手，1 手=100 股）")
+    amount: Mapped[float | None] = mapped_column(Float, comment="成交额（千元）")
 
     __table_args__ = (
         PrimaryKeyConstraint("ts_code", "trade_date"),
         Index("ix_daily_kline_date", "trade_date"),
+        {"comment": "日线 OHLCV 行情（Tushare daily），180 天滚动保留"},
     )
 
 
@@ -95,19 +129,28 @@ class DailyBasic(Base):
 
     __tablename__ = "daily_basic"
 
-    ts_code: Mapped[str] = mapped_column(String(12))
-    trade_date: Mapped[date] = mapped_column(Date)
-    turnover_rate: Mapped[float | None] = mapped_column(Float)      # 换手率 %
-    turnover_rate_f: Mapped[float | None] = mapped_column(Float)    # 自由流通换手
-    volume_ratio: Mapped[float | None] = mapped_column(Float)       # 量比
-    pe_ttm: Mapped[float | None] = mapped_column(Float)
-    pb: Mapped[float | None] = mapped_column(Float)
-    total_mv: Mapped[float | None] = mapped_column(Float)           # 万元
-    circ_mv: Mapped[float | None] = mapped_column(Float)
+    ts_code: Mapped[str] = mapped_column(String(12), comment="股票代码")
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    turnover_rate: Mapped[float | None] = mapped_column(
+        Float, comment="换手率（%）= 成交量/总股本",
+    )
+    turnover_rate_f: Mapped[float | None] = mapped_column(
+        Float, comment="换手率（自由流通股，%）；更能反映筹码活跃度",
+    )
+    volume_ratio: Mapped[float | None] = mapped_column(
+        Float, comment="量比 = 当日分时均量/过去 5 日分时均量；>1 代表放量",
+    )
+    pe_ttm: Mapped[float | None] = mapped_column(
+        Float, comment="市盈率 TTM（滚动 12 月净利润），亏损股为空",
+    )
+    pb: Mapped[float | None] = mapped_column(Float, comment="市净率 = 总市值/净资产")
+    total_mv: Mapped[float | None] = mapped_column(Float, comment="总市值（万元）")
+    circ_mv: Mapped[float | None] = mapped_column(Float, comment="流通市值（万元）")
 
     __table_args__ = (
         PrimaryKeyConstraint("ts_code", "trade_date"),
         Index("ix_daily_basic_date", "trade_date"),
+        {"comment": "每日基础指标（Tushare daily_basic）：换手率 / PE / PB / 市值，180 天滚动"},
     )
 
 
@@ -120,19 +163,33 @@ class LimitList(Base):
 
     __tablename__ = "limit_list"
 
-    ts_code: Mapped[str] = mapped_column(String(12))
-    trade_date: Mapped[date] = mapped_column(Date)
-    limit_type: Mapped[str] = mapped_column(String(2), index=True)  # U 涨停 / D 跌停 / Z 炸板
-    fd_amount: Mapped[float | None] = mapped_column(Float)          # 封单金额
-    first_time: Mapped[str | None] = mapped_column(String(10))      # 首次封板 HH:MM:SS
-    last_time: Mapped[str | None] = mapped_column(String(10))       # 最后封板
-    open_times: Mapped[int | None] = mapped_column(Integer)         # 打开次数
-    up_stat: Mapped[str | None] = mapped_column(String(20))         # 连板数统计 "2/3"
-    limit_times: Mapped[int | None] = mapped_column(Integer)        # 连板数
+    ts_code: Mapped[str] = mapped_column(String(12), comment="股票代码")
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    limit_type: Mapped[str] = mapped_column(
+        String(2), index=True,
+        comment="涨跌停类型：U 涨停 / D 跌停 / Z 炸板",
+    )
+    fd_amount: Mapped[float | None] = mapped_column(
+        Float, comment="封单金额（元）；封单越大、越难打开",
+    )
+    first_time: Mapped[str | None] = mapped_column(
+        String(10), comment="首次封板时间 HH:MM:SS；越早越强势",
+    )
+    last_time: Mapped[str | None] = mapped_column(
+        String(10), comment="最后封板时间 HH:MM:SS",
+    )
+    open_times: Mapped[int | None] = mapped_column(
+        Integer, comment="打开次数；≥2 次在 LimitFilter 里一票否决",
+    )
+    up_stat: Mapped[str | None] = mapped_column(
+        String(20), comment="连板统计，形如 '2/3'（近 2 连板、累计上榜 3 次）",
+    )
+    limit_times: Mapped[int | None] = mapped_column(Integer, comment="连板数")
 
     __table_args__ = (
         PrimaryKeyConstraint("ts_code", "trade_date"),
         Index("ix_limit_list_date", "trade_date"),
+        {"comment": "涨停 / 跌停 / 炸板明细（Tushare limit_list_d），LimitFilter 打分源"},
     )
 
 
@@ -141,23 +198,30 @@ class Lhb(Base):
 
     __tablename__ = "lhb"
 
-    trade_date: Mapped[date] = mapped_column(Date)
-    ts_code: Mapped[str] = mapped_column(String(12))
-    name: Mapped[str | None] = mapped_column(String(50))
-    close: Mapped[float | None] = mapped_column(Float)
-    pct_change: Mapped[float | None] = mapped_column(Float)
-    turnover_rate: Mapped[float | None] = mapped_column(Float)
-    amount: Mapped[float | None] = mapped_column(Float)      # 总成交量（万元）
-    l_sell: Mapped[float | None] = mapped_column(Float)      # 龙虎榜卖出额
-    l_buy: Mapped[float | None] = mapped_column(Float)       # 龙虎榜买入额
-    l_amount: Mapped[float | None] = mapped_column(Float)    # 龙虎榜成交额
-    net_amount: Mapped[float | None] = mapped_column(Float)  # 净买入额
-    reason: Mapped[str | None] = mapped_column(Text)         # 上榜理由
-    seat: Mapped[dict | None] = mapped_column(JSONB)         # 席位明细 [{name, buy, sell, net}]
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    ts_code: Mapped[str] = mapped_column(String(12), comment="股票代码")
+    name: Mapped[str | None] = mapped_column(String(50), comment="股票名称")
+    close: Mapped[float | None] = mapped_column(Float, comment="当日收盘价")
+    pct_change: Mapped[float | None] = mapped_column(Float, comment="当日涨跌幅（%）")
+    turnover_rate: Mapped[float | None] = mapped_column(Float, comment="换手率（%）")
+    amount: Mapped[float | None] = mapped_column(Float, comment="总成交额（万元）")
+    l_sell: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位卖出额（万元）")
+    l_buy: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位买入额（万元）")
+    l_amount: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位成交总额（万元）")
+    net_amount: Mapped[float | None] = mapped_column(
+        Float, comment="席位净买入额（万元）= l_buy - l_sell；为正代表游资/机构加仓",
+    )
+    reason: Mapped[str | None] = mapped_column(
+        Text, comment="上榜原因（如：日涨幅偏离值达 7%、日价格涨幅偏离值达 7% 的前三只证券）",
+    )
+    seat: Mapped[dict | None] = mapped_column(
+        JSONB, comment="席位明细 JSON：[{name, buy, sell, net}, ...]",
+    )
 
     __table_args__ = (
         PrimaryKeyConstraint("trade_date", "ts_code"),
         Index("ix_lhb_ts_code", "ts_code"),
+        {"comment": "龙虎榜（Tushare top_list + top_inst），LhbFilter 打分源"},
     )
 
 
@@ -166,21 +230,32 @@ class Moneyflow(Base):
 
     __tablename__ = "moneyflow"
 
-    ts_code: Mapped[str] = mapped_column(String(12))
-    trade_date: Mapped[date] = mapped_column(Date)
-    net_mf_amount: Mapped[float | None] = mapped_column(Float)    # 主力净流入（万元）
-    buy_sm_amount: Mapped[float | None] = mapped_column(Float)    # 小单
-    sell_sm_amount: Mapped[float | None] = mapped_column(Float)
-    buy_md_amount: Mapped[float | None] = mapped_column(Float)    # 中单
-    sell_md_amount: Mapped[float | None] = mapped_column(Float)
-    buy_lg_amount: Mapped[float | None] = mapped_column(Float)    # 大单
-    sell_lg_amount: Mapped[float | None] = mapped_column(Float)
-    buy_elg_amount: Mapped[float | None] = mapped_column(Float)   # 超大单
-    sell_elg_amount: Mapped[float | None] = mapped_column(Float)
+    ts_code: Mapped[str] = mapped_column(String(12), comment="股票代码")
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    net_mf_amount: Mapped[float | None] = mapped_column(
+        Float, comment="主力净流入额（万元）= 大单+超大单净流入；MoneyflowFilter 主要依据",
+    )
+    buy_sm_amount: Mapped[float | None] = mapped_column(
+        Float, comment="小单买入额（万元，≤5 万元）",
+    )
+    sell_sm_amount: Mapped[float | None] = mapped_column(Float, comment="小单卖出额（万元）")
+    buy_md_amount: Mapped[float | None] = mapped_column(
+        Float, comment="中单买入额（万元，5 万-20 万）",
+    )
+    sell_md_amount: Mapped[float | None] = mapped_column(Float, comment="中单卖出额（万元）")
+    buy_lg_amount: Mapped[float | None] = mapped_column(
+        Float, comment="大单买入额（万元，20 万-100 万）",
+    )
+    sell_lg_amount: Mapped[float | None] = mapped_column(Float, comment="大单卖出额（万元）")
+    buy_elg_amount: Mapped[float | None] = mapped_column(
+        Float, comment="超大单买入额（万元，>100 万）",
+    )
+    sell_elg_amount: Mapped[float | None] = mapped_column(Float, comment="超大单卖出额（万元）")
 
     __table_args__ = (
         PrimaryKeyConstraint("ts_code", "trade_date"),
         Index("ix_moneyflow_date", "trade_date"),
+        {"comment": "主力资金流向（Tushare moneyflow），MoneyflowFilter 打分源"},
     )
 
 
@@ -193,21 +268,26 @@ class SwDaily(Base):
 
     __tablename__ = "sw_daily"
 
-    sw_code: Mapped[str] = mapped_column(String(20))
-    trade_date: Mapped[date] = mapped_column(Date)
-    name: Mapped[str | None] = mapped_column(String(50))
-    open: Mapped[float | None] = mapped_column(Float)
-    high: Mapped[float | None] = mapped_column(Float)
-    low: Mapped[float | None] = mapped_column(Float)
-    close: Mapped[float | None] = mapped_column(Float)
-    pct_change: Mapped[float | None] = mapped_column(Float)
-    vol: Mapped[float | None] = mapped_column(Float)
-    amount: Mapped[float | None] = mapped_column(Float)
-    turnover_rate: Mapped[float | None] = mapped_column(Float)
+    sw_code: Mapped[str] = mapped_column(
+        String(20), comment="申万行业代码（如 801080.SI）",
+    )
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    name: Mapped[str | None] = mapped_column(String(50), comment="板块名称")
+    open: Mapped[float | None] = mapped_column(Float, comment="板块开盘点位")
+    high: Mapped[float | None] = mapped_column(Float, comment="板块最高点位")
+    low: Mapped[float | None] = mapped_column(Float, comment="板块最低点位")
+    close: Mapped[float | None] = mapped_column(Float, comment="板块收盘点位")
+    pct_change: Mapped[float | None] = mapped_column(
+        Float, comment="板块涨跌幅（%）；板块维度打分的主要输入",
+    )
+    vol: Mapped[float | None] = mapped_column(Float, comment="板块总成交量（手）")
+    amount: Mapped[float | None] = mapped_column(Float, comment="板块总成交额（万元）")
+    turnover_rate: Mapped[float | None] = mapped_column(Float, comment="板块换手率（%）")
 
     __table_args__ = (
         PrimaryKeyConstraint("sw_code", "trade_date"),
         Index("ix_sw_daily_date", "trade_date"),
+        {"comment": "申万一级行业板块日线（Tushare sw_daily），SectorFilter 打分源"},
     )
 
 
@@ -220,16 +300,28 @@ class NewsRaw(Base):
 
     __tablename__ = "news_raw"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts_code: Mapped[str | None] = mapped_column(String(12), index=True)  # 可为 None 表示市场新闻
-    pub_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    title: Mapped[str] = mapped_column(String(500))
-    content: Mapped[str | None] = mapped_column(Text)
-    source: Mapped[str | None] = mapped_column(String(100))
-    sentiment_score: Mapped[float | None] = mapped_column(Float)  # 词典打分结果，后续填充
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True,
+        comment="自增主键",
+    )
+    ts_code: Mapped[str | None] = mapped_column(
+        String(12), index=True,
+        comment="关联股票代码；NULL 表示全市场新闻（如政策、行业新闻）",
+    )
+    pub_time: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), index=True,
+        comment="发布时间（timestamptz）",
+    )
+    title: Mapped[str] = mapped_column(String(500), comment="新闻标题")
+    content: Mapped[str | None] = mapped_column(Text, comment="新闻正文，可能较长")
+    source: Mapped[str | None] = mapped_column(String(100), comment="来源媒体")
+    sentiment_score: Mapped[float | None] = mapped_column(
+        Float, comment="情绪得分（词典法打分结果，后续填充，-1~1）",
+    )
 
     __table_args__ = (
         UniqueConstraint("title", "pub_time", name="uq_news_raw_title_time"),
+        {"comment": "原始新闻（Tushare news / major_news），SentimentFilter 打分源"},
     )
 
 
@@ -238,15 +330,23 @@ class AnnsRaw(Base):
 
     __tablename__ = "anns_raw"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts_code: Mapped[str] = mapped_column(String(12), index=True)
-    ann_date: Mapped[date] = mapped_column(Date, index=True)
-    title: Mapped[str] = mapped_column(String(500))
-    url: Mapped[str | None] = mapped_column(String(500))
-    ann_type: Mapped[str | None] = mapped_column(String(50))
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True,
+        comment="自增主键",
+    )
+    ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
+    ann_date: Mapped[date] = mapped_column(Date, index=True, comment="公告日期")
+    title: Mapped[str] = mapped_column(
+        String(500), comment="公告标题；硬规则负面关键词匹配作用于此字段",
+    )
+    url: Mapped[str | None] = mapped_column(String(500), comment="公告 PDF 或详情页 URL")
+    ann_type: Mapped[str | None] = mapped_column(
+        String(50), comment="公告类型（定期报告 / 重大事项 / 股东会等）",
+    )
 
     __table_args__ = (
         UniqueConstraint("ts_code", "ann_date", "title", name="uq_anns_key"),
+        {"comment": "上市公司公告（Tushare anns_d），硬规则负面关键词匹配源"},
     )
 
 
@@ -255,18 +355,25 @@ class ResearchReport(Base):
 
     __tablename__ = "research_report"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts_code: Mapped[str] = mapped_column(String(12), index=True)
-    pub_date: Mapped[date] = mapped_column(Date, index=True)
-    org: Mapped[str | None] = mapped_column(String(100))       # 研究机构
-    title: Mapped[str] = mapped_column(String(500))
-    rating: Mapped[str | None] = mapped_column(String(20))     # 买入 / 增持 / 中性
-    tp_low: Mapped[float | None] = mapped_column(Float)        # 目标价下限
-    tp_high: Mapped[float | None] = mapped_column(Float)
-    raw: Mapped[dict | None] = mapped_column(JSONB)            # GTHT 返回的完整 JSON
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="自增主键",
+    )
+    ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
+    pub_date: Mapped[date] = mapped_column(Date, index=True, comment="研报发布日期")
+    org: Mapped[str | None] = mapped_column(String(100), comment="研究机构名称")
+    title: Mapped[str] = mapped_column(String(500), comment="研报标题")
+    rating: Mapped[str | None] = mapped_column(
+        String(20), comment="评级：买入 / 增持 / 中性 / 减持 / 卖出",
+    )
+    tp_low: Mapped[float | None] = mapped_column(Float, comment="目标价下限（元）")
+    tp_high: Mapped[float | None] = mapped_column(Float, comment="目标价上限（元）")
+    raw: Mapped[dict | None] = mapped_column(
+        JSONB, comment="GTHT skill 返回的完整 JSON，保留字段便于回溯",
+    )
 
     __table_args__ = (
         UniqueConstraint("ts_code", "pub_date", "org", "title", name="uq_report_key"),
+        {"comment": "券商研报（国泰海通 GTHT skill），情绪维度辅助输入"},
     )
 
 
@@ -279,16 +386,24 @@ class FilterScoreDaily(Base):
 
     __tablename__ = "filter_score_daily"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    trade_date: Mapped[date] = mapped_column(Date, index=True)
-    ts_code: Mapped[str] = mapped_column(String(12), index=True)
-    dim: Mapped[str] = mapped_column(String(20), index=True)  # limit / moneyflow / lhb / sector / sentiment
-    score: Mapped[float] = mapped_column(Float)               # 0–100
-    detail: Mapped[dict | None] = mapped_column(JSONB)        # 本维度打分细节，供报告和复盘
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="自增主键",
+    )
+    trade_date: Mapped[date] = mapped_column(Date, index=True, comment="评分对应的交易日")
+    ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
+    dim: Mapped[str] = mapped_column(
+        String(20), index=True,
+        comment="维度标识：limit / moneyflow / lhb / sector / sentiment",
+    )
+    score: Mapped[float] = mapped_column(Float, comment="本维度得分 0-100")
+    detail: Mapped[dict | None] = mapped_column(
+        JSONB, comment="本维度打分细节 JSON，供报告展示和复盘",
+    )
 
     __table_args__ = (
         UniqueConstraint("trade_date", "ts_code", "dim", name="uq_filter_score_key"),
         Index("ix_filter_score_date_dim", "trade_date", "dim"),
+        {"comment": "规则层 5 维度逐行打分表（永久保留，供回测）"},
     )
 
 
@@ -297,27 +412,43 @@ class AiAnalysis(Base):
 
     __tablename__ = "ai_analysis"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    trade_date: Mapped[date] = mapped_column(Date, index=True)
-    ts_code: Mapped[str] = mapped_column(String(12), index=True)
-    ai_score: Mapped[int] = mapped_column(Integer)
-    thesis: Mapped[str] = mapped_column(Text)
-    key_catalysts: Mapped[list | None] = mapped_column(JSONB)
-    risks: Mapped[list | None] = mapped_column(JSONB)
-    suggested_entry: Mapped[str | None] = mapped_column(String(100))
-    stop_loss: Mapped[str | None] = mapped_column(String(100))
-    model: Mapped[str | None] = mapped_column(String(50))
-    input_tokens: Mapped[int | None] = mapped_column(Integer)
-    output_tokens: Mapped[int | None] = mapped_column(Integer)
-    cache_creation_tokens: Mapped[int | None] = mapped_column(Integer)
-    cache_read_tokens: Mapped[int | None] = mapped_column(Integer)
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="自增主键",
+    )
+    trade_date: Mapped[date] = mapped_column(Date, index=True, comment="分析对应的交易日")
+    ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
+    ai_score: Mapped[int] = mapped_column(Integer, comment="AI 给出的 0-100 综合分")
+    thesis: Mapped[str] = mapped_column(Text, comment="AI 的投资逻辑核心陈述")
+    key_catalysts: Mapped[list | None] = mapped_column(
+        JSONB, comment="关键催化剂列表（JSON 数组字符串）",
+    )
+    risks: Mapped[list | None] = mapped_column(JSONB, comment="风险提示列表（JSON 数组字符串）")
+    suggested_entry: Mapped[str | None] = mapped_column(
+        String(100), comment="建议入场价 / 区间，如 '50-52 元'",
+    )
+    stop_loss: Mapped[str | None] = mapped_column(
+        String(100), comment="止损位，如 '跌破 48 元止损'",
+    )
+    model: Mapped[str | None] = mapped_column(
+        String(50), comment="使用的 Claude 模型 ID，如 claude-sonnet-4-6",
+    )
+    input_tokens: Mapped[int | None] = mapped_column(Integer, comment="本次调用输入 token 数")
+    output_tokens: Mapped[int | None] = mapped_column(Integer, comment="本次调用输出 token 数")
+    cache_creation_tokens: Mapped[int | None] = mapped_column(
+        Integer, comment="prompt cache 写入 token 数（首次）",
+    )
+    cache_read_tokens: Mapped[int | None] = mapped_column(
+        Integer, comment="prompt cache 命中读取 token 数（后续）",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
+        comment="分析记录创建时间",
     )
 
     __table_args__ = (
         UniqueConstraint("trade_date", "ts_code", name="uq_ai_analysis_key"),
+        {"comment": "Claude AI 分析结果（Phase 3 启用），永久保留"},
     )
 
 
@@ -326,21 +457,36 @@ class SelectionResult(Base):
 
     __tablename__ = "selection_result"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    trade_date: Mapped[date] = mapped_column(Date, index=True)
-    ts_code: Mapped[str] = mapped_column(String(12), index=True)
-    rank: Mapped[int] = mapped_column(Integer)
-    rule_score: Mapped[float] = mapped_column(Numeric(5, 2))
-    ai_score: Mapped[float | None] = mapped_column(Numeric(5, 2))
-    final_score: Mapped[float] = mapped_column(Numeric(5, 2))
-    picked: Mapped[bool] = mapped_column(Boolean, default=True)
-    reject_reason: Mapped[str | None] = mapped_column(String(200))
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="自增主键",
+    )
+    trade_date: Mapped[date] = mapped_column(Date, index=True, comment="选股目标交易日")
+    ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
+    rank: Mapped[int] = mapped_column(
+        Integer, comment="TOP N 排名（1 最强）；未入选填 0",
+    )
+    rule_score: Mapped[float] = mapped_column(Numeric(5, 2), comment="规则层综合分 0-100")
+    ai_score: Mapped[float | None] = mapped_column(
+        Numeric(5, 2), comment="AI 层综合分 0-100；Phase 3 前为 NULL",
+    )
+    final_score: Mapped[float] = mapped_column(
+        Numeric(5, 2),
+        comment="最终分；Phase 1 = rule_score，Phase 3 起 = rule*0.6 + ai*0.4",
+    )
+    picked: Mapped[bool] = mapped_column(
+        Boolean, default=True, comment="是否入选 TOP N（未通过硬规则或超出排名为 False）",
+    )
+    reject_reason: Mapped[str | None] = mapped_column(
+        String(200), comment="硬规则淘汰原因；picked=True 时为 NULL",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
+        comment="入库时间",
     )
 
     __table_args__ = (
         UniqueConstraint("trade_date", "ts_code", name="uq_selection_key"),
         Index("ix_selection_date_rank", "trade_date", "rank"),
+        {"comment": "最终选股 TOP N 结果（永久保留，作为每日报告与回测的主数据源）"},
     )

@@ -90,6 +90,14 @@ mypy src                 # 类型检查
 pylint src               # 质量检查
 ```
 
+## 命令行手册
+
+所有 `mo-stock` 子命令（`init-db` / `refresh-basics` / `refresh-cal` / `backfill` / `run-once` / `analyze` / `scheduler`）的完整参数、使用场景、典型工作流：**[docs/cli.md](docs/cli.md)**
+
+## 数据库结构
+
+14 张表的结构、字段类型、NULL 约束、索引、保留策略：**[docs/schema.md](docs/schema.md)**
+
 ## 分期路线
 
 - **Phase 1 MVP**：PG + Tushare + 涨停/资金 2 维度 + MD 报告（本阶段）
