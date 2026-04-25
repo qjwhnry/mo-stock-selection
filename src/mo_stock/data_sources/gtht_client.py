@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess  # noqa: S404 - 调用本地 node skill 是设计要求
 from typing import Any
 
@@ -21,6 +22,94 @@ from config.settings import settings
 
 class GthtError(Exception):
     """GTHT 调用失败。"""
+
+
+# ---------- skill stdout 解析（GthtClient.call() 的输出适配层）----------
+#
+# 实测下来 node skill-entry.js 的 stdout 至少有 3 种自然格式：
+#   A. 纯文本（如 marketdata-tool 直接 print 给人看的中文展示）
+#   B. 双层 JSON：外层 {"text": "<inner_json_str>"}，内层是合法 JSON dict 含 result 字段
+#   C. 双层 JSON：外层合法，内层 text 字段值是"伪 JSON"（result 后面跟 markdown 或裸中文，
+#                  非合法 JSON）
+# 老实现 `json.loads(stdout)` 对三种都解析失败。本节统一抹平。
+
+# bundle 漏到 stdout 的已知调试行前缀，新增噪声直接补到 tuple。
+_DEBUG_LINE_PREFIXES: tuple[str, ...] = ("adeline-url ",)
+
+# 用于格式 C：从内层伪 JSON 文本里宽松抽取 result 字段值。
+# 匹配 `"result": <任意内容>` 后到末尾右花括号之前，DOTALL 让 . 跨行。
+_RESULT_FIELD_RE = re.compile(r'"result"\s*:\s*(.*?)\s*\}\s*$', re.DOTALL)
+
+
+def _strip_debug_lines(stdout: str) -> str:
+    """剥离 bundle 漏到 stdout 的已知调试行（如 'adeline-url ...'），并 trim。"""
+    kept = [
+        line
+        for line in stdout.splitlines()
+        if not any(line.startswith(p) for p in _DEBUG_LINE_PREFIXES)
+    ]
+    return "\n".join(kept).strip()
+
+
+def _extract_result_field(inner_text: str) -> str:
+    """从非合法 JSON 的内层文本里宽松提取 `"result":` 后面的内容。
+
+    GTHT 部分 skill 把 markdown 表格直接拼进伪 JSON 字符串里（result 后面没引号），
+    所以走不到 json.loads 这条路，只能用正则兜底。提取失败时退回原文。
+    """
+    m = _RESULT_FIELD_RE.search(inner_text)
+    if m is None:
+        return inner_text.strip()
+    return m.group(1).strip()
+
+
+def _parse_skill_output(stdout: str) -> dict[str, Any]:
+    """把 node skill-entry.js 的 stdout 解析成统一 dict。
+
+    返回 dict 必含 `format` 字段，4 种取值：
+      - "text":        非 JSON，整体是给人看的展示文本
+      - "raw_json":    顶层是 JSON dict 但无 text 字段（兼容未来 skill）
+      - "json_result": 双层 JSON，内层是合法 JSON dict
+      - "text_result": 外层 JSON 合法但内层是伪 JSON，用正则提 result
+
+    设计上永不抛异常（不合法输入也会落到 "text" 分支），错误检测留给上层 call()
+    通过 `error` 字段检查或 returncode 判断完成。
+    """
+    text = _strip_debug_lines(stdout)
+
+    # ----- 第 0 层：尝试外层 JSON -----
+    try:
+        outer = json.loads(text)
+    except json.JSONDecodeError:
+        # 完全不是 JSON → 格式 A
+        return {"format": "text", "text": text}
+
+    # JSON 顶层不是 dict（数组/标量）→ 包装一下，避免上层 isinstance 假设破裂
+    if not isinstance(outer, dict):
+        return {"format": "raw_json", "data": outer}
+
+    # ----- 第 1 层：顶层无 text 字段 → 当未来扩展处理 -----
+    if "text" not in outer or not isinstance(outer["text"], str):
+        # 直接把外层 dict 摊平，便于上层兼容历史 GTHT 错误返回 {"error": "..."}
+        return {"format": "raw_json", **outer}
+
+    inner_str: str = outer["text"]
+
+    # ----- 第 2 层：尝试内层 JSON -----
+    try:
+        inner = json.loads(inner_str)
+    except json.JSONDecodeError:
+        # 内层非合法 JSON → 格式 C，用正则兜底提 result
+        return {"format": "text_result", "result": _extract_result_field(inner_str)}
+
+    # 内层合法 JSON 但不是 dict → 包装
+    if not isinstance(inner, dict):
+        return {"format": "json_result", "data": inner}
+
+    # 标准化：把 result 字段拎到顶层；没有 result 就摊平 inner
+    if "result" in inner:
+        return {"format": "json_result", "result": inner["result"]}
+    return {"format": "json_result", **inner}
 
 
 class GthtClient:
@@ -146,16 +235,14 @@ class GthtClient:
                 f"GTHT 调用失败 (exit {proc.returncode}): {proc.stderr.strip()}"
             )
 
-        try:
-            data = json.loads(proc.stdout)
-        except json.JSONDecodeError as exc:
-            raise GthtError(f"GTHT 返回非 JSON: {proc.stdout[:200]}") from exc
+        # 老实现假设 stdout 是顶层 JSON dict，但实测三种格式都见过：
+        # 纯文本 / 双层 JSON 合法内层 / 双层 JSON 伪 JSON 内层。
+        # 统一交给 _parse_skill_output 抹平，永远拿到带 format 字段的 dict。
+        data = _parse_skill_output(proc.stdout)
 
-        if not isinstance(data, dict):
-            raise GthtError(
-                f"GTHT 返回非 dict: {type(data).__name__} (期望 JSON 对象)"
-            )
-        if "error" in data:
+        # 历史上 GTHT 通过顶层 {"error": "..."} 上报业务错误，仅 raw_json 走这条；
+        # 其他格式（text / json_result / text_result）的 error 语义靠 returncode 判断。
+        if data.get("format") == "raw_json" and "error" in data:
             raise GthtError(f"GTHT 错误: {data['error']}")
 
         return data
