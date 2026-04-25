@@ -130,6 +130,9 @@ class GthtClient:
                 cwd=skill_dir,
                 capture_output=True,
                 text=True,
+                # 显式使用 UTF-8 解码并容错，避免 Windows 默认 gbk 解码导致线程报错。
+                encoding="utf-8",
+                errors="replace",
                 timeout=60,
                 check=False,
             )
@@ -177,6 +180,9 @@ class GthtClient:
                 cwd=skill_dir,
                 capture_output=True,
                 text=True,
+                # authChecker 只看退出码，但仍需安全解码 stdout/stderr，避免后台 reader 线程异常。
+                encoding="utf-8",
+                errors="replace",
                 timeout=30,
                 check=False,
             )

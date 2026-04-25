@@ -178,6 +178,9 @@ class TestCall:
             tmp_path / "mo-skills" / "gtht-skills" / "lingxi-researchreport-skill"
         )
         assert mock_run.call_args.kwargs["cwd"] == expected_cwd
+        # 固定子进程解码策略，避免 Windows 默认编码（如 gbk）引发 UnicodeDecodeError。
+        assert mock_run.call_args.kwargs["encoding"] == "utf-8"
+        assert mock_run.call_args.kwargs["errors"] == "replace"
 
     def test_nonzero_exit_raises(
         self, authed_client: GthtClient, monkeypatch: pytest.MonkeyPatch
@@ -285,6 +288,9 @@ class TestAuthSubcommands:
             tmp_path / "mo-skills" / "gtht-skills" / "lingxi-researchreport-skill"
         )
         assert mock_run.call_args.kwargs["cwd"] == expected_cwd
+        # check_auth 路径同样应显式指定 UTF-8 解码策略。
+        assert mock_run.call_args.kwargs["encoding"] == "utf-8"
+        assert mock_run.call_args.kwargs["errors"] == "replace"
 
     def test_check_auth_false_when_node_exit_nonzero(
         self,
