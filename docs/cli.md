@@ -17,12 +17,47 @@
 | 命令 | 作用 | 使用场景 | 写库？ |
 |------|------|----------|--------|
 | [`init-db`](#init-db) | 建表（SQLAlchemy create_all） | 首次部署 / 开发环境 | ✓ |
-| [`refresh-basics`](#refresh-basics) | 刷新股票基础信息 | 每周定期 / 首次 | ✓ |
+| [`refresh-basics`](#refresh-basics) | 刷新股票基础 + 申万行业映射 | 每周定期 / 首次 | ✓ |
 | [`refresh-cal`](#refresh-cal) | 刷新交易日历 | 首次 / 每年末 | ✓ |
 | [`backfill`](#backfill) | 一次性回填历史数据 | 首次部署 / 补历史 | ✓ |
 | [`run-once`](#run-once) | 端到端跑一次选股 | 日常手工触发 | ✓ |
 | [`analyze`](#analyze) | 单股规则层分析 | 即席查询 / 调试 | ✗ |
 | [`scheduler`](#scheduler) | 启动常驻定时调度 | 生产部署 | ✓ |
+
+---
+
+## 运行频率速查
+
+不同命令对应不同的「数据变化速率」，**不要混着用同一个 cron 节奏**。
+
+| 命令 | 推荐频率 | 触发时机 | 写入表（量级） |
+|------|---------|---------|--------------|
+| `init-db` | **一次性** | 首次部署，或 schema 变更后重建 | 全表（建表 / 重建） |
+| `refresh-cal` | **每年末 1 次** | 12 月末，刷新次年交易日 | `trade_cal`（~250 行/年） |
+| `refresh-basics` | **每周 1 次** | 周一开盘前 | `stock_basic`（~5500 行）+ `index_member`（~5700 行） |
+| `refresh-basics --with-ths` | **每月 1 次** | 月初首个交易日前 | 上述 + `ths_index`（~408 行）+ `ths_member`（~7 万行） |
+| `backfill` | **一次性 / 按需** | 首次部署回填 180 天；缺数据时补区间 | 全部日频表（千万级） |
+| `run-once` | **每个交易日 1 次** | 收盘后 15:30+，手工或调度触发 | 当日全部日频表 + 选股结果 |
+| `scheduler` | **常驻** | 生产环境 `systemd`/`docker` 启动 | 自动调用 `run-once` |
+| `analyze` | **按需** | 复盘单股、调试某次打分 | ✗ 只读 |
+
+**为什么 `refresh-basics` 不每天跑？**
+
+它维护的是「这只股是谁、属于哪个申万行业」这种**慢变量元数据**：
+- `stock_basic`：新股 IPO ≤ 3 只/日，退市/ST 极少 → 周度足够
+- `index_member`：申万行业分类**年度评审**才调整 → 月度甚至季度都行
+
+跟「这只股今天涨了多少 / 资金流入多少」这种**日频行情**（由 `backfill` / `run-once` 维护）完全不同步，不要混。
+
+每天跑也无害，就是浪费 ~30 秒 + 32 次 Tushare 接口配额（1 次 stock_basic + 1 次 index_classify + 31 次 index_member_all 分页）。
+
+**典型生产节奏**（用 cron 或 scheduler）：
+
+```
+每年 12-31 23:00       refresh-cal --start <next_year>-01-01
+每周一 08:00           refresh-basics
+每个交易日 15:30       run-once（scheduler 自动跑，无需 cron）
+```
 
 ---
 
@@ -50,15 +85,42 @@ mo-stock init-db --drop    # 先 DROP 再 CREATE，会有确认提示
 
 ## refresh-basics
 
-刷新 `stock_basic` 表——全 A 股基础信息（代码、名称、行业、上市日、是否 ST 等）。
+刷新「股票元数据」慢变量表。
 
 ```bash
-mo-stock refresh-basics
+mo-stock refresh-basics              # 默认快速：约 30 秒
+mo-stock refresh-basics --with-ths   # 完整版：额外 3-4 分钟
 ```
 
-**参数：** 无
+**参数：**
+- `--with-ths`（默认关闭）：同时刷新同花顺概念板块（`ths_index` + `ths_member`），耗时增加 3-4 分钟，需要 6000 Tushare 积分
 
-**建议频率：** 每周 1 次，或新股上市 / ST 变动时手动触发。
+**默认（约 30 秒）刷新的表：**
+
+| 表 | 数据源 | 行数 | 内容 |
+|---|---|---|---|
+| `stock_basic` | Tushare `stock_basic` | ~5500 | 全 A 股基础信息（代码、名称、行业、上市日、是否 ST） |
+| `index_member` | Tushare `index_classify` + `index_member_all`（按 31 个申万一级行业分页） | ~5700 | 股票 → 申万行业映射（l1/l2/l3 三级 + in_date），SectorFilter 据此把个股关联到 `sw_daily` 板块涨幅 |
+
+**`--with-ths` 额外刷新的表：**
+
+| 表 | 数据源 | 行数 | 内容 |
+|---|---|---|---|
+| `ths_index` | Tushare `ths_index`（type=N, exchange=A） | ~408 | A 股**概念板块元数据**（如「新能源车」「华为产业链」「AI 算力」） |
+| `ths_member` | Tushare `ths_member`（按 408 个概念循环） | ~7 万 | 股票 → 概念**多对多**映射（一只股可属多个概念），SectorFilter 题材命中加分用 |
+
+**建议频率：**
+- 默认：**每周 1 次**（周一开盘前），或新股上市 / ST 变动 / 申万行业调整后手动触发
+- `--with-ths`：**每月 1 次**（同花顺概念变化频率介于周和月之间）
+
+**幂等性：** 所有表都是 PG `ON CONFLICT DO UPDATE` upsert，重跑安全。
+- `index_member` 内部做了「跨 l1 dedupe」：少数股因 Tushare 漏标 `out_date` 出现在多个一级行业时，按 `in_date` 最新优先保留（跟到申万最近一次评审的归属）
+- `ths_member` 内部做了「(ts_code, con_code) dedupe」：防御 Tushare 镜像复制 bug
+
+**Tushare 接口与积分门槛：**
+- `stock_basic`：免费
+- `index_classify` / `index_member_all`：2000 积分
+- `ths_index` / `ths_member`：6000 积分（且**同花顺数据有版权**，商业用途需联系同花顺授权）
 
 ---
 

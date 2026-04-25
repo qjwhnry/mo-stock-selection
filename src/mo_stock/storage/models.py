@@ -264,7 +264,7 @@ class Moneyflow(Base):
 # ========================================================================
 
 class SwDaily(Base):
-    """申万板块日线（Tushare sw_daily）。"""
+    """申万板块日线（Tushare sw_daily，doc_id=327）。"""
 
     __tablename__ = "sw_daily"
 
@@ -277,17 +277,101 @@ class SwDaily(Base):
     high: Mapped[float | None] = mapped_column(Float, comment="板块最高点位")
     low: Mapped[float | None] = mapped_column(Float, comment="板块最低点位")
     close: Mapped[float | None] = mapped_column(Float, comment="板块收盘点位")
+    change: Mapped[float | None] = mapped_column(Float, comment="板块涨跌点位（close - 前日close）")
     pct_change: Mapped[float | None] = mapped_column(
         Float, comment="板块涨跌幅（%）；板块维度打分的主要输入",
     )
-    vol: Mapped[float | None] = mapped_column(Float, comment="板块总成交量（手）")
+    vol: Mapped[float | None] = mapped_column(Float, comment="板块总成交量（万股）")
     amount: Mapped[float | None] = mapped_column(Float, comment="板块总成交额（万元）")
-    turnover_rate: Mapped[float | None] = mapped_column(Float, comment="板块换手率（%）")
+    pe: Mapped[float | None] = mapped_column(Float, comment="板块市盈率（整体法）")
+    pb: Mapped[float | None] = mapped_column(Float, comment="板块市净率（整体法）")
+    float_mv: Mapped[float | None] = mapped_column(Float, comment="板块流通市值（万元）")
+    total_mv: Mapped[float | None] = mapped_column(Float, comment="板块总市值（万元）")
 
     __table_args__ = (
         PrimaryKeyConstraint("sw_code", "trade_date"),
         Index("ix_sw_daily_date", "trade_date"),
         {"comment": "申万一级行业板块日线（Tushare sw_daily），SectorFilter 打分源"},
+    )
+
+
+class IndexMember(Base):
+    """股票 → 申万行业归属映射（Tushare index_member_all，doc_id=335）。
+
+    申万行业分类一股归属唯一（同一时刻 1 只股 → 1 个三级行业，归属树状到二级、一级）。
+    所以 PK 用 ts_code 即可。每月按需刷新（拉 is_new='Y' 的最新成分），
+    板块归属调整时 upsert 自动覆盖旧记录。
+    SectorFilter 通过此表把 sw_daily.pct_change 关联到具体股票。
+    """
+
+    __tablename__ = "index_member"
+
+    ts_code: Mapped[str] = mapped_column(
+        String(12), primary_key=True, comment="股票代码",
+    )
+    l1_code: Mapped[str | None] = mapped_column(
+        String(20), index=True, comment="申万一级行业代码（如 801080.SI）",
+    )
+    l1_name: Mapped[str | None] = mapped_column(String(50), comment="一级行业名称")
+    l2_code: Mapped[str | None] = mapped_column(String(20), comment="二级行业代码")
+    l2_name: Mapped[str | None] = mapped_column(String(50), comment="二级行业名称")
+    l3_code: Mapped[str | None] = mapped_column(String(20), comment="三级行业代码")
+    l3_name: Mapped[str | None] = mapped_column(String(50), comment="三级行业名称")
+    in_date: Mapped[date | None] = mapped_column(Date, comment="纳入该三级行业的日期")
+
+    __table_args__ = (
+        {"comment": "股票→申万行业映射；sector_filter 据此关联 sw_daily 拿到板块涨幅"},
+    )
+
+
+class ThsIndex(Base):
+    """同花顺概念板块元数据（Tushare ths_index，doc_id=259）。
+
+    存所有 A 股概念板块（type='N'）的代码、名称、成分数。月度刷新。
+    与 stock_basic 不同：这里 ts_code 是**概念代码**（如 885328.TI），不是个股代码。
+    """
+
+    __tablename__ = "ths_index"
+
+    ts_code: Mapped[str] = mapped_column(
+        String(20), primary_key=True,
+        comment="同花顺概念代码（如 885328.TI）",
+    )
+    name: Mapped[str | None] = mapped_column(String(50), comment="概念名称（如「新能源车」）")
+    count: Mapped[int | None] = mapped_column(Integer, comment="概念成分股数")
+    exchange: Mapped[str | None] = mapped_column(
+        String(10), comment="交易所：A=A股 / HK=港股 / US=美股",
+    )
+    list_date: Mapped[date | None] = mapped_column(Date, comment="概念上市日")
+    type: Mapped[str | None] = mapped_column(
+        String(5), comment="N=概念 / I=行业 / R=地域 / S=特色 / ST=风格 / TH=主题 / BB=宽基",
+    )
+
+    __table_args__ = (
+        {"comment": "同花顺概念板块元数据（Tushare ths_index）；sector_filter 题材命中加分用"},
+    )
+
+
+class ThsMember(Base):
+    """同花顺概念成分（Tushare ths_member，doc_id=261）。
+
+    一股可属多个概念（多对多）。PK = (ts_code 概念, con_code 股票)。
+    sector_filter 用此表回答「这只股是不是落在了今天的热点概念里」。
+    注意：weight / in_date / out_date 接口当前暂无数据但保留字段供将来扩展。
+    """
+
+    __tablename__ = "ths_member"
+
+    ts_code: Mapped[str] = mapped_column(String(20), comment="同花顺概念代码")
+    con_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
+    con_name: Mapped[str | None] = mapped_column(String(50), comment="股票名称（冗余存储减少 join）")
+    weight: Mapped[float | None] = mapped_column(Float, comment="权重（接口暂无数据，预留）")
+    in_date: Mapped[date | None] = mapped_column(Date, comment="纳入日期（接口暂无数据，预留）")
+    out_date: Mapped[date | None] = mapped_column(Date, comment="剔除日期（接口暂无数据，预留）")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("ts_code", "con_code"),
+        {"comment": "同花顺概念成分（Tushare ths_member）；股票→概念多对多映射"},
     )
 
 

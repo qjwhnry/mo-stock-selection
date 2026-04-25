@@ -247,20 +247,100 @@ class TushareClient:
 
     # ---------- 板块 ----------
 
+    def ths_index(
+        self,
+        type: str = "N",  # noqa: A002
+        exchange: str = "A",
+    ) -> pd.DataFrame:
+        """同花顺概念/行业板块元数据（doc_id=259）。
+
+        默认拉 A 股的概念板块（type='N'，约 408 个）。
+        type 取值：N=概念 / I=行业 / R=地域 / S=特色 / ST=风格 / TH=主题 / BB=宽基。
+        积分要求：6000。
+        """
+        return self._call(
+            "ths_index",
+            type=type,
+            exchange=exchange,
+            limiter=_default_limiter,
+            fields="ts_code,name,count,exchange,list_date,type",
+        )
+
+    def ths_member(self, ts_code: str) -> pd.DataFrame:
+        """同花顺概念/行业成分（doc_id=261）。
+
+        按概念 ts_code 拉成分股。weight / in_date / out_date 接口当前暂无数据，
+        但 fields 里保留以便将来接口完善后自动有数据。
+        积分要求：6000，每分钟 200 次。
+        """
+        return self._call(
+            "ths_member",
+            ts_code=ts_code,
+            limiter=_default_limiter,
+            fields="ts_code,con_code,con_name,weight,in_date,out_date,is_new",
+        )
+
+    def index_classify(
+        self,
+        level: str = "L1",
+        src: str = "SW2021",
+    ) -> pd.DataFrame:
+        """申万行业分类元数据（doc_id=181）。
+
+        默认拿申万 2021 版一级行业列表（约 31 个）。返回字段含 index_code（如 801080.SI）、
+        industry_name（电子）、level、parent_code 等。
+        """
+        return self._call(
+            "index_classify",
+            level=level,
+            src=src,
+            limiter=_default_limiter,
+            fields="index_code,industry_name,parent_code,level,industry_code,is_pub,src",
+        )
+
+    def index_member_all(
+        self,
+        ts_code: str | None = None,
+        l1_code: str | None = None,
+        is_new: str = "Y",
+    ) -> pd.DataFrame:
+        """申万行业成分（doc_id=335）。默认只取 is_new='Y' 的当前最新成分。
+
+        - 不传 ts_code / l1_code → 拉全市场最新归属（约 5400 行）
+        - 单次最大 2000 行；如全市场超限需按 l1_code 分页（当前未实现）
+        - 积分要求：2000
+        """
+        return self._call(
+            "index_member_all",
+            ts_code=ts_code,
+            l1_code=l1_code,
+            is_new=is_new,
+            limiter=_default_limiter,
+            fields=(
+                "l1_code,l1_name,l2_code,l2_name,l3_code,l3_name,"
+                "ts_code,name,in_date,out_date,is_new"
+            ),
+        )
+
     def sw_daily(
         self,
         trade_date: str | None = None,
         ts_code: str | None = None,
     ) -> pd.DataFrame:
-        """申万板块日线。ts_code 为板块代码（如 801010.SI）。"""
+        """申万板块日线（doc_id=327）。ts_code 为板块代码（如 801010.SI）。
+
+        字段说明：
+        - 接口默认是申万 2021 版（31 一级 / 134 二级 / 346 三级）
+        - 注意：sw_daily 接口**没有** turnover_rate 字段（不要再传）
+        """
         return self._call(
             "sw_daily",
             trade_date=trade_date,
             ts_code=ts_code,
             limiter=_strict_limiter,
             fields=(
-                "ts_code,name,trade_date,open,high,low,close,"
-                "pct_change,vol,amount,turnover_rate"
+                "ts_code,name,trade_date,open,high,low,close,change,pct_change,"
+                "vol,amount,pe,pb,float_mv,total_mv"
             ),
         )
 

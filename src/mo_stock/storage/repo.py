@@ -19,12 +19,15 @@ from mo_stock.storage.models import (
     Base,
     DailyBasic,
     DailyKline,
+    IndexMember,
     Lhb,
     LimitList,
     Moneyflow,
     NewsRaw,
     StockBasic,
     SwDaily,
+    ThsIndex,
+    ThsMember,
     TradeCal,
 )
 
@@ -228,6 +231,22 @@ def upsert_limit_list(session: Session, rows: Iterable[dict[str, Any]]) -> int:
 
 def upsert_moneyflow(session: Session, rows: Iterable[dict[str, Any]]) -> int:
     return upsert_rows(session, Moneyflow, rows, conflict_cols=["ts_code", "trade_date"])
+
+
+def upsert_lhb(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(session, Lhb, rows, conflict_cols=["trade_date", "ts_code"])
+
+
+def upsert_index_member(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(session, IndexMember, rows, conflict_cols=["ts_code"])
+
+
+def upsert_ths_index(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(session, ThsIndex, rows, conflict_cols=["ts_code"])
+
+
+def upsert_ths_member(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(session, ThsMember, rows, conflict_cols=["ts_code", "con_code"])
 
 
 def upsert_stock_basic(session: Session, rows: Iterable[dict[str, Any]]) -> int:

@@ -1,13 +1,25 @@
 """mo-stock 命令行入口。
 
-用法：
-    mo-stock init-db                            # 初始化 schema（简化版）
-    mo-stock refresh-basics                     # 刷新 stock_basic
-    mo-stock refresh-cal --start 2024-01-01     # 刷新交易日历
-    mo-stock backfill --days 180                # 回填历史
-    mo-stock run-once --date 2026-04-22         # 跑一次选股
+用法（按推荐运行频率排序）：
+    # ---------- 一次性 / 极低频 ----------
+    mo-stock init-db                            # 首次部署：建表
+    mo-stock refresh-cal --start 2024-01-01     # 每年末：刷新交易日历
+
+    # ---------- 周度元数据 ----------
+    mo-stock refresh-basics                     # 每周一：stock_basic + index_member（申万行业映射）
+    mo-stock refresh-basics --with-ths          # 每月：额外刷 ths_index + ths_member（同花顺概念，需 6000 积分）
+
+    # ---------- 一次性回填 ----------
+    mo-stock backfill --days 180                # 首次部署：回填 180 天历史日频数据
+
+    # ---------- 每日运行 ----------
+    mo-stock run-once --date 2026-04-22         # 每个交易日 15:30：选股端到端
+    mo-stock scheduler                          # 生产常驻：自动按交易日触发 run-once
+
+    # ---------- 按需复盘 / 调试 ----------
     mo-stock analyze 600519.SH --date 2026-04-22 # 单股分析（不写库）
-    mo-stock scheduler                          # 启动常驻调度
+
+详细参数 / 运行频率速查 / 典型工作流见 docs/cli.md。
 """
 from __future__ import annotations
 
@@ -80,9 +92,36 @@ def init_db(drop: bool) -> None:
 
 
 @cli.command("refresh-basics")
-def refresh_basics() -> None:
-    """刷新 stock_basic 表。"""
-    DailyIngestor().refresh_stock_basic()
+@click.option(
+    "--with-ths", is_flag=True,
+    help="同时刷新同花顺概念板块（ths_index + ths_member），额外耗时 3-4 分钟",
+)
+def refresh_basics(with_ths: bool) -> None:
+    """刷新「股票元数据」慢变量表。
+
+    \b
+    默认（约 30 秒）：
+      - stock_basic   ~5500 行：全 A 股代码/名称/行业/上市日/ST 标记
+      - index_member  ~5700 行：股票→申万一/二/三级行业映射（SectorFilter 关联 sw_daily 用）
+
+    \b
+    --with-ths（额外约 3-4 分钟，需 6000 积分）：
+      - ths_index    ~408 行：同花顺 A 股概念板块元数据（新能源车/AI/华为产业链 等）
+      - ths_member   ~7 万行：股票→概念多对多映射（SectorFilter 题材命中加分用）
+
+    \b
+    推荐频率：
+      - 默认：**每周 1 次**（周一开盘前）—— stock_basic 周度变化、index_member 申万年度评审
+      - --with-ths：**每月 1 次** —— 同花顺概念变化频率介于两者之间
+      - 不需要每天跑（浪费 Tushare 配额）
+
+    详见 docs/cli.md 的「运行频率速查」章节。
+    """
+    ingestor = DailyIngestor()
+    ingestor.refresh_stock_basic()
+    ingestor.refresh_index_member()
+    if with_ths:
+        ingestor.refresh_ths_concept()
 
 
 @cli.command("refresh-cal")
