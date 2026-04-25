@@ -204,12 +204,22 @@ class Lhb(Base):
     close: Mapped[float | None] = mapped_column(Float, comment="当日收盘价")
     pct_change: Mapped[float | None] = mapped_column(Float, comment="当日涨跌幅（%）")
     turnover_rate: Mapped[float | None] = mapped_column(Float, comment="换手率（%）")
-    amount: Mapped[float | None] = mapped_column(Float, comment="总成交额（万元）")
-    l_sell: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位卖出额（万元）")
-    l_buy: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位买入额（万元）")
-    l_amount: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位成交总额（万元）")
+    amount: Mapped[float | None] = mapped_column(Float, comment="总成交额（元，Tushare 实际返回科学计数法 E7）")
+    l_sell: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位卖出额（元）")
+    l_buy: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位买入额（元）")
+    l_amount: Mapped[float | None] = mapped_column(Float, comment="龙虎榜席位成交总额（元）")
     net_amount: Mapped[float | None] = mapped_column(
-        Float, comment="席位净买入额（万元）= l_buy - l_sell；为正代表游资/机构加仓",
+        Float, comment="席位净买入额（元）= l_buy - l_sell；为正代表游资/机构加仓",
+    )
+    net_rate: Mapped[float | None] = mapped_column(
+        Float,
+        comment="龙虎榜净买入占当日总成交比例（%）= net_amount/amount×100；跨股可比，"
+                "LhbFilter 用此字段做净额分档（替代绝对金额，避免大盘股偏弱、小盘股偏强）",
+    )
+    amount_rate: Mapped[float | None] = mapped_column(
+        Float,
+        comment="龙虎榜成交占当日总成交比例（%）= l_amount/amount×100；反映席位主导度，"
+                "LhbFilter 用此字段做纯度分档",
     )
     reason: Mapped[str | None] = mapped_column(
         Text, comment="上榜原因（如：日涨幅偏离值达 7%、日价格涨幅偏离值达 7% 的前三只证券）",

@@ -166,7 +166,7 @@ class TestLhbRowsFromDf:
         assert keys == {(date(2026, 4, 22), "600519.SH"), (date(2026, 4, 22), "300750.SZ")}
 
     def test_maps_all_lhb_fields(self) -> None:
-        # 单行典型样本：覆盖所有会进库的字段
+        # 单行典型样本：覆盖所有会进库的字段（含 net_rate / amount_rate）
         df = pd.DataFrame([{
             "trade_date": "20260422",
             "ts_code": "600519.SH",
@@ -179,10 +179,9 @@ class TestLhbRowsFromDf:
             "l_buy": 35000.0,
             "l_amount": 47000.0,
             "net_amount": 23000.0,
-            # 这三列存在但 Lhb 表无对应字段，应被忽略
             "net_rate": 2.33,
             "amount_rate": 4.77,
-            "float_values": 100000.0,
+            "float_values": 100000.0,  # 不入库
             "reason": "日涨幅偏离值达 7%",
         }])
 
@@ -190,7 +189,7 @@ class TestLhbRowsFromDf:
 
         assert len(rows) == 1
         r = rows[0]
-        # 关键：trade_date 是 Tushare 的 'YYYYMMDD' 字符串，必须被转成 date 对象
+        # trade_date 是 Tushare 的 'YYYYMMDD' 字符串，必须被转成 date 对象
         assert r["trade_date"] == date(2026, 4, 22)
         assert r["ts_code"] == "600519.SH"
         assert r["name"] == "贵州茅台"
@@ -202,11 +201,12 @@ class TestLhbRowsFromDf:
         assert r["l_buy"] == 35000.0
         assert r["l_amount"] == 47000.0
         assert r["net_amount"] == 23000.0
+        # 新增：占比字段必须被映射进 row
+        assert r["net_rate"] == 2.33
+        assert r["amount_rate"] == 4.77
         assert r["reason"] == "日涨幅偏离值达 7%"
-        # seat 字段（top_inst 明细）当前 ingest 不写入，留 None
         assert r["seat"] is None
-        # tushare 多余的字段不应混入
-        assert "net_rate" not in r
+        # float_values 不入库
         assert "float_values" not in r
 
 

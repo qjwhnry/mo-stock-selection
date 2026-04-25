@@ -1,7 +1,15 @@
 """综合打分：把 5 维度规则分聚合为最终 rule_score，再与 AI 分融合（Phase 3）。
 
-**当前 Phase 1 MVP**：只有 limit + moneyflow 两个维度，其他维度缺失时**按"该股未覆盖"处理**
-（从分母中扣除，不拉低综合分），这样 MVP 阶段 TOP N 的综合分仍有良好区分度。
+**综合分公式（固定分母）**：
+    final = Σ(score_i × w_i) / Σ(w_全部维度)
+
+缺失维度按 0 计入分子但分母不变 → 严格惩罚单维霸榜，奖励多维共振。
+例：仅 lhb=70（权重 0.20，全权重 1.00）→ 70 × 0.20 / 1.00 = 14
+    4 维共振平均 50 → ~41，胜过单维 70。
+
+历史变化：Phase 1 早期只有 limit + moneyflow 两维时曾用动态分母（active_weight）
+保区分度，但 4 维接通后该机制让"单维度极端分"霸榜（违背多因子设计意图），
+2026-04-25 改为固定分母。
 
 **Phase 3 起**：加入 AI 分，按 `combine.rule_weight` / `combine.ai_weight` 融合。
 
@@ -25,7 +33,14 @@ from sqlalchemy.orm import Session
 from mo_stock.data_sources.calendar import is_selectable
 from mo_stock.filters.base import ScoreResult
 from mo_stock.storage import repo
-from mo_stock.storage.models import AnnsRaw, FilterScoreDaily, LimitList, SelectionResult, StockBasic
+from mo_stock.storage.models import (
+    AnnsRaw,
+    DailyKline,
+    FilterScoreDaily,
+    LimitList,
+    SelectionResult,
+    StockBasic,
+)
 
 
 def persist_filter_scores(session: Session, results: list[ScoreResult]) -> int:
@@ -53,6 +68,21 @@ def persist_filter_scores(session: Session, results: list[ScoreResult]) -> int:
     )
 
 
+def _weighted_combine(
+    dim_scores: dict[str, float],
+    dim_weights: dict[str, float],
+) -> float:
+    """加权综合（固定分母）：final = Σ(score × w) / Σ(全部 w)。
+
+    缺失维度按 0 计入（分母不缩），严格惩罚单维霸榜，奖励多维共振。
+    与 `analyzer._combine_rule_score` 共用同一公式（避免分叉）。
+    """
+    total_w = sum(dim_weights.values())
+    if total_w <= 0:
+        return 0.0
+    return sum(dim_scores.get(d, 0.0) * w for d, w in dim_weights.items()) / total_w
+
+
 def combine_scores(
     session: Session,
     trade_date: date,
@@ -63,14 +93,7 @@ def combine_scores(
     """读当日所有维度的 filter_score_daily，做加权融合 → 应用硬规则 → 取 TOP N。
 
     **幂等**：同一交易日重跑会 upsert `selection_result`，不会报唯一键冲突。
-
-    综合分算法：
-        ``final = Σ(score_i × w_i) / Σ(w_i)  # 只对该股实际有分的维度 i 累加``
-
-    这样 MVP 阶段（只有 limit + moneyflow 有分）综合分仍然能到接近 100，不会被
-    lhb/sector/sentiment 0 分拉低到 30 左右。
-
-    MVP 阶段 AI 分为 None，final_score = rule_score。
+    综合分算法见模块 docstring（固定分母）。MVP 阶段 AI 分为 None，final_score = rule_score。
 
     Returns:
         本次真正 picked（入选 TOP N）的股票数。
@@ -83,25 +106,17 @@ def combine_scores(
         logger.warning("combine_scores: {} 无任何维度打分", trade_date)
         return 0
 
-    # stock_scores[ts_code][dim] = score （只记录有效得分，score > 0）
+    # stock_scores[ts_code][dim] = score （只记录 score > 0 的有效信号；
+    # 缺失维度由 _weighted_combine 自动按 0 计入分子但分母不缩）
     stock_scores: dict[str, dict[str, float]] = defaultdict(dict)
     for r in score_rows:
-        # score = 0 视为"该维度信号缺失"，不参与加权（避免被 0 分稀释）
-        # 真正的"一票否决"走 hard_reject，不依赖 0 分
         if r.score > 0:
             stock_scores[r.ts_code][r.dim] = r.score
 
-    # ---------- 2. 按权重融合（动态分母）----------
+    # ---------- 2. 按权重融合（固定分母 = 全部维度权重之和）----------
     combined: list[tuple[str, float]] = []
-
     for ts_code, dim_scores in stock_scores.items():
-        active_weight = sum(w for d, w in dimension_weights.items() if d in dim_scores)
-        if active_weight <= 0:
-            continue  # 权重配置里没这几个维度
-        weighted = (
-            sum(dim_scores[d] * w for d, w in dimension_weights.items() if d in dim_scores)
-            / active_weight
-        )
+        weighted = _weighted_combine(dim_scores, dimension_weights)
         combined.append((ts_code, round(weighted, 2)))
 
     # ---------- 3. 应用硬规则过滤 ----------
@@ -181,6 +196,7 @@ def _build_hard_reject_map(
     - `exclude_st` (默认 True)：是否排除 ST/*ST
     - `min_list_days` (默认 60)：上市不满 N 日的次新过滤；设 0 或负值则不过滤
     - `exclude_today_limit_up` (默认 True)：当日涨停次日不追高
+    - `exclude_today_limit_down` (默认 True)：当日跌停次日不抄底（跟 limit_up 对称）
     - `negative_announcement_keywords`：命中任一关键词直接淘汰
     """
     reject: dict[str, str] = {}
@@ -191,6 +207,7 @@ def _build_hard_reject_map(
     min_list_days = cfg.get("min_list_days", 60)
     exclude_st = cfg.get("exclude_st", True)
     exclude_today_limit_up = cfg.get("exclude_today_limit_up", True)
+    exclude_today_limit_down = cfg.get("exclude_today_limit_down", True)
     neg_keywords: list[str] = cfg.get("negative_announcement_keywords", [])
 
     # 1. 股票基础过滤（ST 与 次新 独立开关）
@@ -226,6 +243,21 @@ def _build_hard_reject_map(
         for ts in limit_rows:
             if ts not in reject:
                 reject[ts] = "当日涨停，避免次日追高"
+
+    # 2b. 当日跌停股排除（避免"机构抄底"误判，跟 limit_up 对称）
+    # 用 daily_kline.pct_chg <= -9.8 判定（10% 限制取 -9.8 容差；ST 5% 限制由 exclude_st
+    # 兜底；北证 30% 不在此规则范围 —— 数量极少且一般不入候选）。
+    if exclude_today_limit_down:
+        down_rows = session.execute(
+            select(DailyKline.ts_code)
+            .where(DailyKline.trade_date == trade_date)
+            .where(DailyKline.ts_code.in_(candidates))
+            .where(DailyKline.pct_chg.isnot(None))
+            .where(DailyKline.pct_chg <= -9.8)
+        ).scalars().all()
+        for ts in down_rows:
+            if ts not in reject:
+                reject[ts] = "当日跌停，避免次日抄底"
 
     # 3. 近 7 日负面公告关键词命中
     if neg_keywords:

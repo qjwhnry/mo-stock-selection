@@ -119,6 +119,68 @@ def get_kline_range(
     return session.execute(stmt).scalars().all()
 
 
+def get_lhb_today(session: Session, trade_date: date) -> Sequence[Lhb]:
+    """获取当日全市场龙虎榜上榜股（LhbFilter.score_all 主源）。"""
+    stmt = select(Lhb).where(Lhb.trade_date == trade_date)
+    return session.execute(stmt).scalars().all()
+
+
+def get_sw_daily_for_codes(
+    session: Session, trade_date: date, sw_codes: set[str],
+) -> list[tuple[str, float | None]]:
+    """获取指定 sw_code 集合在某交易日的涨跌幅 [(sw_code, pct_change), ...]。
+
+    SectorFilter 用此方法+ index_member.l1_code 集合精确取出一级板块涨幅。
+    （sw_daily 表里 sw_code LIKE '801%' 包含一/二/三级共 180 个，必须按
+    index_member 实际的 31 个 l1_code 白名单 filter，否则二三级板块会污染 TOP 排名。）
+    """
+    if not sw_codes:
+        return []
+    stmt = (
+        select(SwDaily.sw_code, SwDaily.pct_change)
+        .where(SwDaily.trade_date == trade_date)
+        .where(SwDaily.sw_code.in_(sw_codes))
+    )
+    return [(row[0], row[1]) for row in session.execute(stmt).all()]
+
+
+def get_sw_daily_3d_avg_for_codes(
+    session: Session, trade_date: date, sw_codes: set[str],
+) -> dict[str, float]:
+    """近 3 日均涨幅 {sw_code: avg_pct_change}，限定在 sw_codes 集合内。
+
+    用于 SectorFilter 的"3 日趋势加成"。如果板块某天数据缺失，按已有的天平均。
+    """
+    if not sw_codes:
+        return {}
+    start = trade_date - timedelta(days=3)
+    stmt = (
+        select(SwDaily.sw_code, SwDaily.pct_change)
+        .where(SwDaily.trade_date.between(start, trade_date))
+        .where(SwDaily.sw_code.in_(sw_codes))
+        .where(SwDaily.pct_change.isnot(None))
+    )
+    sums: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    for sw_code, pct in session.execute(stmt).all():
+        sums[sw_code] = sums.get(sw_code, 0.0) + (pct or 0.0)
+        counts[sw_code] = counts.get(sw_code, 0) + 1
+    return {sc: sums[sc] / counts[sc] for sc in sums if counts[sc] > 0}
+
+
+def get_index_member_l1_map(session: Session) -> dict[str, str]:
+    """股票 → 申万一级板块代码映射 {ts_code: l1_code}。
+
+    SectorFilter 用此 map 把每只股关联到所属一级板块，再 join sw_daily 拿涨幅。
+    全表扫，5700 行，结果缓存在调用方进程内即可（板块归属慢变量）。
+    """
+    stmt = select(IndexMember.ts_code, IndexMember.l1_code).where(
+        IndexMember.l1_code.isnot(None),
+    )
+    # SQL 已过滤 NOT NULL，运行时 l1_code 不会是 None；显式 if 也帮 mypy 收紧类型
+    return {ts: l1 for ts, l1 in session.execute(stmt).all() if l1 is not None}
+
+
 def get_recent_lhb(
     session: Session,
     ts_code: str,

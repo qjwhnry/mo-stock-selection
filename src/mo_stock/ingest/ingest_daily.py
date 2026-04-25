@@ -423,14 +423,13 @@ def _is_st(name: str) -> bool:
 def _lhb_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
     """Tushare top_list DataFrame → Lhb 表 row dict 列表。
 
-    top_list 字段（实际入库的）：trade_date, ts_code, name, close, pct_change,
-    turnover_rate, amount, l_sell, l_buy, l_amount, net_amount, reason。
-    其余字段（net_rate / amount_rate / float_values）当前不入库。
-    seat 字段（席位明细）需要 top_inst 单独拉取，当前留 None。
+    入库字段：trade_date, ts_code, name, close, pct_change, turnover_rate,
+    amount, l_sell, l_buy, l_amount, net_amount, **net_rate, amount_rate**, reason。
+    seat（席位明细）需要 top_inst 单独拉取，当前留 None；float_values 不入库。
 
-    去重：top_list 对同一只股同一天可能因不同上榜原因返回多行（如「日涨幅偏离 7%」
-    与「3 日涨幅 20%」），而 Lhb 表 PK 是 (trade_date, ts_code)，必须按主键去重，
-    否则 ON CONFLICT DO UPDATE 会抛 CardinalityViolation。保留首行。
+    去重：top_list 对同一只股同一天可能因不同上榜原因返回多行，而 Lhb 表 PK
+    是 (trade_date, ts_code)，必须按主键去重，否则 ON CONFLICT 撞 PK 抛
+    CardinalityViolation。保留首行。
     """
     if df.empty:
         return []
@@ -448,6 +447,8 @@ def _lhb_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
             "l_buy": _nf(r.get("l_buy")),
             "l_amount": _nf(r.get("l_amount")),
             "net_amount": _nf(r.get("net_amount")),
+            "net_rate": _nf(r.get("net_rate")),
+            "amount_rate": _nf(r.get("amount_rate")),
             "reason": _str_or_none(r.get("reason")),
             "seat": None,  # 待 top_inst 接入后填充
         }

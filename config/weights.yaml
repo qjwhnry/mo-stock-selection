@@ -28,6 +28,8 @@ hard_reject:
     - "退市风险警示"
   # 仅作板块信号，不推荐次日追高
   exclude_today_limit_up: true
+  # 跌停股不推荐（避免"机构抄底"误判，跟 limit_up 对称）
+  exclude_today_limit_down: true
   # 次新过滤：上市不满 N 日
   min_list_days: 60
   # ST / *ST 直接排除
@@ -53,3 +55,12 @@ moneyflow_filter:
   rolling_3d_bonus: 15            # 近 3 日累计为正再加
   big_order_ratio_threshold: 0.4  # 大单+超大单净流入占比阈值
   small_up_big_down_penalty: 30   # 小单流入大单流出惩罚
+
+# 龙虎榜维度细则（细则已在 lhb_filter.py 中以代码常量给出，本节预留可调键）
+# 当前 LhbFilter 自带分档（净额 0.2/0.5/1.0 亿；纯度 15%/30%；reason 关键词 5/10），
+# 若需调阈值，往这里加 key 后改 LhbFilter 读取 self.weights 即可。
+lhb_filter: {}
+
+# 板块维度细则
+sector_filter:
+  top_n_sectors: 5    # 当日涨幅 TOP N 板块加分（默认 5，命中第 1 +50、第 5 +30）

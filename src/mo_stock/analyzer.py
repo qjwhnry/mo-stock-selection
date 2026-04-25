@@ -19,9 +19,11 @@ from sqlalchemy.orm import Session
 
 from config.settings import PROJECT_ROOT
 from mo_stock.filters.base import load_weights_yaml
+from mo_stock.filters.lhb_filter import LhbFilter
 from mo_stock.filters.limit_filter import LimitFilter
 from mo_stock.filters.moneyflow_filter import MoneyflowFilter
-from mo_stock.scorer.combine import _build_hard_reject_map
+from mo_stock.filters.sector_filter import SectorFilter
+from mo_stock.scorer.combine import _build_hard_reject_map, _weighted_combine
 from mo_stock.storage import repo
 from mo_stock.storage.models import DailyBasic, DailyKline
 
@@ -85,10 +87,14 @@ def analyze_stock(
     #    与 run-once 完全一致的算法路径，避免代码分叉带来的策略漂移。
     limit_filter = LimitFilter(weights=cfg.get("limit_filter", {}))
     mf_filter = MoneyflowFilter(weights=cfg.get("moneyflow_filter", {}))
+    lhb_filter = LhbFilter(weights=cfg.get("lhb_filter", {}))
+    sector_filter = SectorFilter(weights=cfg.get("sector_filter", {}))
 
     all_results = [
         *limit_filter.score_all(session, trade_date),
         *mf_filter.score_all(session, trade_date),
+        *lhb_filter.score_all(session, trade_date),
+        *sector_filter.score_all(session, trade_date),
     ]
 
     dim_out: dict[str, dict[str, Any]] = {}
@@ -96,8 +102,9 @@ def analyze_stock(
         if r.ts_code == ts_code:
             dim_out[r.dim] = {"score": round(r.score, 2), "detail": r.detail}
 
-    # 5. 综合分：与 combine_scores 同算法——只对该股实际有分的维度做加权平均
-    rule_score = _combine_rule_score(dim_out, dim_weights)
+    # 5. 综合分：复用 combine._weighted_combine（固定分母 = 全部权重之和）
+    dim_scores_only = {d: info["score"] for d, info in dim_out.items() if info["score"] > 0}
+    rule_score = _weighted_combine(dim_scores_only, dim_weights)
 
     # 6. 硬规则（复用 combine 层的私有实现，传入 candidates=[ts_code]）
     reject_map = _build_hard_reject_map(
@@ -164,20 +171,3 @@ def _daily_basic_dict(b: DailyBasic | None) -> dict[str, Any] | None:
     }
 
 
-def _combine_rule_score(
-    dim_scores: dict[str, dict[str, Any]],
-    dim_weights: dict[str, float],
-) -> float:
-    """按 `dimension_weights` 对该股实际有分的维度做加权平均。
-
-    与 `scorer.combine.combine_scores` 同策略：分母只计入 score > 0 的维度，
-    避免缺失维度把综合分稀释。没有任何维度得分时返回 0。
-    """
-    active = {d: info["score"] for d, info in dim_scores.items() if info["score"] > 0}
-    active_weight = sum(w for d, w in dim_weights.items() if d in active)
-    if active_weight <= 0:
-        return 0.0
-    return (
-        sum(active[d] * w for d, w in dim_weights.items() if d in active)
-        / active_weight
-    )

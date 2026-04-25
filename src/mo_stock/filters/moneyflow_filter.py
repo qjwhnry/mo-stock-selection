@@ -1,7 +1,7 @@
 """主力资金流向维度打分。
 
 **思路**（见 plan §4.3）：
-- 当日主力净流入 > 0 加分
+- 当日主力净流入占成交额比例 → 占比分档（替代绝对金额一刀切，跨股可比）
 - 近 3 日累计净流入 > 0 加分
 - 大单+超大单占主力的比例高 → 信号更纯
 - 小单大量流入但大单流出 = 负信号（散户接盘风险）
@@ -13,10 +13,12 @@ from __future__ import annotations
 from datetime import date
 
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mo_stock.filters.base import FilterBase, ScoreResult, clamp
 from mo_stock.storage import repo
+from mo_stock.storage.models import DailyKline
 
 
 class MoneyflowFilter(FilterBase):
@@ -32,8 +34,19 @@ class MoneyflowFilter(FilterBase):
             logger.warning("MoneyflowFilter: {} 当日资金流为空", trade_date)
             return results
 
+        # 一次拉取当日全部 daily_kline.amount（千元），避免逐股 query
+        # SQL 已 filter NOT NULL，但 dict() 推导器内显式 if 也帮 mypy 收紧类型
+        kline_amount_map: dict[str, float] = {
+            ts: amt
+            for ts, amt in session.execute(
+                select(DailyKline.ts_code, DailyKline.amount)
+                .where(DailyKline.trade_date == trade_date)
+                .where(DailyKline.amount.isnot(None)),
+            ).all()
+            if amt is not None
+        }
+
         cfg = self.weights
-        today_bonus = cfg.get("today_net_inflow_bonus", 20)
         rolling_bonus = cfg.get("rolling_3d_bonus", 15)
         ratio_threshold = cfg.get("big_order_ratio_threshold", 0.4)
         small_up_big_down_penalty = cfg.get("small_up_big_down_penalty", 30)
@@ -42,15 +55,20 @@ class MoneyflowFilter(FilterBase):
             score = 0.0
             detail: dict = {}
 
-            net_mf = row.net_mf_amount or 0.0
-            detail["net_mf_wan"] = round(net_mf, 2)  # 万元
+            net_mf_wan = row.net_mf_amount or 0.0  # 万元
+            detail["net_mf_wan"] = round(net_mf_wan, 2)
 
-            # 1. 当日主力净流入。净流出的股**不 append**，视为该维度缺失
-            #    —— 避免下游 combine 聚合时被 0 分稀释 TOP 股综合分。
-            if net_mf <= 0:
+            # 1. 主力净流入占当日成交比例 → 占比分档。净流出/缺失视为该维度信号缺失。
+            kline_amt_qy = kline_amount_map.get(row.ts_code)  # 千元
+            today_bonus = _today_bonus_tier(net_mf_wan, kline_amt_qy)
+            if today_bonus == 0:
+                # 占比为 0（净流出 / 数据缺失 / 占比 < 0.3% 太弱）→ 不入 results
                 continue
             score += today_bonus
             detail["today_bonus"] = today_bonus
+            if kline_amt_qy:
+                ratio_pct = 1000.0 * net_mf_wan / kline_amt_qy
+                detail["net_mf_ratio_pct"] = round(ratio_pct, 3)
 
             # 2. 大单+超大单占比
             buy_big = (row.buy_lg_amount or 0) + (row.buy_elg_amount or 0)
@@ -82,9 +100,6 @@ class MoneyflowFilter(FilterBase):
                 score -= small_up_big_down_penalty
                 detail["small_up_big_down_penalty"] = -small_up_big_down_penalty
 
-            # 20 分基础分给首次净流入转正的股票（让"弱转强"也有一定分数）
-            score = max(score, 20.0)
-
             results.append(ScoreResult(
                 ts_code=row.ts_code,
                 trade_date=trade_date,
@@ -93,5 +108,36 @@ class MoneyflowFilter(FilterBase):
                 detail=detail,
             ))
 
-        logger.info("MoneyflowFilter: {} 共 {} 只股票主力净流入为正", trade_date, len(results))
+        logger.info(
+            "MoneyflowFilter: {} 共 {} 只股票主力净流入达阈值",
+            trade_date, len(results),
+        )
         return results
+
+
+# ---------------------------------------------------------------------------
+# 纯函数辅助：占比分档
+# ---------------------------------------------------------------------------
+
+def _today_bonus_tier(
+    net_mf_wan: float | None, daily_amount_qy: float | None,
+) -> int:
+    """主力净流入占当日成交额比例（%）→ 加分。
+
+    单位换算：moneyflow.net_mf_amount 是万元，daily_kline.amount 是千元。
+        ratio (%) = 1000 × net_mf_wan / amount_qy
+
+    业界经验阈值：≥5% 极强 / 1~5% 强 / 0.3~1% 中 / 0~0.3% 弱（赤天化 0.157%）
+    """
+    if not net_mf_wan or net_mf_wan <= 0:
+        return 0
+    if not daily_amount_qy or daily_amount_qy <= 0:
+        return 0
+    ratio_pct = 1000.0 * net_mf_wan / daily_amount_qy
+    if ratio_pct >= 5.0:
+        return 25
+    if ratio_pct >= 1.0:
+        return 18
+    if ratio_pct >= 0.3:
+        return 10
+    return 3

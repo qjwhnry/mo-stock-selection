@@ -22,7 +22,7 @@ def render_daily_report(
     session: Session,
     trade_date: date,
     output_dir: Path,
-    phase: str = "MVP",
+    phase: str = "Phase 1（4 维度：limit + moneyflow + lhb + sector）",
 ) -> tuple[Path, Path]:
     """渲染指定交易日的报告，返回 (md_path, json_path)。"""
     selections = session.execute(

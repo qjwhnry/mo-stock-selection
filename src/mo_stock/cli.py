@@ -33,8 +33,10 @@ from loguru import logger
 from config.settings import settings
 from mo_stock.analyzer import analyze_stock
 from mo_stock.filters.base import load_weights_yaml
+from mo_stock.filters.lhb_filter import LhbFilter
 from mo_stock.filters.limit_filter import LimitFilter
 from mo_stock.filters.moneyflow_filter import MoneyflowFilter
+from mo_stock.filters.sector_filter import SectorFilter
 from mo_stock.ingest.ingest_daily import DailyIngestor
 from mo_stock.report.render_md import render_daily_report
 from mo_stock.scorer.combine import combine_scores, persist_filter_scores
@@ -171,14 +173,19 @@ def run_once(date_str: str | None, skip_ingest: bool) -> None:
     dim_weights: dict[str, float] = cfg.get("dimension_weights", {})
     hard_reject: dict = cfg.get("hard_reject", {})
 
-    # ---------- 3. 规则层打分（MVP：limit + moneyflow）----------
+    # ---------- 3. 规则层打分（4 维度：limit + moneyflow + lhb + sector）----------
     limit_filter = LimitFilter(weights=cfg.get("limit_filter", {}))
     mf_filter = MoneyflowFilter(weights=cfg.get("moneyflow_filter", {}))
+    lhb_filter = LhbFilter(weights=cfg.get("lhb_filter", {}))
+    sector_filter = SectorFilter(weights=cfg.get("sector_filter", {}))
 
     with get_session() as session:
-        limit_scores = limit_filter.score_all(session, trade_date)
-        mf_scores = mf_filter.score_all(session, trade_date)
-        all_scores = [*limit_scores, *mf_scores]
+        all_scores = [
+            *limit_filter.score_all(session, trade_date),
+            *mf_filter.score_all(session, trade_date),
+            *lhb_filter.score_all(session, trade_date),
+            *sector_filter.score_all(session, trade_date),
+        ]
 
         persist_filter_scores(session, all_scores)
 
@@ -197,10 +204,10 @@ def run_once(date_str: str | None, skip_ingest: bool) -> None:
             session,
             trade_date,
             output_dir=settings.report_dir,
-            phase="Phase 1 MVP (limit + moneyflow)",
+            # phase 默认值在 render_md.render_daily_report 里集中维护
         )
 
-    click.echo(f"✓ 报告已生成：\n  {md_path}\n  {json_path}")
+    click.echo(f"[OK] 报告已生成：\n  {md_path}\n  {json_path}")
 
 
 @cli.command("analyze")
