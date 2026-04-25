@@ -60,13 +60,22 @@ class Settings(BaseSettings):
     )
 
     # ---------- mo-skills 外部依赖定位 ----------
+    # 默认指向项目内 vendor/mo-skills（已 vendor 进仓库，跨平台开箱即用）；
+    # 若想用项目外的 mo-skills（例如本地开发同步最新版），通过 .env 的 MO_SKILLS_ROOT 覆盖即可。
     mo_skills_root: Path = Field(
-        default=Path("D:/QuantProjects/mo-skills"),
-        description="邻目录 mo-skills 绝对路径（GTHT node skill 通过此路径定位）",
+        default=PROJECT_ROOT / "vendor" / "mo-skills",
+        description="mo-skills 根目录；GTHT node skill 通过此路径定位（拼接 /gtht-skills/<skill>）",
     )
+    # 注意：此路径必须落在 GTHT skill-entry.js 写死的三条搜索路径之一，
+    # 否则即便 Python 落盘成功，node 端依然会报"未授权"。js 的查找规则是
+    # 从 skill 目录向上推三级找 `gtht-skill-shared/gtht-entry.json`：
+    #   1) <skill父>/gtht-skill-shared/...        = vendor/mo-skills/gtht-skills/gtht-skill-shared/...
+    #   2) <skill父父>/gtht-skill-shared/...      = vendor/mo-skills/gtht-skill-shared/...   ← 默认选这条
+    #   3) <skill父父父>/gtht-skill-shared/...    = vendor/gtht-skill-shared/...
+    # 选第 2 条因为它跟原邻目录 mo-skills 的约定一致，且不污染 skill 代码目录。
     gtht_entry_json_path: Path = Field(
-        default=PROJECT_ROOT / "gtht-skill-shared" / "gtht-entry.json",
-        description="国泰海通 API Key 文件位置",
+        default=PROJECT_ROOT / "vendor" / "mo-skills" / "gtht-skill-shared" / "gtht-entry.json",
+        description="国泰海通 API Key 文件位置；必须位于 skill-entry.js 的三条搜索路径之一",
     )
 
     # ---------- 运行时 ----------

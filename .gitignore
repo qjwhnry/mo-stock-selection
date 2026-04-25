@@ -57,9 +57,14 @@ data/reports/*.json
 *.sqlite
 *.sqlite3
 
-# GTHT 授权信息
+# GTHT 授权信息（旧位置 + vendor 下的 js 实际查找位置都要排除）
 gtht-skill-shared/
 !gtht-skill-shared/.gitkeep
+vendor/mo-skills/gtht-skill-shared/
+
+# vendor 下 node skill 运行时可能产生的依赖目录（防御性排除）
+vendor/**/node_modules/
+vendor/**/__MACOSX/
 
 # Alembic 生成的 SQL 备份
 alembic/versions/*.sql
