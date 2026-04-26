@@ -812,9 +812,14 @@ def _hm_list_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def _hm_detail_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
-    """Tushare hm_detail → HotMoneyDetail row dict 列表。"""
+    """Tushare hm_detail → HotMoneyDetail row dict 列表。
+
+    PK = (trade_date, ts_code, hm_name)。Tushare 同股+同游资+同日可能因不同
+    营业部返回多行，必须 dedupe 防 PG ON CONFLICT 撞重复键。保留首行。
+    """
     if df.empty:
         return []
+    df = df.drop_duplicates(subset=["trade_date", "ts_code", "hm_name"], keep="first")
     return [
         {
             "trade_date": _parse_date(r["trade_date"]),
@@ -892,6 +897,10 @@ def _top_inst_rows_from_df(
     df_sorted = df.sort_values(
         [c for c in sort_cols if c in df.columns], na_position="last",
     )
+    # 防 sha1 冲撞：(trade_date, ts_code, exalter, side, reason) 完全相同就 dedupe
+    dedupe_cols = [c for c in ["trade_date", "ts_code", "exalter", "side", "reason"]
+                   if c in df_sorted.columns]
+    df_sorted = df_sorted.drop_duplicates(subset=dedupe_cols, keep="first")
     rows: list[dict[str, Any]] = []
     counter: dict[tuple[date | None, str], int] = {}
     for _, r in df_sorted.iterrows():

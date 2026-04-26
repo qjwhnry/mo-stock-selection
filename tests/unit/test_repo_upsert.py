@@ -80,7 +80,7 @@ def test_upsert_rows_rejects_misaligned_conflict_cols() -> None:
 
     我们手动构造一个错误的调用，session 设为 None（不会被使用，因为校验在前）。
     """
-    with pytest.raises(ValueError, match="不一致"):
+    with pytest.raises(ValueError, match="不匹配"):
         repo.upsert_rows(
             session=None,  # type: ignore[arg-type]
             model=DailyKline,
