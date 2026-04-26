@@ -101,7 +101,7 @@ class TestHotMoneyRowsFromDf:
         assert rows[0]["name"] == "赵老哥"
         assert "溧阳路" in rows[0]["orgs"]
 
-    def test_hm_detail(self) -> None:
+    def test_hm_detail_single_row(self) -> None:
         df = pd.DataFrame([{
             "trade_date": "20260424", "ts_code": "600000.SH",
             "ts_name": "浦发银行", "buy_amount": 1e7, "sell_amount": 1e6,
@@ -112,3 +112,59 @@ class TestHotMoneyRowsFromDf:
         assert rows[0]["trade_date"] == date(2026, 4, 24)
         assert rows[0]["hm_name"] == "赵老哥"
         assert rows[0]["net_amount"] == 9e6
+
+    def test_hm_detail_aggregates_multiple_orgs(self) -> None:
+        """方案 B：同 (date, ts_code, hm_name) 多营业部 → 1 行聚合（金额 sum + 营业部拼接）。"""
+        df = pd.DataFrame([
+            {"trade_date": "20260424", "ts_code": "000062.SZ",
+             "ts_name": "深圳华强", "hm_name": "小棉袄",
+             "buy_amount": 3_000_000, "sell_amount": 0, "net_amount": 3_000_000,
+             "hm_orgs": "东方财富证券拉萨", "tag": "买入"},
+            {"trade_date": "20260424", "ts_code": "000062.SZ",
+             "ts_name": "深圳华强", "hm_name": "小棉袄",
+             "buy_amount": 2_000_000, "sell_amount": 0, "net_amount": 2_000_000,
+             "hm_orgs": "华林证券深圳益田路", "tag": "买入"},
+            {"trade_date": "20260424", "ts_code": "000062.SZ",
+             "ts_name": "深圳华强", "hm_name": "小棉袄",
+             "buy_amount": 1_030_000, "sell_amount": 0, "net_amount": 1_030_000,
+             "hm_orgs": "银河证券嘉兴中环南路", "tag": "买入"},
+        ])
+        rows = _hm_detail_rows_from_df(df)
+        assert len(rows) == 1
+        r = rows[0]
+        # 金额求和
+        assert r["buy_amount"] == 6_030_000
+        assert r["sell_amount"] == 0
+        assert r["net_amount"] == 6_030_000
+        # 营业部 ; 拼接保留全部，去重 + 排序保证幂等
+        assert r["hm_orgs"].count(";") == 2
+        assert "东方财富证券拉萨" in r["hm_orgs"]
+        assert "华林证券深圳益田路" in r["hm_orgs"]
+        assert "银河证券嘉兴中环南路" in r["hm_orgs"]
+
+    def test_hm_detail_dedupe_within_aggregation(self) -> None:
+        """同营业部多次返回也只在 hm_orgs 出现一次（去重）。"""
+        df = pd.DataFrame([
+            {"trade_date": "20260424", "ts_code": "000062.SZ", "ts_name": "深圳华强",
+             "hm_name": "X", "buy_amount": 100, "sell_amount": 0, "net_amount": 100,
+             "hm_orgs": "A 营业部", "tag": "买入"},
+            {"trade_date": "20260424", "ts_code": "000062.SZ", "ts_name": "深圳华强",
+             "hm_name": "X", "buy_amount": 100, "sell_amount": 0, "net_amount": 100,
+             "hm_orgs": "A 营业部", "tag": "买入"},  # 重复
+        ])
+        rows = _hm_detail_rows_from_df(df)
+        assert len(rows) == 1
+        assert rows[0]["buy_amount"] == 200  # sum 仍叠加金额
+        assert rows[0]["hm_orgs"] == "A 营业部"  # 营业部只出现一次
+
+    def test_hm_detail_handles_null_orgs(self) -> None:
+        """hm_orgs 为 NaN/空时聚合不报错，hm_orgs 字段为 None。"""
+        import numpy as np
+        df = pd.DataFrame([
+            {"trade_date": "20260424", "ts_code": "X", "ts_name": "test",
+             "hm_name": "Y", "buy_amount": 1, "sell_amount": 0, "net_amount": 1,
+             "hm_orgs": np.nan, "tag": None},
+        ])
+        rows = _hm_detail_rows_from_df(df)
+        assert len(rows) == 1
+        assert rows[0]["hm_orgs"] is None

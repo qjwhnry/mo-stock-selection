@@ -683,25 +683,33 @@ class HotMoneyList(Base):
 
 
 class HotMoneyDetail(Base):
-    """游资每日交易明细（Tushare hm_detail, doc_id=312）。数据从 2022-08 起。"""
+    """游资每日交易明细（Tushare hm_detail, doc_id=312）。数据从 2022-08 起。
+
+    PK = (trade_date, ts_code, hm_name, hm_orgs)：Tushare 接口按"游资 × 关联营业部"
+    返回粒度，同游资有多个营业部时会出现多行。把 hm_orgs 纳入 PK 完整保留原始数据。
+    hm_orgs 必须 NOT NULL（PG PK 约束），ingest 时缺失值兜底为空串 ''。
+    """
 
     __tablename__ = "hot_money_detail"
 
     trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
     ts_code: Mapped[str] = mapped_column(String(12), comment="股票代码")
     hm_name: Mapped[str] = mapped_column(String(100), comment="游资名称")
+    hm_orgs: Mapped[str] = mapped_column(
+        String(200), default="",
+        comment="关联营业部（PK 之一；NOT NULL，缺失用空串兜底）",
+    )
     ts_name: Mapped[str | None] = mapped_column(String(50), comment="股票名称")
     buy_amount: Mapped[float | None] = mapped_column(Float, comment="买入金额（元）")
     sell_amount: Mapped[float | None] = mapped_column(Float, comment="卖出金额（元）")
     net_amount: Mapped[float | None] = mapped_column(Float, comment="净买卖金额（元）")
-    hm_orgs: Mapped[str | None] = mapped_column(Text, comment="关联营业部，从 hm_list 冗余")
     tag: Mapped[str | None] = mapped_column(String(50), comment="标签（Tushare 原始）")
 
     __table_args__ = (
         PrimaryKeyConstraint("trade_date", "ts_code", "hm_name"),
         Index("ix_hot_money_detail_date", "trade_date"),
         Index("ix_hot_money_detail_hm", "hm_name", "trade_date"),
-        {"comment": "每日游资交易明细，LhbFilter 席位身份加权辅助"},
+        {"comment": "每日游资交易明细（按 date×stock×游资 聚合，营业部用 ; 拼接到 hm_orgs）"},
     )
 
 

@@ -814,12 +814,26 @@ def _hm_list_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
 def _hm_detail_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
     """Tushare hm_detail → HotMoneyDetail row dict 列表。
 
-    PK = (trade_date, ts_code, hm_name)。Tushare 同股+同游资+同日可能因不同
-    营业部返回多行，必须 dedupe 防 PG ON CONFLICT 撞重复键。保留首行。
+    PK = (trade_date, ts_code, hm_name)。Tushare 同股+同游资+同日因不同**营业部**
+    会返回多行（每个营业部一笔金额），属接口粒度细于表 PK 的合理分歧。
+
+    聚合策略（v2.1 方案 B）：
+    - buy / sell / net_amount 按 (date, ts_code, hm_name) **求和**
+    - hm_orgs 用 ";" 拼接所有营业部去重排序，保留全部信息
+    - ts_name / tag 取首行（同 ts_code 名称稳定；tag 通常一致）
     """
     if df.empty:
         return []
-    df = df.drop_duplicates(subset=["trade_date", "ts_code", "hm_name"], keep="first")
+    grouped = df.groupby(
+        ["trade_date", "ts_code", "hm_name"], as_index=False, dropna=False,
+    ).agg({
+        "ts_name": "first",
+        "buy_amount": "sum",
+        "sell_amount": "sum",
+        "net_amount": "sum",
+        "hm_orgs": _join_unique_orgs,
+        "tag": "first",
+    })
     return [
         {
             "trade_date": _parse_date(r["trade_date"]),
@@ -832,8 +846,14 @@ def _hm_detail_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
             "hm_orgs": _str_or_none(r.get("hm_orgs")),
             "tag": _str_or_none(r.get("tag")),
         }
-        for _, r in df.iterrows()
+        for _, r in grouped.iterrows()
     ]
+
+
+def _join_unique_orgs(s: pd.Series) -> str | None:
+    """聚合营业部列：去重 + 排序 + 用 ; 拼接。空值返回 None。"""
+    parts = sorted({str(p).strip() for p in s.dropna() if str(p).strip()})
+    return ";".join(parts) if parts else None
 
 
 # ---- 龙虎榜席位明细 + 游资识别 ----
