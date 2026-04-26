@@ -10,16 +10,23 @@
 
 ## 总览
 
-按用途分 5 大类 14 张表：
+按用途分 7 大类 **23 张表**（v2.1 后）：
 
 | 类别 | 表 | 条数级别 | 保留策略 |
 |------|----|--------|---------|
-| 基础 | `stock_basic`, `trade_cal` | 千级 | 永久（周/年级刷新） |
+| 基础元数据 | `stock_basic`, `trade_cal`, `index_member`, `ths_index`, `ths_member`, `hot_money_list` | 千~万级 | 永久（周/月级刷新） |
 | 行情 | `daily_kline`, `daily_basic` | 日×5k | **180 天滚动** |
 | 异动 | `limit_list`, `lhb`, `moneyflow` | 日×数百 | **180 天滚动** |
 | 板块 | `sw_daily` | 日×31 | **180 天滚动** |
+| 题材增强（v2.1 新） | `ths_daily`, `limit_concept_daily`, `ths_concept_moneyflow` | 日×千级 | **180 天滚动** |
+| 龙虎榜席位（v2.1 新） | `lhb_seat_detail`, `hot_money_detail` | 日×百级 | **180 天滚动** |
 | 情绪 | `news_raw`, `anns_raw`, `research_report` | 日×千级 | **180 天滚动** |
 | 结果 | `filter_score_daily`, `ai_analysis`, `selection_result` | 日×N | **永久**（供回测） |
+
+**v2.1 schema 关键变更**：
+- DROP `lhb.seat` JSONB 字段（席位明细搬到独立表 `lhb_seat_detail`，PK 含 `seat_key=sha1(...)` 内容寻址，避免 top_inst 重跑顺序变化导致脏数据漂移）
+- 新增 6 张表（hot_money_list + 3 题材 + 2 席位明细）
+- 详见 alembic migration [`20260426_theme_lhb_v21.py`](../alembic/versions/20260426_theme_lhb_v21.py)
 
 **命名规范**
 - 表名：`snake_case`，复数去掉（`limit_list` 不是 `limit_lists`）
@@ -59,6 +66,59 @@
 | `pretrade_date` | DATE | ✓ | 对应的上一个交易日 |
 
 **索引**：`is_open`
+
+### `index_member` — 股票 → 申万一/二/三级行业映射
+
+Tushare `index_member_all`（按 31 个一级行业分页）。`SectorFilter` 关联 `sw_daily` 板块涨幅用。
+约 5700 行，月度刷新或申万年度评审后手动刷。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `ts_code` | VARCHAR(12) | **PK** | 股票代码 |
+| `l1_code` / `l1_name` | VARCHAR | ✓ | 申万一级（如 `801080.SI` / 「电子」） |
+| `l2_code` / `l2_name` | VARCHAR | ✓ | 申万二级 |
+| `l3_code` / `l3_name` | VARCHAR | ✓ | 申万三级 |
+| `in_date` | DATE | ✓ | 加入板块日期（用于跨 l1 dedupe，保留最新归属） |
+
+**索引**：`l1_code`
+
+### `ths_index` — 同花顺概念/行业板块元数据
+
+Tushare `ths_index`（type=N, exchange=A）。约 408 个 A 股概念板块（新能源车/AI/华为产业链等）。
+`ThemeFilter` 关联 `ths_daily` 用于题材热度排名。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `ts_code` | VARCHAR(20) | **PK** | 同花顺板块代码，如 `885806.TI` |
+| `name` | VARCHAR(50) | ✗ | 板块名称 |
+| `count` | INT | ✓ | 成分股数量 |
+| `exchange` | VARCHAR(10) | ✓ | 交易所（A=A 股） |
+| `list_date` | DATE | ✓ | 板块创建日期 |
+| `type` | VARCHAR(10) | ✓ | 类型（N=概念 / I=行业等） |
+
+### `ths_member` — 股票 → 同花顺概念多对多映射
+
+Tushare `ths_member`。一只股可属多个概念。约 7 万行，月度刷新。
+`ThemeFilter` 通过此表把概念热度反查到个股。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `ts_code` | VARCHAR(20) | **PK₁** | 概念板块代码 |
+| `con_code` | VARCHAR(12) | **PK₂** | 成分股代码 |
+| `con_name` | VARCHAR(50) | ✓ | 成分股名称 |
+| `weight` | FLOAT | ✓ | 权重（接口当前不返） |
+| `in_date` / `out_date` | DATE | ✓ | 加入/移出日期（接口当前不返） |
+
+### `hot_money_list` — 游资名录（v2.1 新增）
+
+Tushare `hm_list`。约 109 个分类（赵老哥 / 章盟主 等），低频刷新（周/月级）。
+`LhbFilter` 用于把龙虎榜席位识别为 `hot_money` 类型（完全相等匹配 `orgs` 字段）。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `name` | VARCHAR(100) | **PK** | 游资名称（Tushare 主键） |
+| `desc` | TEXT | ✓ | 游资风格说明 |
+| `orgs` | TEXT | ✓ | 关联营业部，分号/逗号分隔的原始字符串；ingest 时拆 set 用 |
 
 ---
 
@@ -118,9 +178,10 @@ Tushare `limit_list_d`。`LimitFilter` 打分源。
 
 **索引**：`limit_type`、`trade_date`
 
-### `lhb` — 龙虎榜席位
+### `lhb` — 龙虎榜汇总
 
-Tushare `top_list` + `top_inst`。`LhbFilter` 打分源。
+Tushare `top_list`（不含席位明细）。`LhbFilter` 的 base 部分打分源。
+**席位明细（top_inst）已搬到独立表 `lhb_seat_detail`**（v2.1）。
 
 | 字段 | 类型 | NULL | 说明 |
 |------|------|:---:|------|
@@ -130,13 +191,16 @@ Tushare `top_list` + `top_inst`。`LhbFilter` 打分源。
 | `close` | FLOAT | ✓ | 当日收盘价 |
 | `pct_change` | FLOAT | ✓ | 当日涨跌幅（%） |
 | `turnover_rate` | FLOAT | ✓ | 换手率（%） |
-| `amount` | FLOAT | ✓ | 总成交额（万元） |
-| `l_sell` / `l_buy` / `l_amount` | FLOAT | ✓ | 龙虎榜席位卖出/买入/总成交额（万元） |
-| `net_amount` | FLOAT | ✓ | 席位净买入额（万元）= l_buy - l_sell |
-| `reason` | TEXT | ✓ | 上榜原因（日涨幅偏离 7% 等） |
-| `seat` | JSONB | ✓ | 席位明细 `[{name, buy, sell, net}, ...]` |
+| `amount` | FLOAT | ✓ | 总成交额（元，Tushare 文档说万元但实际是元） |
+| `l_sell` / `l_buy` / `l_amount` | FLOAT | ✓ | 龙虎榜席位卖出/买入/总成交额（元） |
+| `net_amount` | FLOAT | ✓ | 席位净买入额（元）= l_buy - l_sell |
+| `net_rate` | FLOAT | ✓ | **净买入占当日总成交比例（%）**，跨股可比，LhbFilter 主输入 |
+| `amount_rate` | FLOAT | ✓ | 席位成交占当日总成交比例（%），席位主导度信号 |
+| `reason` | TEXT | ✓ | 上榜原因（日涨幅偏离 7% 等）；含「跌幅」整股跳过 |
 
 **索引**：`ts_code`
+
+**v2.1 变更**：原 `seat` JSONB 字段已 DROP（无消费方），席位明细见 `lhb_seat_detail`。
 
 ### `moneyflow` — 主力资金流向
 
@@ -174,6 +238,104 @@ Tushare `sw_daily`。`SectorFilter` 打分源。
 | `turnover_rate` | FLOAT | ✓ | 板块换手率（%） |
 
 **索引**：`trade_date`
+
+---
+
+## 4.5. 题材增强（v2.1 新增，180 天滚动）
+
+`ThemeFilter` 与 `sector` 平级独立维度，从三类信号合成。
+
+### `ths_daily` — 同花顺概念/行业指数日行情
+
+Tushare `ths_daily`。约 1232 个板块×每天一行。`ThemeFilter` 用 `pct_change` 排出题材热度 TOP N。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `ts_code` | VARCHAR(20) | **PK₁** | 同花顺板块代码 |
+| `trade_date` | DATE | **PK₂** | 交易日 |
+| `name` | VARCHAR(50) | ✓ | 板块名称（冗余 `ths_index`） |
+| `open` / `high` / `low` / `close` / `pre_close` / `avg_price` | FLOAT | ✓ | 板块点位 |
+| `change` / `pct_change` | FLOAT | ✓ | 涨跌额 / 涨跌幅（%）；ThemeFilter 主输入 |
+| `vol` / `turnover_rate` | FLOAT | ✓ | 成交量 / 换手率 |
+| `total_mv` / `float_mv` | FLOAT | ✓ | 总市值 / 流通市值 |
+
+**索引**：`(trade_date, pct_change)` → 加速 TOP N 查询
+
+### `limit_concept_daily` — 涨停最强概念板块
+
+Tushare `limit_cpt_list`。每日 TOP 20 涨停最强概念。`ThemeFilter` 用 `rank` 评估短线情绪。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `ts_code` | VARCHAR(20) | **PK₁** | 板块代码 |
+| `trade_date` | DATE | **PK₂** | 交易日 |
+| `name` | VARCHAR(50) | ✓ | 板块名称 |
+| `days` | INT | ✓ | 上榜天数 |
+| `up_stat` | VARCHAR(50) | ✓ | 连板高度描述 |
+| `cons_nums` / `up_nums` | INT | ✓ | 连板家数 / 涨停家数 |
+| `pct_chg` | FLOAT | ✓ | 概念涨跌幅（%） |
+| `rank` | INT | ✓ | 热点排名（1 最强）；ThemeFilter 主输入 |
+
+**索引**：`(trade_date, rank)`
+
+### `ths_concept_moneyflow` — 概念板块资金流向
+
+Tushare `moneyflow_cnt_ths`。约 386 个概念有数据。`ThemeFilter` 资金确认信号。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `ts_code` | VARCHAR(20) | **PK₁** | 概念板块代码 |
+| `trade_date` | DATE | **PK₂** | 交易日 |
+| `name` | VARCHAR(50) | ✓ | 板块名称 |
+| `lead_stock` | VARCHAR(50) | ✓ | 领涨股票名称 |
+| `pct_change` | FLOAT | ✓ | 板块涨跌幅（%） |
+| `company_num` | INT | ✓ | 成分公司数量 |
+| `pct_change_stock` | FLOAT | ✓ | 领涨股涨跌幅（%） |
+| `net_buy_amount` / `net_sell_amount` | FLOAT | ✓ | 买入/卖出额（亿元） |
+| `net_amount` | FLOAT | ✓ | 净流入额（亿元）；> 0 触发 ThemeFilter 加分 |
+
+**索引**：`(trade_date, net_amount)`
+
+---
+
+## 4.6. 龙虎榜席位明细（v2.1 新增，180 天滚动）
+
+替代 v1 的 `lhb.seat` JSONB 字段，便于 SQL 直接过滤"今天机构净买 > N 的票"。
+
+### `lhb_seat_detail` — 龙虎榜席位明细
+
+Tushare `top_inst`。`LhbFilter` 的 seat 部分（base 60 + **seat 40**）打分源。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `trade_date` | DATE | **PK₁** | 交易日 |
+| `ts_code` | VARCHAR(12) | **PK₂** | 股票代码 |
+| `seat_key` | VARCHAR(64) | **PK₃** | **稳定席位键 = sha1(ts_code\|exalter\|side\|reason)**，避免 top_inst 重跑顺序变化导致 upsert 覆盖错行 |
+| `seat_no` | INT | ✗ | 展示序号 1-N（按稳定排序生成）。**消费方排序请用 seat_no**，seat_key 顺序无业务含义 |
+| `exalter` | VARCHAR(200) | ✓ | 席位/营业部名称 |
+| `side` | VARCHAR(2) | ✓ | 0=买榜 / 1=卖榜（仅指榜单位置，非买卖方向） |
+| `buy` / `sell` / `net_buy` | FLOAT | ✓ | 买入/卖出/净买卖金额（元） |
+| `reason` | VARCHAR(100) | ✓ | 上榜原因 |
+| `seat_type` | VARCHAR(20) | ✗ | ingest 时分类：`institution` / `northbound` / `hot_money` / `other` |
+
+**索引**：`(trade_date, seat_type)`、`(trade_date, ts_code)`
+
+### `hot_money_detail` — 游资每日交易明细
+
+Tushare `hm_detail`（数据从 2022-08 起）。约 262 行/天。
+与 `lhb_seat_detail` 互补：席位明细看金额，hm_detail 直接给"哪位游资买了什么"。
+
+| 字段 | 类型 | NULL | 说明 |
+|------|------|:---:|------|
+| `trade_date` | DATE | **PK₁** | 交易日 |
+| `ts_code` | VARCHAR(12) | **PK₂** | 股票代码 |
+| `hm_name` | VARCHAR(100) | **PK₃** | 游资名称 |
+| `ts_name` | VARCHAR(50) | ✓ | 股票名称 |
+| `buy_amount` / `sell_amount` / `net_amount` | FLOAT | ✓ | 买入/卖出/净买卖金额（元） |
+| `hm_orgs` | TEXT | ✓ | 关联营业部（从 `hot_money_list` 冗余） |
+| `tag` | VARCHAR(50) | ✓ | 标签（Tushare 原始） |
+
+**索引**：`trade_date`、`(hm_name, trade_date)`
 
 ---
 
@@ -233,14 +395,14 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 
 ### `filter_score_daily` — 规则层逐维度打分
 
-每天每股最多 5 行（`limit`/`moneyflow`/`lhb`/`sector`/`sentiment`）。
+每天每股最多 **6 行**（v2.1 后：`limit`/`moneyflow`/`lhb`/`sector`/`theme`/`sentiment`）。
 
 | 字段 | 类型 | NULL | 说明 |
 |------|------|:---:|------|
 | `id` | INT | **PK** | 自增 |
 | `trade_date` | DATE | ✗ | 评分对应的交易日 |
 | `ts_code` | VARCHAR(12) | ✗ | 股票代码 |
-| `dim` | VARCHAR(20) | ✗ | 维度标识，5 选 1 |
+| `dim` | VARCHAR(20) | ✗ | 维度标识，**6 选 1**（v2.1 新增 theme） |
 | `score` | FLOAT | ✗ | 本维度得分 0-100 |
 | `detail` | JSONB | ✓ | 打分细节 JSON，供报告/复盘 |
 

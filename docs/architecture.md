@@ -2,7 +2,7 @@
 
 > 当前版本：**v2.1**（2026-04-26 完成 theme + lhb 席位集成后）
 > 维度数：**6 维规则**（limit / moneyflow / lhb / sector / theme / sentiment）
-> 数据库表：**20 张**（基础 6 + 行情 3 + 异动 3 + 题材 3 + 龙虎榜席位 2 + 情绪 3 + 结果 3）
+> 数据库表：**23 张**（基础 6 + 行情 3 + 异动 3 + 题材 3 + 龙虎榜席位 2 + 情绪 3 + 结果 3）
 
 ---
 
@@ -46,7 +46,7 @@
 │                    数据访问层 (storage)                             │
 │   ┌──────────────────┐    ┌────────────────────────────────────┐   │
 │   │  models.py       │    │  repo.py                           │   │
-│   │  20 张表 ORM     │◀───│  upsert_*  /  get_*  helpers       │   │
+│   │  23 张表 ORM     │◀───│  upsert_*  /  get_*  helpers       │   │
 │   │  (v2.1: +6 张)   │    │  conflict_cols 主键对齐校验        │   │
 │   └──────────────────┘    └────────────────────────────────────┘   │
 │   ┌──────────────────────────────────────────────────────────┐    │
@@ -127,7 +127,7 @@ cli.py:run_once()
 
 | 命令 | 入口 | 核心调用 |
 |------|------|---------|
-| `init-db` | cli.init_db | `Base.metadata.create_all(engine)` 一键建 20 张表 |
+| `init-db` | cli.init_db | `Base.metadata.create_all(engine)` 一键建 23 张表 |
 | `refresh-basics [--with-ths] [--with-hm-list]` | cli.refresh_basics | refresh_stock_basic / refresh_index_member / refresh_ths_concept / refresh_hot_money_list |
 | `refresh-cal --start ...` | cli.refresh_cal | refresh_trade_cal（年度刷一次） |
 | `backfill --days 180` | cli.backfill | DailyIngestor.backfill 按日循环跑 ingest_one_day |
@@ -226,7 +226,7 @@ score(stock) = max over concepts of:
 | [src/mo_stock/data_sources/gtht_client.py](../src/mo_stock/data_sources/gtht_client.py) | 国泰海通 skill 子进程 |
 | [src/mo_stock/data_sources/calendar.py](../src/mo_stock/data_sources/calendar.py) | 交易日 / 选股池工具 |
 | [src/mo_stock/ingest/ingest_daily.py](../src/mo_stock/ingest/ingest_daily.py) | 11 个 ingest 方法 + 清洗函数 |
-| [src/mo_stock/storage/models.py](../src/mo_stock/storage/models.py) | 20 张表 ORM 定义 |
+| [src/mo_stock/storage/models.py](../src/mo_stock/storage/models.py) | 23 张表 ORM 定义 |
 | [src/mo_stock/storage/repo.py](../src/mo_stock/storage/repo.py) | upsert / 读 helpers |
 | [src/mo_stock/filters/limit_filter.py](../src/mo_stock/filters/limit_filter.py) | 涨停维度 |
 | [src/mo_stock/filters/moneyflow_filter.py](../src/mo_stock/filters/moneyflow_filter.py) | 资金流维度 |
