@@ -125,7 +125,11 @@ def init_db(drop: bool) -> None:
     "--with-ths", is_flag=True,
     help="同时刷新同花顺概念板块（ths_index + ths_member），额外耗时 3-4 分钟",
 )
-def refresh_basics(with_ths: bool) -> None:
+@click.option(
+    "--with-hm-list", is_flag=True,
+    help="同时刷新游资名录（hot_money_list），约 30 秒；LhbFilter 席位识别依赖此表",
+)
+def refresh_basics(with_ths: bool, with_hm_list: bool) -> None:
     """刷新「股票元数据」慢变量表。
 
     \b
@@ -134,14 +138,20 @@ def refresh_basics(with_ths: bool) -> None:
       - index_member  ~5700 行：股票→申万一/二/三级行业映射（SectorFilter 关联 sw_daily 用）
 
     \b
-    --with-ths（额外约 3-4 分钟，需 6000 积分）：
+    --with-ths（额外约 3-4 分钟）：
       - ths_index    ~408 行：同花顺 A 股概念板块元数据（新能源车/AI/华为产业链 等）
-      - ths_member   ~7 万行：股票→概念多对多映射（SectorFilter 题材命中加分用）
+      - ths_member   ~7 万行：股票→概念多对多映射（ThemeFilter 题材命中加分用）
+
+    \b
+    --with-hm-list（额外约 30 秒）：
+      - hot_money_list  ~109 行：Tushare 游资名录（赵老哥 / 章盟主 等）
+        LhbFilter 用于把龙虎榜席位识别为 hot_money 类型
 
     \b
     推荐频率：
       - 默认：**每周 1 次**（周一开盘前）—— stock_basic 周度变化、index_member 申万年度评审
       - --with-ths：**每月 1 次** —— 同花顺概念变化频率介于两者之间
+      - --with-hm-list：**每周 1 次** —— 游资名录低频更新
       - 不需要每天跑（浪费 Tushare 配额）
 
     详见 docs/cli.md 的「运行频率速查」章节。
@@ -151,6 +161,8 @@ def refresh_basics(with_ths: bool) -> None:
     ingestor.refresh_index_member()
     if with_ths:
         ingestor.refresh_ths_concept()
+    if with_hm_list:
+        ingestor.refresh_hot_money_list()
 
 
 @cli.command("refresh-cal")
@@ -185,8 +197,9 @@ def backfill(days: int, end: str | None) -> None:
 @cli.command("run-once")
 @click.option("--date", "date_str", default=None, help="选股日 YYYY-MM-DD，默认今日")
 @click.option("--skip-ingest", is_flag=True, help="跳过数据拉取步骤（用于已经有数据时的重算）")
+@click.option("--skip-enhanced", is_flag=True, help="只跑 6 个 CORE ingest，跳过题材/席位增强（5 步）")
 @click.option("--force", is_flag=True, help="允许在非交易日运行（默认会拒绝）")
-def run_once(date_str: str | None, skip_ingest: bool, force: bool) -> None:
+def run_once(date_str: str | None, skip_ingest: bool, skip_enhanced: bool, force: bool) -> None:
     """对指定交易日跑一次端到端选股流程：ingest → filter → combine → report。"""
     trade_date = _parse_date(date_str) if date_str else date.today()
     _ensure_trade_date(trade_date, force=force, kind="run-once")
@@ -194,7 +207,7 @@ def run_once(date_str: str | None, skip_ingest: bool, force: bool) -> None:
 
     # ---------- 1. 数据拉取 ----------
     if not skip_ingest:
-        DailyIngestor().ingest_one_day(trade_date)
+        DailyIngestor().ingest_one_day(trade_date, skip_enhanced=skip_enhanced)
 
     # ---------- 2. 加载权重配置 ----------
     weights_path = Path(__file__).resolve().parent.parent.parent / "config" / "weights.yaml"
@@ -304,11 +317,12 @@ def analyze(ts_code: str, date_str: str | None, as_json: bool, force: bool) -> N
 
 
 @cli.command("scheduler")
-def scheduler() -> None:
+@click.option("--skip-enhanced", is_flag=True, help="scheduler 每日任务跳过 ENHANCED ingest（5 步）")
+def scheduler(skip_enhanced: bool) -> None:
     """启动常驻调度：每个交易日 15:30 自动跑 run-once。"""
     from mo_stock.scheduler.daily_job import start_scheduler
 
-    start_scheduler()
+    start_scheduler(skip_enhanced=skip_enhanced)
 
 
 def main() -> None:

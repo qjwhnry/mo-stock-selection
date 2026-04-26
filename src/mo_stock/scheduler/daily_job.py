@@ -53,24 +53,33 @@ def _assert_lhb_data_available(trade_date: date, now: datetime | None = None) ->
         )
 
 
-def run_daily_pipeline(trade_date: date | None = None) -> None:
+def run_daily_pipeline(
+    trade_date: date | None = None, *, skip_enhanced: bool = False,
+) -> None:
     """Phase 2 端到端流程（与 cli.run_once 内部一致）。
 
     P1-18：顶层 try-except 捕获并 logger.exception 记录完整堆栈，避免 APScheduler
     默认行为吞掉异常导致排查困难。
+
+    Args:
+        trade_date: 目标交易日，None 取当天
+        skip_enhanced: True 时只跑 6 个 CORE ingest 步骤
     """
     from pathlib import Path
 
     from config.settings import settings
 
     trade_date = trade_date or date.today()
-    logger.info("===== 每日定时任务触发：{} =====", trade_date)
+    logger.info(
+        "===== 每日定时任务触发：{} (skip_enhanced={}) =====",
+        trade_date, skip_enhanced,
+    )
 
     try:
         # P0-1：龙虎榜时点保护——选当日时必须晚于 15:30
         _assert_lhb_data_available(trade_date)
 
-        DailyIngestor().ingest_one_day(trade_date)
+        DailyIngestor().ingest_one_day(trade_date, skip_enhanced=skip_enhanced)
 
         weights_path = Path(__file__).resolve().parent.parent.parent.parent / "config" / "weights.yaml"
         cfg = load_weights_yaml(weights_path)
@@ -111,8 +120,12 @@ def run_daily_pipeline(trade_date: date | None = None) -> None:
         raise
 
 
-def start_scheduler() -> None:
-    """启动阻塞调度器。周一至周五 15:30 (Asia/Shanghai) 触发。"""
+def start_scheduler(*, skip_enhanced: bool = False) -> None:
+    """启动阻塞调度器。周一至周五 15:30 (Asia/Shanghai) 触发。
+
+    Args:
+        skip_enhanced: 透传给每日任务的 ingest_one_day（True 时只跑 CORE 6 步）
+    """
     scheduler = BlockingScheduler(timezone="Asia/Shanghai")
 
     scheduler.add_job(
@@ -126,9 +139,13 @@ def start_scheduler() -> None:
         name="每日 15:30 A 股选股流程",
         # P1-18：错过 60 分钟内仍补跑（原 30 分钟偏短，遇网络抖动易错过窗口）
         misfire_grace_time=60 * 60,
+        # 透传 skip_enhanced 到 run_daily_pipeline
+        kwargs={"skip_enhanced": skip_enhanced},
     )
 
-    logger.info("scheduler 已启动：每交易日 15:30 触发")
+    logger.info(
+        "scheduler 已启动：每交易日 15:30 触发 (skip_enhanced={})", skip_enhanced,
+    )
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

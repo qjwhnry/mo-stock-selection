@@ -19,6 +19,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -29,6 +31,7 @@ from loguru import logger
 from mo_stock.data_sources.tushare_client import TushareClient, date_to_tushare
 from mo_stock.storage import repo
 from mo_stock.storage.db import get_session
+from mo_stock.storage.models import HotMoneyList, ThsIndex
 
 
 class DailyIngestor:
@@ -312,19 +315,118 @@ class DailyIngestor:
         return n
 
     # ====================================================================
-    # 组合入口
+    # v2.1 plan Task 3：题材增强 + 龙虎榜席位 ingest 方法
     # ====================================================================
 
-    def ingest_one_day(self, trade_date: date) -> dict[str, int]:
-        """拉取指定交易日的全部数据（MVP 范围）。
+    def ingest_ths_daily(self, trade_date: date) -> int:
+        """拉当日同花顺概念/行业指数日行情。"""
+        df = self.client.ths_daily(trade_date=date_to_tushare(trade_date))
+        if df.empty:
+            logger.warning("ths_daily {} 返回空", trade_date)
+            return 0
+        with get_session() as s:
+            name_map = {x.ts_code: x.name for x in s.query(ThsIndex).all()}
+            rows = _ths_daily_rows_from_df(df, name_map=name_map)
+            n = repo.upsert_ths_daily(s, rows)
+        logger.info("ths_daily {} upserted {} rows", trade_date, n)
+        return n
 
-        每个 ingest_xxx 单独 try/except：单步失败（数据源异常 / DB 约束冲突）
-        只影响该步，不阻断同日其他维度的写入。stats 中 -1 表示该步抛错。
+    def ingest_limit_concept(self, trade_date: date) -> int:
+        """拉当日涨停最强概念榜单。"""
+        df = self.client.limit_cpt_list(trade_date=date_to_tushare(trade_date))
+        rows = _limit_concept_rows_from_df(df)
+        if not rows:
+            logger.info("limit_cpt_list {} 返回空", trade_date)
+            return 0
+        with get_session() as s:
+            n = repo.upsert_limit_concept_daily(s, rows)
+        logger.info("limit_concept_daily {} upserted {} rows", trade_date, n)
+        return n
+
+    def ingest_concept_moneyflow(self, trade_date: date) -> int:
+        """拉当日同花顺概念板块资金流向。"""
+        df = self.client.moneyflow_cnt_ths(trade_date=date_to_tushare(trade_date))
+        rows = _concept_moneyflow_rows_from_df(df)
+        if not rows:
+            return 0
+        with get_session() as s:
+            n = repo.upsert_concept_moneyflow(s, rows)
+        logger.info("ths_concept_moneyflow {} upserted {} rows", trade_date, n)
+        return n
+
+    def ingest_top_inst(self, trade_date: date) -> int:
+        """拉当日龙虎榜席位明细（top_inst → LhbSeatDetail）。
+
+        依赖 hot_money_list（用 set 加速识别游资席位）。若 hm_list 为空，所有
+        席位会被打成 'other'，记 warning 提示先跑 refresh-basics --with-hm-list。
         """
-        logger.info("=== ingest_one_day {} ===", trade_date)
+        df = self.client.top_inst(trade_date=date_to_tushare(trade_date))
+        if df.empty:
+            return 0
+        with get_session() as s:
+            hot_money_orgs: set[str] = set()
+            for hm in s.query(HotMoneyList).all():
+                hot_money_orgs |= _split_orgs_string(hm.orgs)
+            if not hot_money_orgs:
+                logger.warning(
+                    "hot_money_list 为空，top_inst 席位仍入库但 hot_money 分类会降级为 other；"
+                    "请先跑 refresh-basics --with-hm-list",
+                )
+            rows = _top_inst_rows_from_df(df, hot_money_orgs=hot_money_orgs)
+            n = repo.upsert_lhb_seat_detail(s, rows)
+        logger.info("lhb_seat_detail {} upserted {} rows", trade_date, n)
+        return n
 
-        # 步骤名 → 调用，按业务优先级排序（基础行情在前，衍生数据在后）
-        steps: list[tuple[str, Callable[[date], int]]] = [
+    def ingest_hm_detail(self, trade_date: date) -> int:
+        """拉当日游资交易明细（hm_detail → HotMoneyDetail）。"""
+        df = self.client.hm_detail(trade_date=date_to_tushare(trade_date))
+        rows = _hm_detail_rows_from_df(df)
+        if not rows:
+            return 0
+        with get_session() as s:
+            n = repo.upsert_hot_money_detail(s, rows)
+        logger.info("hm_detail {} upserted {} rows", trade_date, n)
+        return n
+
+    def refresh_hot_money_list(self) -> int:
+        """刷新游资名录（低频元数据，refresh-basics 调用）。"""
+        df = self.client.hm_list()
+        rows = _hm_list_rows_from_df(df)
+        if not rows:
+            logger.warning("hm_list 返回空")
+            return 0
+        with get_session() as s:
+            n = repo.upsert_hot_money_list(s, rows)
+        logger.info("hot_money_list upserted {} rows", n)
+        return n
+
+    # ====================================================================
+    # 组合入口（v2.1：CORE / ENHANCED 分组）
+    # ====================================================================
+
+    def ingest_one_day(
+        self, trade_date: date, *, skip_enhanced: bool = False,
+    ) -> dict[str, int]:
+        """拉取指定交易日的全部数据。
+
+        - **CORE 6 步**（必跑）：daily_kline / daily_basic / limit_list / moneyflow
+          / lhb / sw_daily
+        - **ENHANCED 5 步**（v2.1 新增，可 skip）：ths_daily / limit_concept /
+          concept_moneyflow / top_inst / hm_detail
+
+        每个 ingest_xxx 单独 try/except：单步失败只影响该步，不阻断同日其他维度。
+        stats 中 -1 表示该步抛错。
+
+        Args:
+            trade_date: 目标交易日
+            skip_enhanced: True 时只跑 6 个 CORE 步骤（调试或 Tushare 限速时）
+        """
+        logger.info(
+            "=== ingest_one_day {} (skip_enhanced={}) ===",
+            trade_date, skip_enhanced,
+        )
+
+        core_steps: list[tuple[str, Callable[[date], int]]] = [
             ("daily_kline", self.ingest_daily_kline),
             ("daily_basic", self.ingest_daily_basic),
             ("limit_list", self.ingest_limit_list),
@@ -332,13 +434,21 @@ class DailyIngestor:
             ("lhb", self.ingest_lhb),
             ("sw_daily", self.ingest_sw_daily),
         ]
+        enhanced_steps: list[tuple[str, Callable[[date], int]]] = [
+            ("ths_daily", self.ingest_ths_daily),
+            ("limit_concept", self.ingest_limit_concept),
+            ("concept_moneyflow", self.ingest_concept_moneyflow),
+            ("top_inst", self.ingest_top_inst),
+            ("hm_detail", self.ingest_hm_detail),
+        ]
+        steps = core_steps if skip_enhanced else core_steps + enhanced_steps
 
         stats: dict[str, int] = {}
         for name, fn in steps:
             try:
                 stats[name] = fn(trade_date)
             except Exception as exc:  # noqa: BLE001
-                # 标记为 -1 便于 done 日志一眼识别失败的步骤；详细堆栈走 exception
+                # -1 标记失败步骤；完整堆栈走 logger.exception
                 stats[name] = -1
                 logger.exception("{} {} failed: {}", name, trade_date, exc)
 
@@ -600,3 +710,209 @@ def _sw_daily_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
         }
         for _, r in df.iterrows()
     ]
+
+
+# ============================================================================
+# v2.1 plan Task 3：题材增强 + 龙虎榜席位明细 清洗函数
+# ============================================================================
+
+def _ths_daily_rows_from_df(
+    df: pd.DataFrame, name_map: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Tushare ths_daily DataFrame → ThsDaily row dict 列表。
+
+    name_map 由调用方从 ths_index 表注入，避免每次都 join 拿名字。
+    """
+    if df.empty:
+        return []
+    name_map = name_map or {}
+    return [
+        {
+            "ts_code": r["ts_code"],
+            "trade_date": _parse_date(r["trade_date"]),
+            "name": name_map.get(r["ts_code"]),
+            "close": _nf(r.get("close")),
+            "open": _nf(r.get("open")),
+            "high": _nf(r.get("high")),
+            "low": _nf(r.get("low")),
+            "pre_close": _nf(r.get("pre_close")),
+            "avg_price": _nf(r.get("avg_price")),
+            "change": _nf(r.get("change")),
+            "pct_change": _nf(r.get("pct_change")),
+            "vol": _nf(r.get("vol")),
+            "turnover_rate": _nf(r.get("turnover_rate")),
+            "total_mv": _nf(r.get("total_mv")),
+            "float_mv": _nf(r.get("float_mv")),
+        }
+        for _, r in df.iterrows()
+    ]
+
+
+def _limit_concept_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Tushare limit_cpt_list → LimitConceptDaily row dict 列表。
+
+    防 Tushare 镜像 bug：drop_duplicates by (trade_date, ts_code) 主键，keep first。
+    """
+    if df.empty:
+        return []
+    df = df.drop_duplicates(subset=["trade_date", "ts_code"], keep="first")
+    return [
+        {
+            "ts_code": r["ts_code"],
+            "trade_date": _parse_date(r["trade_date"]),
+            "name": _str_or_none(r.get("name")),
+            "days": _ni(r.get("days")),
+            "up_stat": _str_or_none(r.get("up_stat")),
+            "cons_nums": _ni(r.get("cons_nums")),
+            "up_nums": _ni(r.get("up_nums")),
+            "pct_chg": _nf(r.get("pct_chg")),
+            "rank": _ni(r.get("rank")),
+        }
+        for _, r in df.iterrows()
+    ]
+
+
+def _concept_moneyflow_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Tushare moneyflow_cnt_ths → ThsConceptMoneyflow row dict 列表。
+
+    v2.1 修法：3 个净额字段（net_buy_amount / net_sell_amount / net_amount）
+    全部入库，与表定义对齐。
+    """
+    if df.empty:
+        return []
+    return [
+        {
+            "ts_code": r["ts_code"],
+            "trade_date": _parse_date(r["trade_date"]),
+            "name": _str_or_none(r.get("name")),
+            "lead_stock": _str_or_none(r.get("lead_stock")),
+            "pct_change": _nf(r.get("pct_change")),
+            "company_num": _ni(r.get("company_num")),
+            "pct_change_stock": _nf(r.get("pct_change_stock")),
+            "net_buy_amount": _nf(r.get("net_buy_amount")),
+            "net_sell_amount": _nf(r.get("net_sell_amount")),
+            "net_amount": _nf(r.get("net_amount")),
+        }
+        for _, r in df.iterrows()
+    ]
+
+
+def _hm_list_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Tushare hm_list → HotMoneyList row dict 列表。"""
+    if df.empty:
+        return []
+    return [
+        {
+            "name": r["name"],
+            "desc": _str_or_none(r.get("desc")),
+            "orgs": _str_or_none(r.get("orgs")),
+        }
+        for _, r in df.iterrows()
+    ]
+
+
+def _hm_detail_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Tushare hm_detail → HotMoneyDetail row dict 列表。"""
+    if df.empty:
+        return []
+    return [
+        {
+            "trade_date": _parse_date(r["trade_date"]),
+            "ts_code": r["ts_code"],
+            "hm_name": r["hm_name"],
+            "ts_name": _str_or_none(r.get("ts_name")),
+            "buy_amount": _nf(r.get("buy_amount")),
+            "sell_amount": _nf(r.get("sell_amount")),
+            "net_amount": _nf(r.get("net_amount")),
+            "hm_orgs": _str_or_none(r.get("hm_orgs")),
+            "tag": _str_or_none(r.get("tag")),
+        }
+        for _, r in df.iterrows()
+    ]
+
+
+# ---- 龙虎榜席位明细 + 游资识别 ----
+
+_ORGS_SEP_RE = re.compile(r"[,;，；]")
+
+
+def _split_orgs_string(orgs: str | None) -> set[str]:
+    """从 hm_list.orgs 拆出营业部名 set，去 None/空白。
+
+    格式如 "中信证券上海溧阳路营业部, 华泰证券深圳益田路营业部;..."。
+    用 set 是为了完全相等匹配，避免子串误判（如 "中信证券" 命中所有中信席位）。
+    """
+    if not orgs:
+        return set()
+    return {p.strip() for p in _ORGS_SEP_RE.split(orgs) if p.strip()}
+
+
+def _classify_seat(exalter: str | None, hot_money_orgs: set[str]) -> str:
+    """席位身份分类（v2.1 简化版，无 quant_like）。
+
+    返回值 ∈ {institution, northbound, hot_money, other}。
+    无 "quant_like"——v1 启发式（"华鑫证券" → quant_like）会误报。
+    """
+    name = (exalter or "").strip()
+    if not name:
+        return "other"
+    if "机构专用" in name:
+        return "institution"
+    if "沪股通专用" in name or "深股通专用" in name:
+        return "northbound"
+    if name in hot_money_orgs:
+        return "hot_money"
+    return "other"
+
+
+def _stable_seat_key(
+    ts_code: str, exalter: str | None, side: str | None, reason: str | None,
+) -> str:
+    """生成稳定席位键 = sha1(ts_code|exalter|side|reason)。
+
+    v2.1 关键设计：用内容哈希而非 top_inst 返回顺序做主键，避免重跑时
+    "(date, ts_code, 1)" 这条从机构被覆盖成游资的脏数据漂移。
+    """
+    raw = "|".join([ts_code, exalter or "", side or "", reason or ""])
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def _top_inst_rows_from_df(
+    df: pd.DataFrame, hot_money_orgs: set[str],
+) -> list[dict[str, Any]]:
+    """Tushare top_inst → LhbSeatDetail row dict 列表。
+
+    PK = (trade_date, ts_code, seat_key)；seat_no 仅展示，按稳定排序生成 1..N。
+    稳定排序键：(reason, side, exalter, buy, sell, net_buy)——保证不同会话
+    repo.get_lhb_seats_today 返回顺序一致，便于报告与回归对照。
+    """
+    if df.empty:
+        return []
+    sort_cols = ["trade_date", "ts_code", "reason", "side", "exalter", "buy", "sell", "net_buy"]
+    df_sorted = df.sort_values(
+        [c for c in sort_cols if c in df.columns], na_position="last",
+    )
+    rows: list[dict[str, Any]] = []
+    counter: dict[tuple[date | None, str], int] = {}
+    for _, r in df_sorted.iterrows():
+        td = _parse_date(r["trade_date"])
+        ts = r["ts_code"]
+        key = (td, ts)
+        counter[key] = counter.get(key, 0) + 1
+        exalter = _str_or_none(r.get("exalter"))
+        side = _str_or_none(r.get("side"))
+        reason = _str_or_none(r.get("reason"))
+        rows.append({
+            "trade_date": td,
+            "ts_code": ts,
+            "seat_key": _stable_seat_key(ts, exalter, side, reason),
+            "seat_no": counter[key],
+            "exalter": exalter,
+            "side": side,
+            "buy": _nf(r.get("buy")),
+            "sell": _nf(r.get("sell")),
+            "net_buy": _nf(r.get("net_buy")),
+            "reason": reason,
+            "seat_type": _classify_seat(exalter, hot_money_orgs),
+        })
+    return rows
