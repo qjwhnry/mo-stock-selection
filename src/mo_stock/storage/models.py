@@ -224,14 +224,12 @@ class Lhb(Base):
     reason: Mapped[str | None] = mapped_column(
         Text, comment="上榜原因（如：日涨幅偏离值达 7%、日价格涨幅偏离值达 7% 的前三只证券）",
     )
-    seat: Mapped[dict | None] = mapped_column(
-        JSONB, comment="席位明细 JSON：[{name, buy, sell, net}, ...]",
-    )
+    # v2.1：seat JSONB 已移除，席位明细搬到独立表 lhb_seat_detail（参见模型末尾）
 
     __table_args__ = (
         PrimaryKeyConstraint("trade_date", "ts_code"),
         Index("ix_lhb_ts_code", "ts_code"),
-        {"comment": "龙虎榜（Tushare top_list + top_inst），LhbFilter 打分源"},
+        {"comment": "龙虎榜汇总（Tushare top_list），席位明细见 lhb_seat_detail"},
     )
 
 
@@ -583,4 +581,164 @@ class SelectionResult(Base):
         UniqueConstraint("trade_date", "ts_code", name="uq_selection_key"),
         Index("ix_selection_date_rank", "trade_date", "rank"),
         {"comment": "最终选股 TOP N 结果（永久保留，作为每日报告与回测的主数据源）"},
+    )
+
+
+# ========================================================================
+# 题材增强表（v2.1 plan §2.1，Phase 2 接入）
+# ========================================================================
+
+class ThsDaily(Base):
+    """同花顺概念/行业指数日行情（Tushare ths_daily, doc_id=260）。"""
+
+    __tablename__ = "ths_daily"
+
+    ts_code: Mapped[str] = mapped_column(String(20), comment="同花顺板块代码，如 885806.TI")
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    name: Mapped[str | None] = mapped_column(String(50), comment="板块名称（冗余 ths_index）")
+    close: Mapped[float | None] = mapped_column(Float, comment="收盘点位")
+    open: Mapped[float | None] = mapped_column(Float, comment="开盘点位")
+    high: Mapped[float | None] = mapped_column(Float, comment="最高")
+    low: Mapped[float | None] = mapped_column(Float, comment="最低")
+    pre_close: Mapped[float | None] = mapped_column(Float, comment="昨收")
+    avg_price: Mapped[float | None] = mapped_column(Float, comment="平均价")
+    change: Mapped[float | None] = mapped_column(Float, comment="涨跌额")
+    pct_change: Mapped[float | None] = mapped_column(Float, comment="涨跌幅（%）")
+    vol: Mapped[float | None] = mapped_column(Float, comment="成交量")
+    turnover_rate: Mapped[float | None] = mapped_column(Float, comment="换手率（%）")
+    total_mv: Mapped[float | None] = mapped_column(Float, comment="总市值")
+    float_mv: Mapped[float | None] = mapped_column(Float, comment="流通市值")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("ts_code", "trade_date"),
+        Index("ix_ths_daily_date_pct", "trade_date", "pct_change"),
+        {"comment": "同花顺概念/行业指数日行情，ThemeFilter 强度输入"},
+    )
+
+
+class LimitConceptDaily(Base):
+    """涨停最强概念板块统计（Tushare limit_cpt_list, doc_id=357）。"""
+
+    __tablename__ = "limit_concept_daily"
+
+    ts_code: Mapped[str] = mapped_column(String(20), comment="板块代码")
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    name: Mapped[str | None] = mapped_column(String(50), comment="板块名称")
+    days: Mapped[int | None] = mapped_column(Integer, comment="上榜天数")
+    up_stat: Mapped[str | None] = mapped_column(String(50), comment="连板高度描述")
+    cons_nums: Mapped[int | None] = mapped_column(Integer, comment="连板家数")
+    up_nums: Mapped[int | None] = mapped_column(Integer, comment="涨停家数")
+    pct_chg: Mapped[float | None] = mapped_column(Float, comment="概念涨跌幅（%）")
+    rank: Mapped[int | None] = mapped_column(Integer, comment="热点排名，1 最强")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("ts_code", "trade_date"),
+        Index("ix_limit_concept_date_rank", "trade_date", "rank"),
+        {"comment": "每日涨停最强概念板块，短线题材热度输入"},
+    )
+
+
+class ThsConceptMoneyflow(Base):
+    """同花顺概念板块每日资金流向（Tushare moneyflow_cnt_ths, doc_id=371）。"""
+
+    __tablename__ = "ths_concept_moneyflow"
+
+    ts_code: Mapped[str] = mapped_column(String(20), comment="概念板块代码")
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    name: Mapped[str | None] = mapped_column(String(50), comment="板块名称")
+    lead_stock: Mapped[str | None] = mapped_column(String(50), comment="领涨股票名称")
+    pct_change: Mapped[float | None] = mapped_column(Float, comment="板块涨跌幅（%）")
+    company_num: Mapped[int | None] = mapped_column(Integer, comment="成分公司数量")
+    pct_change_stock: Mapped[float | None] = mapped_column(Float, comment="领涨股涨跌幅（%）")
+    net_buy_amount: Mapped[float | None] = mapped_column(Float, comment="买入额（亿元）")
+    net_sell_amount: Mapped[float | None] = mapped_column(Float, comment="卖出额（亿元）")
+    net_amount: Mapped[float | None] = mapped_column(Float, comment="净流入额（亿元）")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("ts_code", "trade_date"),
+        Index("ix_concept_moneyflow_date_net", "trade_date", "net_amount"),
+        {"comment": "概念板块资金流向，ThemeFilter 资金确认输入"},
+    )
+
+
+# ========================================================================
+# 龙虎榜席位明细 + 游资名录（v2.1 plan §2.2）
+# ========================================================================
+
+class HotMoneyList(Base):
+    """游资名录（Tushare hm_list, doc_id=311）。"""
+
+    __tablename__ = "hot_money_list"
+
+    name: Mapped[str] = mapped_column(
+        String(100), primary_key=True,
+        comment="游资名称（Tushare 主键，如「赵老哥」）",
+    )
+    desc: Mapped[str | None] = mapped_column(Text, comment="游资风格说明")
+    orgs: Mapped[str | None] = mapped_column(
+        Text, comment="关联营业部，分号/逗号分隔的原始字符串",
+    )
+
+    __table_args__ = ({"comment": "Tushare 游资名录，用于龙虎榜席位身份识别"},)
+
+
+class HotMoneyDetail(Base):
+    """游资每日交易明细（Tushare hm_detail, doc_id=312）。数据从 2022-08 起。"""
+
+    __tablename__ = "hot_money_detail"
+
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    ts_code: Mapped[str] = mapped_column(String(12), comment="股票代码")
+    hm_name: Mapped[str] = mapped_column(String(100), comment="游资名称")
+    ts_name: Mapped[str | None] = mapped_column(String(50), comment="股票名称")
+    buy_amount: Mapped[float | None] = mapped_column(Float, comment="买入金额（元）")
+    sell_amount: Mapped[float | None] = mapped_column(Float, comment="卖出金额（元）")
+    net_amount: Mapped[float | None] = mapped_column(Float, comment="净买卖金额（元）")
+    hm_orgs: Mapped[str | None] = mapped_column(Text, comment="关联营业部，从 hm_list 冗余")
+    tag: Mapped[str | None] = mapped_column(String(50), comment="标签（Tushare 原始）")
+
+    __table_args__ = (
+        PrimaryKeyConstraint("trade_date", "ts_code", "hm_name"),
+        Index("ix_hot_money_detail_date", "trade_date"),
+        Index("ix_hot_money_detail_hm", "hm_name", "trade_date"),
+        {"comment": "每日游资交易明细，LhbFilter 席位身份加权辅助"},
+    )
+
+
+class LhbSeatDetail(Base):
+    """龙虎榜席位明细（Tushare top_inst）。
+
+    替代 Lhb.seat JSONB（v2.1 plan §2.2），便于 SQL 直接过滤"今天机构净买 > N 的票"。
+    主键用 seat_key（sha1 内容哈希），避免 top_inst 返回顺序变化导致重跑覆盖错行。
+    """
+
+    __tablename__ = "lhb_seat_detail"
+
+    trade_date: Mapped[date] = mapped_column(Date, comment="交易日")
+    ts_code: Mapped[str] = mapped_column(String(12), comment="股票代码")
+    seat_key: Mapped[str] = mapped_column(
+        String(64),
+        comment="稳定席位键：sha1(ts_code|exalter|side|reason)，避免重跑时 top_inst 返回顺序变化导致覆盖错行",
+    )
+    seat_no: Mapped[int] = mapped_column(
+        Integer,
+        comment="展示序号 1-N，按稳定排序（reason,side,exalter,buy,sell,net_buy）后生成。"
+                "**消费方排序请用 seat_no**——seat_key 是 sha1 hash，顺序无业务含义",
+    )
+    exalter: Mapped[str | None] = mapped_column(String(200), comment="席位/营业部名称")
+    side: Mapped[str | None] = mapped_column(String(2), comment="0=买榜 / 1=卖榜（仅指榜单位置）")
+    buy: Mapped[float | None] = mapped_column(Float, comment="买入金额（元）")
+    sell: Mapped[float | None] = mapped_column(Float, comment="卖出金额（元）")
+    net_buy: Mapped[float | None] = mapped_column(Float, comment="净买卖金额（元）")
+    reason: Mapped[str | None] = mapped_column(String(100), comment="上榜原因")
+    seat_type: Mapped[str] = mapped_column(
+        String(20),
+        comment="ingest 时分类：institution / northbound / hot_money / other",
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint("trade_date", "ts_code", "seat_key"),
+        Index("ix_lhb_seat_date_type", "trade_date", "seat_type"),
+        Index("ix_lhb_seat_date_code", "trade_date", "ts_code"),
+        {"comment": "龙虎榜席位明细（v2.1 替代 Lhb.seat JSONB），LhbFilter 席位结构打分输入"},
     )

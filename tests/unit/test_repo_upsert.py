@@ -19,12 +19,18 @@ from mo_stock.storage import repo
 from mo_stock.storage.models import (
     DailyBasic,
     DailyKline,
+    HotMoneyDetail,
+    HotMoneyList,
     IndexMember,
     Lhb,
+    LhbSeatDetail,
+    LimitConceptDaily,
     LimitList,
     Moneyflow,
     StockBasic,
     SwDaily,
+    ThsConceptMoneyflow,
+    ThsDaily,
     ThsIndex,
     ThsMember,
     TradeCal,
@@ -44,6 +50,13 @@ _UPSERT_BINDINGS = [
     (repo.upsert_stock_basic,   StockBasic,   ["ts_code"]),
     (repo.upsert_trade_cal,     TradeCal,     ["cal_date"]),
     (repo.upsert_sw_daily,      SwDaily,      ["sw_code", "trade_date"]),
+    # v2.1 plan：题材增强 + 龙虎榜席位
+    (repo.upsert_ths_daily,             ThsDaily,             ["ts_code", "trade_date"]),
+    (repo.upsert_limit_concept_daily,   LimitConceptDaily,    ["ts_code", "trade_date"]),
+    (repo.upsert_concept_moneyflow,     ThsConceptMoneyflow,  ["ts_code", "trade_date"]),
+    (repo.upsert_hot_money_list,        HotMoneyList,         ["name"]),
+    (repo.upsert_hot_money_detail,      HotMoneyDetail,       ["trade_date", "ts_code", "hm_name"]),
+    (repo.upsert_lhb_seat_detail,       LhbSeatDetail,        ["trade_date", "ts_code", "seat_key"]),
 ]
 
 

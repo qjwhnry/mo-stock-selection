@@ -19,13 +19,19 @@ from mo_stock.storage.models import (
     Base,
     DailyBasic,
     DailyKline,
+    HotMoneyDetail,
+    HotMoneyList,
     IndexMember,
     Lhb,
+    LhbSeatDetail,
+    LimitConceptDaily,
     LimitList,
     Moneyflow,
     NewsRaw,
     StockBasic,
     SwDaily,
+    ThsConceptMoneyflow,
+    ThsDaily,
     ThsIndex,
     ThsMember,
     TradeCal,
@@ -373,3 +379,105 @@ def upsert_trade_cal(session: Session, rows: Iterable[dict[str, Any]]) -> int:
 
 def upsert_sw_daily(session: Session, rows: Iterable[dict[str, Any]]) -> int:
     return upsert_rows(session, SwDaily, rows, conflict_cols=["sw_code", "trade_date"])
+
+
+# ========================================================================
+# v2.1 plan：题材增强表 + 龙虎榜席位明细 upsert
+# ========================================================================
+
+def upsert_ths_daily(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(session, ThsDaily, rows, conflict_cols=["ts_code", "trade_date"])
+
+
+def upsert_limit_concept_daily(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(session, LimitConceptDaily, rows, conflict_cols=["ts_code", "trade_date"])
+
+
+def upsert_concept_moneyflow(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(session, ThsConceptMoneyflow, rows, conflict_cols=["ts_code", "trade_date"])
+
+
+def upsert_hot_money_list(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(session, HotMoneyList, rows, conflict_cols=["name"])
+
+
+def upsert_hot_money_detail(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(
+        session, HotMoneyDetail, rows,
+        conflict_cols=["trade_date", "ts_code", "hm_name"],
+    )
+
+
+def upsert_lhb_seat_detail(session: Session, rows: Iterable[dict[str, Any]]) -> int:
+    return upsert_rows(
+        session, LhbSeatDetail, rows,
+        conflict_cols=["trade_date", "ts_code", "seat_key"],
+    )
+
+
+# ========================================================================
+# v2.1 plan：ThemeFilter / LhbFilter 读取 helpers
+# ========================================================================
+
+def get_top_ths_themes(session: Session, trade_date: date, n: int = 10) -> list[ThsDaily]:
+    """当日 THS 概念按 pct_change 降序 TOP N。
+
+    ThemeFilter 用此排出"题材热度榜"。同 pct_change 时按 ts_code 升序保证幂等。
+    """
+    stmt = (
+        select(ThsDaily)
+        .where(ThsDaily.trade_date == trade_date)
+        .where(ThsDaily.pct_change.isnot(None))
+        .order_by(ThsDaily.pct_change.desc(), ThsDaily.ts_code)
+        .limit(n)
+    )
+    return list(session.execute(stmt).scalars().all())
+
+
+def get_limit_concept_rank_map(session: Session, trade_date: date) -> dict[str, int]:
+    """{concept_ts_code: rank}（只取 rank IS NOT NULL 的）。"""
+    stmt = (
+        select(LimitConceptDaily.ts_code, LimitConceptDaily.rank)
+        .where(LimitConceptDaily.trade_date == trade_date)
+        .where(LimitConceptDaily.rank.isnot(None))
+    )
+    return {ts: int(rk) for ts, rk in session.execute(stmt).all() if rk is not None}
+
+
+def get_concept_moneyflow_map(session: Session, trade_date: date) -> dict[str, float]:
+    """{concept_ts_code: net_amount}（亿元，None 视为 0）。"""
+    stmt = (
+        select(ThsConceptMoneyflow.ts_code, ThsConceptMoneyflow.net_amount)
+        .where(ThsConceptMoneyflow.trade_date == trade_date)
+    )
+    return {ts: (na or 0.0) for ts, na in session.execute(stmt).all()}
+
+
+def get_stock_to_concepts_map(session: Session) -> dict[str, list[str]]:
+    """{stock_ts_code: [concept_ts_code, ...]}。慢变量，调用方进程内缓存。
+
+    数据来自 ths_member 表，PK 是 (ts_code=concept, con_code=stock)。
+    """
+    stmt = select(ThsMember.ts_code, ThsMember.con_code)
+    result: dict[str, list[str]] = {}
+    for concept_code, stock_code in session.execute(stmt).all():
+        result.setdefault(stock_code, []).append(concept_code)
+    return result
+
+
+def get_lhb_seats_today(
+    session: Session, trade_date: date,
+) -> dict[str, list[LhbSeatDetail]]:
+    """当日全部龙虎榜席位明细按 ts_code 分组。
+
+    排序：先按 seat_no（消费方约定），再按 seat_key（hash 兜底确定性）。
+    """
+    stmt = (
+        select(LhbSeatDetail)
+        .where(LhbSeatDetail.trade_date == trade_date)
+        .order_by(LhbSeatDetail.ts_code, LhbSeatDetail.seat_no, LhbSeatDetail.seat_key)
+    )
+    result: dict[str, list[LhbSeatDetail]] = {}
+    for seat in session.execute(stmt).scalars().all():
+        result.setdefault(seat.ts_code, []).append(seat)
+    return result
