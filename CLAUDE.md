@@ -1,7 +1,18 @@
 # mo-stock-selection — 项目约定
 
-A 股每日批量选股系统：5 维度规则快筛 + Claude AI 深度分析（Phase 3 起）。
+A 股每日批量选股系统：6 维度规则快筛（v2.1 后）+ Claude AI 深度分析（Phase 3 起）。
 仅做选股与报告，**不接券商、不自动下单**。
+
+## 6 维度（v2.1）
+
+| 维度 | 权重 | 数据源 |
+|------|------|--------|
+| `limit` 异动涨停 | 0.25 | `limit_list` |
+| `moneyflow` 主力资金流向 | 0.25 | `moneyflow` + `daily_kline.amount` |
+| `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail` |
+| `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` |
+| `theme` 同花顺概念 + 涨停最强 + 资金流 | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` |
+| `sentiment` 新闻公告 | 0.10 | （未实现） |
 
 ---
 

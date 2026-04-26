@@ -90,12 +90,15 @@ mo-stock init-db --drop    # 先 DROP 再 CREATE，会有确认提示
 刷新「股票元数据」慢变量表。
 
 ```bash
-mo-stock refresh-basics              # 默认快速：约 30 秒
-mo-stock refresh-basics --with-ths   # 完整版：额外 3-4 分钟
+mo-stock refresh-basics                            # 默认快速：约 30 秒
+mo-stock refresh-basics --with-ths                 # +同花顺概念：额外 3-4 分钟
+mo-stock refresh-basics --with-hm-list             # +游资名录：额外 30 秒
+mo-stock refresh-basics --with-ths --with-hm-list  # 全开：约 4 分钟
 ```
 
 **参数：**
-- `--with-ths`（默认关闭）：同时刷新同花顺概念板块（`ths_index` + `ths_member`），耗时增加 3-4 分钟，需要 6000 Tushare 积分
+- `--with-ths`（默认关闭）：同时刷新同花顺概念板块（`ths_index` + `ths_member`），耗时增加 3-4 分钟
+- `--with-hm-list`（默认关闭，**v2.1 新增**）：同时刷新游资名录（`hot_money_list`），约 30 秒。LhbFilter 的席位识别依赖此表（无此表所有席位会被分类为 `other`）
 
 **默认（约 30 秒）刷新的表：**
 
@@ -175,21 +178,54 @@ mo-stock backfill --days 90 --end 2026-04-22
 ```bash
 mo-stock run-once                              # 跑今日
 mo-stock run-once --date 2026-04-22            # 指定某个交易日
-mo-stock run-once --date 2026-04-22 --skip-ingest  # 跳过采集，仅重算评分 + 报告
+mo-stock run-once --date 2026-04-22 --skip-ingest      # 跳过采集，仅重算评分 + 报告
+mo-stock run-once --date 2026-04-22 --skip-enhanced    # 只跑 6 个 CORE 步骤（v2.1）
+mo-stock run-once --date 2026-04-26 --force            # 允许在非交易日运行
 ```
 
 **参数：**
 - `--date`（可选）：选股日 `YYYY-MM-DD`，**默认今日**
 - `--skip-ingest`：跳过 Tushare 数据拉取步骤。用于数据已在库、只需重算打分 / 报告的场景
+- `--skip-enhanced`（**v2.1 新增**）：只跑 6 个 CORE ingest 步骤（daily_kline / daily_basic / limit_list / moneyflow / lhb / sw_daily），跳过 5 个 ENHANCED 步骤（ths_daily / limit_concept / concept_moneyflow / top_inst / hm_detail）。Tushare 限速时或调试用
+- `--force`：允许在非交易日（周末 / 节假日）运行（默认会被拒绝）
 
 **流程细节：**
-1. 数据拉取（`DailyIngestor.ingest_one_day`）
+1. 数据拉取（`DailyIngestor.ingest_one_day`）—— v2.1 起 CORE 6 步 + ENHANCED 5 步
 2. 加载权重配置 `config/weights.yaml`
-3. 规则层打分（MVP 仅 `limit` + `moneyflow` 两个维度）
-4. 综合打分 + 硬规则过滤 → 取 TOP N（默认 20）
+3. 规则层打分（v2.1 起 5 维度：`limit` + `moneyflow` + `lhb` + `sector` + `theme`）
+4. 综合打分（6 维权重总和 1.00 固定分母）+ 硬规则过滤 → 取 TOP N（默认 20）
 5. 渲染 Markdown + JSON 报告到 `data/reports/YYYY-MM-DD.{md,json}`
 
 **幂等性：** 同一交易日重跑会 `upsert` `selection_result`，不会报唯一键冲突。
+
+---
+
+### 题材增强工作流（v2.1）
+
+首次部署或周期性同步：
+
+```bash
+mo-stock refresh-basics --with-ths --with-hm-list
+```
+
+- `--with-ths`：刷 `ths_index`（408 概念）+ `ths_member`（7 万成分）
+- `--with-hm-list`：刷 `hot_money_list`（109 游资）
+
+每日运行（自动跑全部 11 个 ingest 步骤）：
+
+```bash
+mo-stock run-once --date 2026-04-26
+```
+
+**降级模式**（Tushare 限速或调试时）：
+
+```bash
+mo-stock run-once --date 2026-04-26 --skip-enhanced
+```
+
+只填 daily_kline / daily_basic / limit_list / moneyflow / lhb / sw_daily 6 张核心表。
+ThemeFilter 在这种模式下会因 ths_daily / limit_concept_daily 缺数据而无打分，
+但其它 4 维度仍正常工作（题材维度按 0 计入综合分）。
 
 ---
 

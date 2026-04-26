@@ -22,7 +22,6 @@ from mo_stock.filters.lhb_filter import (
 )
 from mo_stock.storage.models import Lhb, LhbSeatDetail
 
-
 # 默认 weights（与 v2.1 plan §3.4 一致）
 DEFAULT_LHB_WEIGHTS = {
     "base_score": 20,

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
 from sqlalchemy.orm import Session
 
 from mo_stock.filters.theme_filter import ThemeFilter, _bonus_from_table
@@ -18,7 +19,6 @@ from mo_stock.storage.models import (
     ThsDaily,
     ThsMember,
 )
-
 
 # 默认 weights（与 v2.1 plan §3.3 一致）
 DEFAULT_THEME_WEIGHTS = {
@@ -31,8 +31,6 @@ DEFAULT_THEME_WEIGHTS = {
 
 
 # 共享 sqlite_session（来自 conftest.py，已 patch JSONB → JSON）
-import pytest
-
 session = pytest.fixture(name="session")(lambda sqlite_session: sqlite_session)
 
 

@@ -13,20 +13,25 @@
 每个交易日 `mo-stock run-once` 会跑完整选股流程：
 
 ```
-ingest → 4 个 filter 各自打分 (0-100) → combine 加权融合 → 硬规则淘汰 → TOP 20 → 渲染报告
+ingest → 5 个 filter 各自打分 (0-100) → combine 加权融合 → 硬规则淘汰 → TOP 20 → 渲染报告
 ```
 
-**5 个维度**（`config/weights.yaml` 配置权重，可热调）：
+**6 个维度**（`config/weights.yaml` 配置权重，v2.1 总和 = 1.00 固定分母）：
 
 | 维度 | 权重 | 数据源 | 实现状态 |
 |------|------|--------|---------|
 | `limit` 异动涨停 | 0.25 | `limit_list` 表 | ✓ [LimitFilter](../src/mo_stock/filters/limit_filter.py) |
 | `moneyflow` 主力资金流向 | 0.25 | `moneyflow` + `daily_kline.amount` | ✓ [MoneyflowFilter](../src/mo_stock/filters/moneyflow_filter.py) |
-| `lhb` 龙虎榜 | 0.20 | `lhb` 表 | ✓ [LhbFilter](../src/mo_stock/filters/lhb_filter.py) |
-| `sector` 板块/行业 | 0.15 | `sw_daily` + `index_member` | ✓ [SectorFilter](../src/mo_stock/filters/sector_filter.py) |
-| `sentiment` 新闻公告 | 0.15 | `news_raw` / `anns_raw` | ❌ 未实现 |
+| `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail`（v2.1） | ✓ [LhbFilter](../src/mo_stock/filters/lhb_filter.py) |
+| `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` | ✓ [SectorFilter](../src/mo_stock/filters/sector_filter.py) |
+| `theme` 同花顺概念 + 涨停最强 + 资金流（v2.1 新增） | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` | ✓ [ThemeFilter](../src/mo_stock/filters/theme_filter.py) |
+| `sentiment` 新闻公告 | 0.10 | `news_raw` / `anns_raw` | ❌ 未实现 |
 
 每个维度独立打分，0-100 分，**只对该维度有信号的股 append 结果**（score=0 视为信号缺失，由综合分公式按 0 处理）。
+
+**v2.1 关键变化**：
+- 把"题材增强"从 sector 维度拆出独立 `theme` 维度，避免维度饱和（多数强势股触顶 100）
+- LhbFilter 重排为 base 60 + seat 40，机构席位净买给到 +20（远比 net_rate 信号更强）
 
 ---
 
@@ -194,14 +199,23 @@ Tushare `net_mf_amount` 是**主动主力**口径（外盘买、内盘卖），
 | `lhb.net_rate` | **%**（Tushare 现成字段：`net_amount / amount × 100`） |
 | `lhb.amount_rate` | **%**（Tushare 现成字段：`l_amount / amount × 100`） |
 
-### 打分公式
+### 打分公式（v2.1：base 60 + seat 40 双层结构）
 
 ```
-score = 30                       # 基础分（涨幅类上榜 + 净买入）
-+ net_rate_tier_bonus            # 净买入占成交比例分档
-+ purity_bonus                   # 席位成交占成交比例分档
-+ reason_bonus                   # 上榜原因关键词
+base = 20                        # 基础分（涨幅类上榜 + 净买入）
++ net_rate_tier_bonus            # 净买入占成交比例分档（0-20）
++ purity_bonus                   # 席位成交占成交比例分档（0-12）
++ reason_bonus                   # 上榜原因关键词（0-8）
+
+seat = institution_buy_bonus     # 机构席位净买（0 or +20）
++ hot_money_buy_bonus            # 知名游资净买（0 or +12）
+- hot_money_sell_penalty         # 知名游资净卖（0 or -15）
++ northbound_buy_bonus           # 北向净买（0 or +8）
+
+score = clamp(base + seat, 0, 100)
 ```
+
+**口径标记**：v2.1 起 `detail.lhb_formula_version = 2`，与历史 0-100 base 量纲不直接横比。
 
 ### 上榜资格门槛（不入榜条件）
 
@@ -212,36 +226,49 @@ score = 30                       # 基础分（涨幅类上榜 + 净买入）
 | **跌幅榜上榜**（reason 含「跌幅偏离」「跌幅达」） | 跳过，避免「机构抄底跌停股」混入 |
 | **net_rate ≤ 0 / NULL**（净卖出） | 跳过，视为信号缺失 |
 
-### 加分细则（占比分档，跨股可比）
+### base 加分细则（v2.1 重排，上限 60）
 
 | net_rate（净买入占成交 %） | 信号强度 | 加分 |
 |---|---|---|
-| ≥ 10% | 极强建仓 | **+30** |
-| 5% - 10% | 强建仓 | **+22** |
-| 2% - 5% | 中等（赤天化 600227 真实 3.36% 在此段） | **+15** |
+| ≥ 10% | 极强建仓 | **+20** |
+| 5% - 10% | 强建仓 | **+15** |
+| 2% - 5% | 中等（赤天化 600227 真实 3.36% 在此段） | **+10** |
 | 0% - 2% | 太弱 | +0 |
 
 | amount_rate（席位成交占当日成交 %） | 加分 |
 |---|---|
-| ≥ 30% | **+25**（席位主导今日成交，满档） |
-| 15% - 30% | **+12**（赤天化真实 23.42% 在此段） |
+| ≥ 30% | **+12**（席位主导今日成交，满档） |
+| 15% - 30% | **+6**（赤天化真实 23.42% 在此段） |
 | < 15% | +0 |
 
 | 上榜原因关键词 | 加分 |
 |---|---|
-| 「连续三日涨幅」 | **+15**（趋势最强） |
-| 「无价格涨跌幅限制」 | **+8**（科创板 / 创业板大涨） |
-| 「日涨幅偏离」 | **+8**（单日大涨） |
-| 「日换手率」 | **+8** |
+| 「连续三日涨幅」 | **+8**（趋势最强） |
+| 「无价格涨跌幅限制」/「日涨幅偏离」/「日换手率」 | **+5** |
 | 跌幅类（`_is_drop_rebound_reason`） | **整股跳过**（不在此表） |
 | 多关键词命中 | 取最大值（不叠加） |
 
+### seat 加分细则（v2.1 新增，上限 40 / 下限 -15）
+
+席位身份在 ingest 阶段分类（`lhb_seat_detail.seat_type`）：
+- `institution`: 名称含 "机构专用"
+- `northbound`: 名称含 "沪股通专用" / "深股通专用"
+- `hot_money`: 完全等于 `hm_list.orgs` 的某个营业部
+- `other`: 其它（v2.1 删除了 quant_like，避免误报）
+
+| 席位类型 | 触发条件 | 加分 |
+|---|---|---|
+| institution | 净买 ≥ 1000 万 | **+20**（机构信号远比 net_rate 强） |
+| hot_money | 净买 ≥ 500 万 | **+12** |
+| hot_money | 净卖 ≥ 1000 万 | **-15**（量化 / 一日游风险） |
+| northbound | 净买 ≥ 3000 万 | **+8** |
+
 ### 实际上限
 
-**100 分**：基础 30 + net_rate 满档 30 + amount_rate 满档 25 + reason 满档 15 = 100。归一到 0-100。
+**100 分**：base 满档 60 + seat 满档 40 = 100，clamp 到 0-100。
 
 代码：[filters/lhb_filter.py](../src/mo_stock/filters/lhb_filter.py)
-配置：`weights.yaml: lhb_filter`（当前空配置 `{}`，分档阈值在代码常量中）
+配置：`weights.yaml: lhb_filter`（v2.1 全部参数化，可热调）
 
 ---
 
@@ -294,9 +321,76 @@ score = 0
 
 ---
 
+## 6.5. theme 维度（同花顺概念 + 涨停最强 + 资金流）— v2.1 新增
+
+**目标**：捕捉**短线题材轮动**——A 股短线热点（AI、机器人、固态电池等）多来自 THS 概念而非 SW 行业。
+
+**数据源**：
+- `ths_daily`（同花顺概念/行业指数日行情，1232 个板块）
+- `limit_concept_daily`（涨停最强概念榜，每日 TOP 20）
+- `ths_concept_moneyflow`（概念板块当日资金流向）
+- `ths_member`（股票 → 概念多对多映射，慢变量）
+
+### 关键设计：多概念股取最高加分（不累加）
+
+A 股一只票常同时挂在 5-20 个概念里。如果加分，沾边股会天然占优——题材轮动信号被噪音稀释。
+
+**v2.1 决策**：跨概念取 max，**同一概念内三类信号 sum**：
+
+```python
+score(stock) = max over concepts of:
+    ths_rank_bonus(rank in ths_daily TOP N) +
+    limit_concept_bonus(rank in limit_cpt_list) +
+    moneyflow_bonus(net_amount > 0)
+```
+
+**渐进降级**：ths_daily 为空（接口故障 / 积分用尽）时仍跑 limit_concept + moneyflow 单点信号；只有三类全空才提前返回。
+
+### 打分公式
+
+```
+score = clamp(min(best, max_theme_bonus), 0, 100)
+```
+
+### 加分细则
+
+| 同花顺概念涨幅排名（top_n_themes=10） | 加分 |
+|---|---|
+| 第 1 名 | **+50** |
+| 第 2 名 | **+42** |
+| 第 3 名 | **+35** |
+| 第 4 名 | **+28** |
+| 第 5 名 | **+22** |
+| 6-10 名 | **+12** |
+| TOP 10 外 | +0 |
+
+| 涨停最强概念排名（limit_cpt_list rank） | 加分 |
+|---|---|
+| 第 1 名 | **+50** |
+| 第 2-3 名 | **+35** |
+| 第 4-5 名 | **+22** |
+| 第 6-10 名 | **+12** |
+| 排名外 | +0 |
+
+| 概念资金净流入（ths_concept_moneyflow.net_amount） | 加分 |
+|---|---|
+| > 0（亿元） | **+15** |
+| ≤ 0 / NULL | +0 |
+
+注：分档表查找策略是"找 ≥ rank 的最小 key"——rank=4 时若表里只有 1/2/3/5，返回 5 对应分数（保守）。
+
+### 实际上限
+
+**100 分**：ths rank 1 (+50) + limit rank 1 (+50) + moneyflow > 0 (+15) = 115，clamp 到 100。
+
+代码：[filters/theme_filter.py](../src/mo_stock/filters/theme_filter.py)
+配置：`weights.yaml: theme_filter`（top_n_themes / 三档分值 / max_theme_bonus 全部可热调）
+
+---
+
 ## 7. sentiment 维度（新闻公告 / 研报情绪）
 
-**当前未实现**，权重 0.15 在配置里，但 SentimentFilter 类不存在 → 综合分上限被这一维度拉低 15 分。
+**当前未实现**，权重 0.10 在配置里，但 SentimentFilter 类不存在 → 综合分上限被这一维度拉低 10 分。
 
 **计划**（待实现）：
 - ingest `news_raw` / `anns_raw`（Tushare `news` / `anns_d`）

@@ -717,7 +717,7 @@ def _sw_daily_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
 # ============================================================================
 
 def _ths_daily_rows_from_df(
-    df: pd.DataFrame, name_map: dict[str, str] | None = None,
+    df: pd.DataFrame, name_map: dict[str, str | None] | None = None,
 ) -> list[dict[str, Any]]:
     """Tushare ths_daily DataFrame → ThsDaily row dict 列表。
 
