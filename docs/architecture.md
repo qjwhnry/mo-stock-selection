@@ -1,8 +1,8 @@
 # mo-stock-selection 架构与调用链路
 
-> 当前版本：**v2.1**（2026-04-26 完成 theme + lhb 席位集成后）
-> 维度数：**6 维规则**（limit / moneyflow / lhb / sector / theme / sentiment）
-> 数据库表：**23 张**（基础 6 + 行情 3 + 异动 3 + 题材 3 + 龙虎榜席位 2 + 情绪 3 + 结果 3）
+> 当前版本：**v2.2**（2026-04-26 完成 AI 层接入后）
+> 维度数：**6 维规则 + AI 融合**（limit / moneyflow / lhb / sector / theme / sentiment + Claude AI score）
+> 数据库表：**23 张**（基础 6 + 行情 3 + 异动 3 + 题材 3 + 龙虎榜席位 2 + 情绪 3 + 结果 3，含 ai_analysis 已启用）
 
 ---
 
@@ -112,11 +112,15 @@ cli.py:run_once()
 ├─ persist_filter_scores(all_scores)
 │  └─ upsert filter_score_daily（dim 列含 5 类 + sentiment 缺失）
 │
-├─ combine_scores(td, weights, hard_reject, top_n=20)
-│  ├─ 读 filter_score_daily 当日数据
+├─ combine_scores(td, weights, hard_reject, top_n=20, enable_ai=True, ai_top_n=None)
+│  ├─ 读 filter_score_daily 当日数据 + 重建 dim_scores_map[ts_code][dim] = ScoreResult
 │  ├─ _weighted_combine (固定分母 = Σ 6 维权重 = 1.0)
 │  ├─ _build_hard_reject_map (ST/次新/涨停/跌停/停牌/负面公告)
-│  ├─ _final_score_from(rule, ai=None)  ──★ Phase 3 接 AI 时这里改
+│  ├─ ⭐ v2.2 AI 阶段：取未被淘汰的 TOP ai_top_n（默认 50）
+│  │   └─ analyze_stock_with_ai(session, ts_code, td, dim_scores_map[ts_code])
+│  │       └─ Claude 4 段 prompt cache → schemas.StockAiAnalysis → upsert ai_analysis
+│  ├─ _final_score_from(rule, ai_score) — 按 rule_weight×rule + ai_weight×ai 融合
+│  ├─ ⭐ 按 final_score 重排（不只是 rule_score 排序，AI 才能真正影响 TOP N）
 │  └─ upsert selection_result (TOP 20 picked + 0 rank reject)
 │
 └─ render_daily_report(td)
@@ -236,7 +240,7 @@ score(stock) = max over concepts of:
 | [src/mo_stock/scorer/combine.py](../src/mo_stock/scorer/combine.py) | 综合分 + 硬规则 |
 | [src/mo_stock/report/render_md.py](../src/mo_stock/report/render_md.py) | MD/JSON 报告渲染 |
 | [src/mo_stock/analyzer.py](../src/mo_stock/analyzer.py) | 单股分析（不写库） |
-| [src/mo_stock/ai/__init__.py](../src/mo_stock/ai/__init__.py) | **Phase 3 待实现** |
+| [src/mo_stock/ai/](../src/mo_stock/ai/) | **v2.2 已实现**：client / schemas / prompts / analyzer 4 文件 |
 | [config/weights.yaml](../config/weights.yaml) | 6 维度权重 + 子参数 |
 | [config/settings.py](../config/settings.py) | pydantic-settings（.env 加载） |
 | [alembic/versions/20260426_theme_lhb_v21.py](../alembic/versions/20260426_theme_lhb_v21.py) | v2.1 schema migration |

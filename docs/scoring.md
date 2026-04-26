@@ -562,7 +562,39 @@ ORDER BY s.rank;
 
 ---
 
-## 13. 历史变更
+## 13. AI 融合（v2.2 新增）
+
+### 公式
+
+```
+final_score = rule_score × rule_weight + ai_score × ai_weight
+            = rule_score × 0.6 + ai_score × 0.4   （weights.yaml 默认）
+```
+
+`combine_scores._final_score_from(rule, ai)` 实现：
+- AI 缺失（`ai_score=None`）→ 直接返回 `rule_score`，保持 0-100 区间稳定
+- 单股 AI 失败不阻断流程（其它股仍能拿 rule_score）
+
+### 排序
+
+v2.2 关键：算 `final_score` 后**重新按 final_score 排序**，再分配 `rank/picked`。
+这样 AI 高分股能挤掉规则分高但 AI 看空的股票，AI 真正影响 TOP N。
+
+### AI 输入范围
+
+- 规则层算完 → 取未被硬规则淘汰的 TOP `settings.top_n_after_filter`（默认 50）
+- 对每只调 `analyze_stock_with_ai`，结果落库 `ai_analysis`
+- 50 之外的股票不调 AI（控制成本：每天 ~$0.5-1）
+
+### 跳过 AI
+
+`mo-stock run-once --skip-ai` → `combine_scores(enable_ai=False)` → ai_score 全为 None，行为等同 v2.1。
+
+调试 / API 故障 / Tushare 限速时使用。
+
+---
+
+## 14. 历史变更
 
 | 日期 | 变更 | 原因 |
 |---|---|---|
@@ -573,6 +605,8 @@ ORDER BY s.rank;
 | 2026-04-25 | MoneyflowFilter today_bonus 占比分档 | 避免「净流入 221 万和 5 亿同一分」一刀切 |
 | 2026-04-25 | **4 维度全部归一到 0-100** | 之前各维度上限不齐（65/70/80/100）让 weights.yaml 配置的权重失真 |
 | 2026-04-25 | **LimitFilter 加断板反包 + 板块涨停溢出** | PLAN.md 设计落地：当日涨停股 hard_reject 干掉后，limit 维度真正能产出有效信号 |
+| 2026-04-26 | **v2.1：拆 ThemeFilter + LhbFilter 重排（base 60+seat 40）** | 题材塞进 sector 会触顶 100；机构席位是远比 net_rate 强的信号 |
+| 2026-04-26 | **v2.2：AI 层接入 Claude SDK + 4 段 prompt cache** | rule × 0.6 + ai × 0.4 融合，按 final_score 重排 TOP N，报告打印完整选出原因 |
 
 ---
 

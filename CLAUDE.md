@@ -1,7 +1,18 @@
 # mo-stock-selection — 项目约定
 
-A 股每日批量选股系统：6 维度规则快筛（v2.1 后）+ Claude AI 深度分析（Phase 3 起）。
+A 股每日批量选股系统：6 维度规则快筛（v2.1 后）+ **Claude AI 深度分析（v2.2 已接入）**。
 仅做选股与报告，**不接券商、不自动下单**。
+
+## v2.2 起 AI 层流程
+
+```
+规则层 5 维 → 综合分排序 → 取 TOP 50 → analyze_stock_with_ai (Claude SDK + 4 段 prompt cache)
+  → ai_score 落库 ai_analysis 表
+  → final_score = rule × 0.6 + ai × 0.4，按 final_score 重排 TOP N
+  → 报告 markdown 含完整选出原因（AI 论点 + 维度证据中文翻译 + 操作建议 + 风险）
+```
+
+`run-once --skip-ai` 跳过 AI 阶段，行为等同 v2.1 纯规则模式。
 
 ## 6 维度（v2.1）
 
@@ -82,7 +93,7 @@ mo-stock scheduler                          # 生产常驻
 | `src/mo_stock/filters/` | 5 维度规则打分（limit / moneyflow / lhb / sector + sentiment 待接入） |
 | `src/mo_stock/scorer/combine.py` | 综合分（固定分母）+ 硬规则过滤 |
 | `src/mo_stock/data_sources/tushare_client.py` | Tushare 接口封装（重试 + 节流 + 日志） |
-| `src/mo_stock/ai/` | **Phase 3 待实现**——目前为空占位 |
+| `src/mo_stock/ai/` | **v2.2 已实现**：client / schemas / prompts / analyzer |
 | `config/weights.yaml` | 维度权重 + 硬规则配置（热调，无需改代码） |
 | `docs/scoring.md` | 综合分公式与维度细节 |
 | `docs/cli.md` | CLI 子命令完整手册 |
@@ -100,8 +111,10 @@ mo-stock scheduler                          # 生产常驻
 
 详见 [`docs/audit-2026-04-26.md`](docs/audit-2026-04-26.md)。当前最关键的几项：
 
-1. **Phase 3 AI 层完整实现**（`src/mo_stock/ai/` 仅占位）
+1. ~~Phase 3 AI 层完整实现~~ ✅ v2.2 已完成
 2. **阈值历史回测**（各 filter 阈值未经 IR / 胜率验证）
-3. **`ingest_one_day` 中 daily_kline / daily_basic / limit_list / moneyflow 4 个步骤被注释**——生产前必须解开
-4. **THS 概念板块接入**（积分够，差 ths_daily 入库 + SectorFilter 改造）
-5. **龙虎榜机构 / 游资分离**（差 top_inst 接入 + Lhb.buyer_type 字段）
+3. ~~ingest_one_day 中 4 个核心步骤被注释~~ ✅ v2.1 已解开
+4. ~~THS 概念板块接入~~ ✅ v2.1 已接入（独立 ThemeFilter 维度）
+5. ~~龙虎榜机构 / 游资分离~~ ✅ v2.1 已接入（lhb_seat_detail 表 + seat_type 分类）
+6. **AI prompt 质量持续优化**（v2.2 后用真实数据观察 thesis 输出，按需迭代 prompts.py）
+7. **AI 成本监控**（v2.2 后建议每周看 ai_analysis 表的 token usage 总和）

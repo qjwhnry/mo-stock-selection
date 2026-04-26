@@ -7,8 +7,6 @@
 """
 from __future__ import annotations
 
-from datetime import date
-
 from mo_stock.report.render_md import _translate_dim_detail
 
 

@@ -11,8 +11,6 @@
 """
 from __future__ import annotations
 
-from typing import Any
-
 import anthropic
 from loguru import logger
 from tenacity import (

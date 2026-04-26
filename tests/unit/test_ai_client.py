@@ -103,6 +103,7 @@ class TestClientRetry:
     def test_retries_on_rate_limit(self, monkeypatch) -> None:
         """RateLimitError 触发 tenacity 重试 3 次内成功。"""
         import anthropic
+
         from mo_stock.ai.client import ClaudeClient
 
         fake_create = MagicMock(side_effect=[
@@ -126,6 +127,7 @@ class TestClientRetry:
     def test_does_not_retry_on_bad_request(self, monkeypatch) -> None:
         """BadRequestError 不在重试白名单，立刻抛出（避免无限重试错参数）。"""
         import anthropic
+
         from mo_stock.ai.client import ClaudeClient
 
         fake_create = MagicMock(side_effect=anthropic.BadRequestError(
@@ -142,6 +144,7 @@ class TestClientRetry:
     def test_does_not_retry_on_authentication_error(self, monkeypatch) -> None:
         """AuthenticationError（API key 错）也是 fail fast。"""
         import anthropic
+
         from mo_stock.ai.client import ClaudeClient
 
         fake_create = MagicMock(side_effect=anthropic.AuthenticationError(
@@ -159,6 +162,7 @@ class TestClientRetry:
         """APIStatusError 5xx 重试；4xx 已被 SDK 转成具体子类（BadRequest 等），
         所以 APIStatusError 实际只会是 5xx。"""
         import anthropic
+
         from mo_stock.ai.client import ClaudeClient
 
         # 构造 5xx APIStatusError（注意：anthropic SDK 实际把 5xx 转成 InternalServerError）

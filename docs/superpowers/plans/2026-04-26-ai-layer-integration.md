@@ -43,13 +43,18 @@
 
 1. **以现有 ORM 字段为准，不做表结构扩张**：`StockAiAnalysis.score` 只作为 pydantic 输出字段；落库时映射到 `AiAnalysis.ai_score`。`entry_price/key_signals` 不直接同名落库；`entry_price` 格式化为 `suggested_entry`，`key_signals` 映射为 `key_catalysts`。本阶段不要求 `take_profit/confidence`，除非另起 migration 增字段。
 2. **规则维度统一为当前已接通的 5 维**：`limit / moneyflow / lhb / sector / theme`。`sentiment` 仍是未来预留，报告和 prompt 不应把它写成当前已接通维度。
-3. **AI TOP 50 与最终 TOP N 分离**：`combine_scores` 必须新增 `enable_ai: bool = True` 与 `ai_top_n: int = settings.top_n_after_filter`，不能复用最终报告参数 `top_n=settings.top_n_final`。
+3. **AI TOP 50 与最终 TOP N 分离**：`combine_scores` 必须新增 `enable_ai: bool = True` 与 `ai_top_n: int | None = None`，函数体内用 `settings.top_n_after_filter` 作为默认唯一事实源；不能复用最终报告参数 `top_n=settings.top_n_final`。
 4. **测试策略要避开 PG upsert 在 SQLite 上的限制**：TOP 50 选择、AI fallback、final_score 计算拆成纯函数单测；完整 `pg_insert(...).on_conflict_do_update` 用 integration 或 mock session 测。
 5. **prompt cache 指标只做观测和告警，不作为硬验收**：官方 prompt cache 是前缀缓存；不同股票的 `static_stock` 基本不会跨股票命中。默认 TTL 是 5 分钟，1 小时 TTL 需要额外配置和更高写入成本。
 6. **成本估算写公式和区间，不写死低价承诺**：Sonnet 4.6 价格按官方当前基准估算，输出 token 往往是主要成本；文档需保留“随 Anthropic 价格变动”的说明。
 7. **ai_top_n 默认值用 settings 唯一事实源**：`combine_scores` 函数签名写 `ai_top_n: int | None = None`，函数体内 `ai_top_n = ai_top_n if ai_top_n is not None else settings.top_n_after_filter`。避免函数签名硬编码 50、CLI 调用又传 settings 的两处不一致。
 8. **`mock_claude_client` fixture 必须在 conftest.py 显式定义**：所有 AI 单测共享同一个 mock 入口，禁止每个测试文件各自 monkeypatch 不同路径。fixture 定义见 §2.5。
 9. **Anthropic API 速率限制 / 重试由 client.py 统一处理**：50 股串行调用如果用 Tier 1 账号会撞 rate limit，client.py 必须用 `tenacity` 对 `RateLimitError / APIConnectionError / APIStatusError(5xx)` 重试 3 次（指数退避），但**显式排除** `BadRequestError / AuthenticationError`（fail fast）。schema validation 失败的重试是另一层逻辑，放在 analyzer.py，不和 SDK 层重试混。
+10. **Anthropic 重试不能直接把 `APIStatusError` 放进类型白名单**：`BadRequestError` / `AuthenticationError` 都是 `APIStatusError` 子类，必须用自定义 predicate，只在 `status_code >= 500` 时重试 `APIStatusError`。
+11. **AI 融合后必须按 `final_score` 重新排名**：不能只按 rule_score 排序后写入 AI 分。流程必须是：算 rule_score → 选 AI 候选 → 调 AI → 计算所有候选 final_score → 按 final_score 排序 → 分配 rank/picked。
+12. **`mock_claude_client` patch 路径必须匹配 analyzer 实际取 client 的位置**：`analyzer.py` 应实现 `_get_claude_client()` 工厂，测试 fixture patch `mo_stock.ai.analyzer._get_claude_client`，不要 patch `mo_stock.ai.client.ClaudeClient` 后再让 analyzer 提前绑定旧类。
+13. **AI 单测使用现有 `sqlite_session` fixture**：当前 `tests/conftest.py` 没有 `session` fixture，示例测试统一写 `sqlite_session`；除非另增兼容 alias。
+14. **Anthropic 异常测试必须构造真实异常对象**：`anthropic.RateLimitError(...)` / `BadRequestError(...)` 不能用省略号，必须用 `httpx.Request/Response` 按 SDK 签名构造。
 
 ### 0.3 Stage 划分
 
@@ -79,7 +84,7 @@ tests/unit/
 ### Modify
 
 - `src/mo_stock/ai/__init__.py`：从占位改为真实 export
-- `src/mo_stock/scorer/combine.py`：`combine_scores(enable_ai=True, ai_top_n=50)` 接通 ai_score（之前永远 None）
+- `src/mo_stock/scorer/combine.py`：`combine_scores(enable_ai=True, ai_top_n=None)` 接通 ai_score（之前永远 None；默认值从 `settings.top_n_after_filter` 读取）
 - `src/mo_stock/cli.py` / `src/mo_stock/scheduler/daily_job.py`：给 combine 透传 AI 开关；AI 分析仍由 combine 内部在规则分排序后触发
 - `src/mo_stock/report/render_md.py`：**重写 selection 渲染部分，把"选出原因"打印完整**
 - `config/weights.yaml`：把 `combine.ai_weight` 注释改为 "已生效"
@@ -158,16 +163,23 @@ class StockAiAnalysis(BaseModel):
 ```python
 import anthropic
 from tenacity import (
-    retry, retry_if_exception_type,
+    retry, retry_if_exception,
     stop_after_attempt, wait_exponential,
 )
 
-# 网络层 / 临时性错误：自动重试 3 次
-_RETRYABLE_EXCEPTIONS = (
-    anthropic.RateLimitError,
-    anthropic.APIConnectionError,
-    anthropic.APIStatusError,  # 5xx 走这里；4xx 已被 SDK 转成 BadRequestError
-)
+def _is_retryable_anthropic_error(exc: BaseException) -> bool:
+    """只重试临时性 Anthropic 错误。
+
+    注意：BadRequestError / AuthenticationError 都继承自 APIStatusError，
+    所以不能把 APIStatusError 直接放进 retry_if_exception_type。
+    """
+    if isinstance(exc, anthropic.APIConnectionError):
+        return True
+    if isinstance(exc, anthropic.RateLimitError):
+        return True
+    if isinstance(exc, anthropic.APIStatusError):
+        return exc.response.status_code >= 500
+    return False
 
 
 class ClaudeClient:
@@ -181,7 +193,7 @@ class ClaudeClient:
         self.model = settings.anthropic_model
 
     @retry(
-        retry=retry_if_exception_type(_RETRYABLE_EXCEPTIONS),
+        retry=retry_if_exception(_is_retryable_anthropic_error),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=20),
         reraise=True,
@@ -242,6 +254,14 @@ def analyze_stock_with_ai(
     """
 ```
 
+`analyzer.py` 必须提供一个可 patch 的 client 工厂，避免测试 fixture patch 错模块路径：
+
+```python
+def _get_claude_client() -> ClaudeClient:
+    """返回 ClaudeClient 实例；测试通过 patch 本函数替换真实 SDK 调用。"""
+    return ClaudeClient()
+```
+
 ### 2.5 测试 fixture：mock_claude_client（统一入口）
 
 所有 AI 模块单测共享同一个 mock fixture，**禁止每个测试文件各自 monkeypatch 不同路径**——否则改 client.py 路径时容易漏改部分测试。在 `tests/conftest.py` 末尾追加：
@@ -265,8 +285,8 @@ def mock_claude_client(monkeypatch):
         '"entry_price":null,"stop_loss":null,"key_signals":[],"risks":[]}',
         {"input_tokens": 0, "output_tokens": 0, "cache_creation_tokens": 0, "cache_read_tokens": 0},
     )
-    # patch 单例工厂入口：analyzer.py 通过此名拿 client
-    monkeypatch.setattr("mo_stock.ai.client.ClaudeClient", lambda: fake)
+    # patch analyzer.py 的 client 工厂入口，确保 analyze_stock_with_ai 使用 fake
+    monkeypatch.setattr("mo_stock.ai.analyzer._get_claude_client", lambda: fake)
     return fake
 ```
 
@@ -302,7 +322,18 @@ def combine_scores(
     # 前半段沿用现有实现：读取 filter_score_daily → 计算 combined → 构造 reject_map。
     # 新增逻辑从 ai_candidates 开始插入。
 
-# 1. 算完 rule_score 并应用硬规则前后要保持口径清楚：
+# 1. 从 score_rows 重建每只股票的完整维度 detail，供 AI prompt 使用。
+dim_scores_map: dict[str, dict[str, ScoreResult]] = {}
+for row in score_rows:
+    dim_scores_map.setdefault(row.ts_code, {})[row.dim] = ScoreResult(
+        ts_code=row.ts_code,
+        trade_date=row.trade_date,
+        dim=row.dim,
+        score=row.score,
+        detail=row.detail or {},
+    )
+
+# 2. 算完 rule_score 并应用硬规则前后要保持口径清楚：
 #    建议先对规则分排序，再只对未被硬规则淘汰的前 ai_top_n 调 AI。
 ai_candidates = [
     (ts_code, rule_score)
@@ -310,7 +341,7 @@ ai_candidates = [
     if ts_code not in reject_map
 ][:effective_ai_top_n]
 
-# 2. 对规则层 TOP ai_top_n 调 AI；enable_ai=False 时整体跳过
+# 3. 对规则层 TOP ai_top_n 调 AI；enable_ai=False 时整体跳过
 ai_results: dict[str, StockAiAnalysis] = {}
 if enable_ai:
     for ts_code, _ in ai_candidates:
@@ -318,11 +349,30 @@ if enable_ai:
         if result is not None:
             ai_results[ts_code] = result
 
-# 3. 融合：rule × 0.6 + ai × 0.4，AI 缺失则降级为纯 rule
+# 4. 融合：rule × 0.6 + ai × 0.4，AI 缺失则降级为纯 rule。
+#    注意：必须按 final_score 重新排序后再分配 rank/picked，确保 AI 真正影响最终 TOP N。
+scored: list[dict[str, Any]] = []
 for ts_code, rule_score in combined:
     ai_obj = ai_results.get(ts_code)
     ai_score = ai_obj.score if ai_obj else None
     final_score = _final_score_from(rule_score, ai_score)  # 已支持 None
+    scored.append({
+        "ts_code": ts_code,
+        "rule_score": rule_score,
+        "ai_score": ai_score,
+        "final_score": round(final_score, 2),
+        "reject_reason": reject_map.get(ts_code),
+    })
+
+scored.sort(key=lambda x: x["final_score"], reverse=True)
+
+picked_rank = 0
+for item in scored:
+    picked = item["reject_reason"] is None and picked_rank < top_n
+    if picked:
+        picked_rank += 1
+    item["rank"] = picked_rank if picked else 0
+    item["picked"] = picked
 ```
 
 ### 3.3 cli / scheduler 加 `--skip-ai` 开关
@@ -497,10 +547,16 @@ def test_claude_client_returns_usage_with_cache_metrics():
 def test_claude_client_retries_on_rate_limit(monkeypatch):
     """RateLimitError 触发 tenacity 重试 3 次后成功。"""
     import anthropic
+    import httpx
+
+    def _anthropic_response(status_code: int) -> httpx.Response:
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        return httpx.Response(status_code, request=request, json={"error": {"message": "test"}})
+
     fake_resp = MagicMock(content=[MagicMock(text='{"score":85,...}')], usage=MagicMock(...))
     fake_create = MagicMock(side_effect=[
-        anthropic.RateLimitError(...),  # 第 1 次：限速
-        anthropic.RateLimitError(...),  # 第 2 次：限速
+        anthropic.RateLimitError("rate limited", response=_anthropic_response(429), body=None),
+        anthropic.RateLimitError("rate limited", response=_anthropic_response(429), body=None),
         fake_resp,                      # 第 3 次：成功
     ])
     monkeypatch.setattr("anthropic.Anthropic", lambda **kw: MagicMock(messages=MagicMock(create=fake_create)))
@@ -510,11 +566,33 @@ def test_claude_client_retries_on_rate_limit(monkeypatch):
 def test_claude_client_does_not_retry_on_bad_request(monkeypatch):
     """BadRequestError 不在重试白名单，立刻抛出（避免无限重试错参数）。"""
     import anthropic
-    fake_create = MagicMock(side_effect=anthropic.BadRequestError(...))
+    import httpx
+
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(400, request=request, json={"error": {"message": "bad request"}})
+    fake_create = MagicMock(side_effect=anthropic.BadRequestError("bad request", response=response, body=None))
     monkeypatch.setattr("anthropic.Anthropic", lambda **kw: MagicMock(messages=MagicMock(create=fake_create)))
     with pytest.raises(anthropic.BadRequestError):
         ClaudeClient().analyze("sys", "method", "static", "dynamic")
     assert fake_create.call_count == 1  # 只调了一次，没重试
+
+def test_claude_client_retries_api_status_error_only_for_5xx(monkeypatch):
+    """APIStatusError 只有 5xx 才重试；4xx 子类不能被误重试。"""
+    import anthropic
+    import httpx
+
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(503, request=request, json={"error": {"message": "server busy"}})
+    fake_resp = MagicMock(content=[MagicMock(text='{"score":85,...}')], usage=MagicMock(...))
+    fake_create = MagicMock(side_effect=[
+        anthropic.APIStatusError("server busy", response=response, body=None),
+        fake_resp,
+    ])
+    monkeypatch.setattr("anthropic.Anthropic", lambda **kw: MagicMock(messages=MagicMock(create=fake_create)))
+
+    ClaudeClient().analyze("sys", "method", "static", "dynamic")
+
+    assert fake_create.call_count == 2
 ```
 
 **Step 4: Commit**
@@ -534,16 +612,16 @@ def test_claude_client_does_not_retry_on_bad_request(monkeypatch):
 > 所有测试通过 `mock_claude_client` fixture 注入；改 client 路径时只改 §2.5 一处，不要在每个测试文件里重复 monkeypatch。
 
 ```python
-def test_analyze_stock_with_ai_writes_db(session, mock_claude_client):
+def test_analyze_stock_with_ai_writes_db(sqlite_session, mock_claude_client):
     mock_claude_client.analyze.return_value = (
         '{"ts_code":"600519.SH","score":85,"thesis":"北向资金连续净买入，白酒板块短线反弹，短线量价结构改善。",'
         '"entry_price":1680,"stop_loss":1640,"key_signals":["北向资金连续净买入"],"risks":["大盘回调风险"]}',
         {"input_tokens": 1000, "output_tokens": 300, "cache_creation_tokens": 800, "cache_read_tokens": 0},
     )
-    result = analyze_stock_with_ai(session, "600519.SH", date(2026,4,24), {...rule_scores...})
+    result = analyze_stock_with_ai(sqlite_session, "600519.SH", date(2026,4,24), {...rule_scores...})
     assert result.score == 85
     # ai_analysis 表落库
-    row = session.execute(
+    row = sqlite_session.execute(
         select(AiAnalysis)
         .where(AiAnalysis.ts_code == "600519.SH")
         .where(AiAnalysis.trade_date == date(2026, 4, 24))
@@ -553,10 +631,10 @@ def test_analyze_stock_with_ai_writes_db(session, mock_claude_client):
     assert row.suggested_entry == "1680.00 元"
     assert row.thesis is not None
 
-def test_analyze_stock_with_ai_returns_none_on_validation_failure(session, mock_claude_client):
+def test_analyze_stock_with_ai_returns_none_on_validation_failure(sqlite_session, mock_claude_client):
     """JSON schema 校验失败 → 重试一次 → 仍失败返回 None。"""
     mock_claude_client.analyze.side_effect = [('invalid', {}), ('also bad', {})]
-    assert analyze_stock_with_ai(session, "600519.SH", date(2026,4,24), {}) is None
+    assert analyze_stock_with_ai(sqlite_session, "600519.SH", date(2026,4,24), {}) is None
 ```
 
 **Step 2: 实现 analyzer.analyze_stock_with_ai**
@@ -648,11 +726,13 @@ def test_final_score_falls_back_when_ai_returns_none():
 
 按 §3.2 改 `combine_scores`：
 - 新增 `_pick_ai_candidates(combined, reject_map, ai_top_n) -> list[str]` 纯函数，先测后实现
-- `combine_scores` 新增参数 `enable_ai: bool = True` 与 `ai_top_n: int = settings.top_n_after_filter`
+- `combine_scores` 新增参数 `enable_ai: bool = True` 与 `ai_top_n: int | None = None`，函数体内 fallback 到 `settings.top_n_after_filter`
 - 算完 rule_score 排序并构造 `reject_map` 后，取未被硬规则淘汰的 TOP `ai_top_n`（默认 50）
+- 从 `FilterScoreDaily` rows 重建 `dim_scores_map[ts_code][dim] = ScoreResult(...)`，把完整 detail 传给 `analyze_stock_with_ai`
 - 对每只调 `analyze_stock_with_ai`，结果存进 `ai_results` dict
 - 落库时 ai_score 取 `ai_results.get(ts_code)?.score`
 - final_score 走现有 `_final_score_from`
+- **按 final_score 重新排序后再分配 rank/picked**，不要沿用 rule_score 排名
 
 **Step 3: Commit**
 
