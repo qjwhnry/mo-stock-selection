@@ -357,6 +357,118 @@ class TushareClient:
             ),
         )
 
+    # ---------- 题材/概念维度（v2.1 新增）----------
+
+    def ths_daily(
+        self,
+        ts_code: str | None = None,
+        trade_date: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        """同花顺概念/行业指数日行情（doc_id=260）。
+
+        ts_code 为 THS 板块代码（如 885806.TI）；trade_date 拉当日全市场板块。
+        ThemeFilter 用 pct_change 排出题材热度 TOP N。
+        """
+        return self._call(
+            "ths_daily",
+            ts_code=ts_code,
+            trade_date=trade_date,
+            start_date=start_date,
+            end_date=end_date,
+            limiter=_strict_limiter,
+            fields=(
+                "ts_code,trade_date,close,open,high,low,pre_close,avg_price,"
+                "change,pct_change,vol,turnover_rate,total_mv,float_mv"
+            ),
+        )
+
+    def limit_cpt_list(
+        self,
+        trade_date: str | None = None,
+        ts_code: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        """涨停最强板块统计（doc_id=357）。
+
+        每天涨停股票最多最强的概念板块，rank 字段为热点排名（1 最强）。
+        ThemeFilter 用作"短线涨停情绪"信号。
+        """
+        return self._call(
+            "limit_cpt_list",
+            trade_date=trade_date,
+            ts_code=ts_code,
+            start_date=start_date,
+            end_date=end_date,
+            limiter=_strict_limiter,
+            fields="ts_code,name,trade_date,days,up_stat,cons_nums,up_nums,pct_chg,rank",
+        )
+
+    def moneyflow_cnt_ths(
+        self,
+        ts_code: str | None = None,
+        trade_date: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        """同花顺概念板块每日资金流向（doc_id=371）。
+
+        v2.1 修法：fields 同时拉 net_buy_amount / net_sell_amount / net_amount
+        三个净额字段，与 ThsConceptMoneyflow 表完全对齐。
+        """
+        return self._call(
+            "moneyflow_cnt_ths",
+            ts_code=ts_code,
+            trade_date=trade_date,
+            start_date=start_date,
+            end_date=end_date,
+            limiter=_strict_limiter,
+            fields=(
+                "trade_date,ts_code,name,lead_stock,pct_change,company_num,"
+                "pct_change_stock,net_buy_amount,net_sell_amount,net_amount"
+            ),
+        )
+
+    # ---------- 龙虎榜席位 / 游资（v2.1 新增）----------
+
+    def hm_list(self, name: str | None = None) -> pd.DataFrame:
+        """游资名录（doc_id=311）。
+
+        返回经验型分类（赵老哥 / 章盟主 等），orgs 字段是其关联营业部
+        分号/逗号分隔字符串。LhbFilter 用作"是否知名游资席位"的识别基础。
+        """
+        return self._call(
+            "hm_list",
+            name=name,
+            limiter=_default_limiter,
+            fields="name,desc,orgs",
+        )
+
+    def hm_detail(
+        self,
+        trade_date: str | None = None,
+        ts_code: str | None = None,
+        hm_name: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        """游资每日交易明细（doc_id=312）。数据从 2022-08 起。
+
+        与 top_inst 互补：top_inst 看席位金额；hm_detail 直接给"哪位游资买了什么"。
+        """
+        return self._call(
+            "hm_detail",
+            trade_date=trade_date,
+            ts_code=ts_code,
+            hm_name=hm_name,
+            start_date=start_date,
+            end_date=end_date,
+            limiter=_strict_limiter,
+            fields="trade_date,ts_code,ts_name,buy_amount,sell_amount,net_amount,hm_name,hm_orgs,tag",
+        )
+
     # ---------- 情绪：新闻 / 公告 ----------
 
     def major_news(self, start_date: str, end_date: str) -> pd.DataFrame:
