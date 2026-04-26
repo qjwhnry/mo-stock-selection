@@ -55,9 +55,11 @@ def _assert_lhb_data_available(trade_date: date, now: datetime | None = None) ->
 
 
 def run_daily_pipeline(
-    trade_date: date | None = None, *, skip_enhanced: bool = False,
+    trade_date: date | None = None, *,
+    skip_enhanced: bool = False,
+    skip_ai: bool = False,
 ) -> None:
-    """Phase 2 端到端流程（与 cli.run_once 内部一致）。
+    """v2.2 端到端流程（与 cli.run_once 内部一致）。
 
     P1-18：顶层 try-except 捕获并 logger.exception 记录完整堆栈，避免 APScheduler
     默认行为吞掉异常导致排查困难。
@@ -65,6 +67,7 @@ def run_daily_pipeline(
     Args:
         trade_date: 目标交易日，None 取当天
         skip_enhanced: True 时只跑 6 个 CORE ingest 步骤
+        skip_ai: True 时跳过 combine_scores 的 AI 阶段，行为等同 v2.1
     """
     from pathlib import Path
 
@@ -72,8 +75,8 @@ def run_daily_pipeline(
 
     trade_date = trade_date or date.today()
     logger.info(
-        "===== 每日定时任务触发：{} (skip_enhanced={}) =====",
-        trade_date, skip_enhanced,
+        "===== 每日定时任务触发：{} (skip_enhanced={} skip_ai={}) =====",
+        trade_date, skip_enhanced, skip_ai,
     )
 
     try:
@@ -110,6 +113,7 @@ def run_daily_pipeline(
                 dimension_weights=dim_weights,
                 hard_reject_cfg=hard_reject,
                 top_n=settings.top_n_final,
+                enable_ai=not skip_ai,
             )
 
         with get_session() as session:
@@ -123,11 +127,12 @@ def run_daily_pipeline(
         raise
 
 
-def start_scheduler(*, skip_enhanced: bool = False) -> None:
+def start_scheduler(*, skip_enhanced: bool = False, skip_ai: bool = False) -> None:
     """启动阻塞调度器。周一至周五 15:30 (Asia/Shanghai) 触发。
 
     Args:
         skip_enhanced: 透传给每日任务的 ingest_one_day（True 时只跑 CORE 6 步）
+        skip_ai: 透传给 run_daily_pipeline，跳过 AI 分析
     """
     scheduler = BlockingScheduler(timezone="Asia/Shanghai")
 
@@ -143,7 +148,7 @@ def start_scheduler(*, skip_enhanced: bool = False) -> None:
         # P1-18：错过 60 分钟内仍补跑（原 30 分钟偏短，遇网络抖动易错过窗口）
         misfire_grace_time=60 * 60,
         # 透传 skip_enhanced 到 run_daily_pipeline
-        kwargs={"skip_enhanced": skip_enhanced},
+        kwargs={"skip_enhanced": skip_enhanced, "skip_ai": skip_ai},
     )
 
     logger.info(

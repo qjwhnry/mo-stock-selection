@@ -199,12 +199,16 @@ def backfill(days: int, end: str | None) -> None:
 @click.option("--date", "date_str", default=None, help="选股日 YYYY-MM-DD，默认今日")
 @click.option("--skip-ingest", is_flag=True, help="跳过数据拉取步骤（用于已经有数据时的重算）")
 @click.option("--skip-enhanced", is_flag=True, help="只跑 6 个 CORE ingest，跳过题材/席位增强（5 步）")
+@click.option("--skip-ai", is_flag=True, help="跳过 AI 分析（v2.2）；行为等同 v2.1 纯规则模式")
 @click.option("--force", is_flag=True, help="允许在非交易日运行（默认会拒绝）")
-def run_once(date_str: str | None, skip_ingest: bool, skip_enhanced: bool, force: bool) -> None:
-    """对指定交易日跑一次端到端选股流程：ingest → filter → combine → report。"""
+def run_once(
+    date_str: str | None, skip_ingest: bool, skip_enhanced: bool,
+    skip_ai: bool, force: bool,
+) -> None:
+    """对指定交易日跑一次端到端选股流程：ingest → filter → combine [+ AI] → report。"""
     trade_date = _parse_date(date_str) if date_str else date.today()
     _ensure_trade_date(trade_date, force=force, kind="run-once")
-    logger.info("=== run-once {} ===", trade_date)
+    logger.info("=== run-once {} (skip_ai={}) ===", trade_date, skip_ai)
 
     # ---------- 1. 数据拉取 ----------
     if not skip_ingest:
@@ -234,13 +238,14 @@ def run_once(date_str: str | None, skip_ingest: bool, skip_enhanced: bool, force
 
         persist_filter_scores(session, all_scores)
 
-        # ---------- 4. 综合打分 + 硬规则 ----------
+        # ---------- 4. 综合打分 + AI（可选）+ 硬规则 ----------
         combine_scores(
             session,
             trade_date,
             dimension_weights=dim_weights,
             hard_reject_cfg=hard_reject,
             top_n=settings.top_n_final,
+            enable_ai=not skip_ai,
         )
 
     # ---------- 5. 生成报告 ----------
@@ -321,11 +326,12 @@ def analyze(ts_code: str, date_str: str | None, as_json: bool, force: bool) -> N
 
 @cli.command("scheduler")
 @click.option("--skip-enhanced", is_flag=True, help="scheduler 每日任务跳过 ENHANCED ingest（5 步）")
-def scheduler(skip_enhanced: bool) -> None:
+@click.option("--skip-ai", is_flag=True, help="scheduler 每日任务跳过 AI 分析（行为等同 v2.1）")
+def scheduler(skip_enhanced: bool, skip_ai: bool) -> None:
     """启动常驻调度：每个交易日 15:30 自动跑 run-once。"""
     from mo_stock.scheduler.daily_job import start_scheduler
 
-    start_scheduler(skip_enhanced=skip_enhanced)
+    start_scheduler(skip_enhanced=skip_enhanced, skip_ai=skip_ai)
 
 
 def main() -> None:
