@@ -1,0 +1,169 @@
+"""analyze_stock_with_ai 单测（v2.2 plan Task 3）。
+
+覆盖：
+- 成功路径：mock client 返回合规 JSON → 落库 ai_analysis（字段映射正确）
+- schema 校验失败：第 1 次失败重试 1 次，第 2 次仍失败 → 返回 None
+- 异常路径：client 抛 BadRequestError → 返回 None（捕获不传播）
+- ai_score 类型转换：float → int（schema 是 float，ORM 是 Integer）
+- 字符串格式化：entry_price=1680.0 → suggested_entry="1680.00 元"
+"""
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+
+from mo_stock.ai.analyzer import analyze_stock_with_ai
+from mo_stock.storage.models import AiAnalysis, StockBasic
+
+
+@pytest.fixture
+def basic_stock(sqlite_session):
+    """fixture：插入一只测试股的 stock_basic，供 analyzer 取静态背景。"""
+    sqlite_session.add(StockBasic(
+        ts_code="600519.SH", symbol="600519", name="贵州茅台",
+        industry="白酒", sw_l1="食品饮料", is_st=False,
+        list_date=date(2001, 8, 27),
+    ))
+    sqlite_session.commit()
+    return "600519.SH"
+
+
+class TestAnalyzeStockWithAiSuccess:
+    def test_writes_db_with_correct_field_mapping(
+        self, sqlite_session, mock_claude_client, basic_stock,
+    ) -> None:
+        """成功路径：score float → int、entry_price float → "X.XX 元"。"""
+        mock_claude_client.analyze.return_value = (
+            '{"ts_code":"600519.SH","score":85.7,'
+            '"thesis":"北向资金连续净买入，叠加白酒板块短线反弹，短线量价结构改善。",'
+            '"entry_price":1680.0,"stop_loss":1640.0,'
+            '"key_signals":["北向连续净买入","白酒板块涨幅 TOP 3"],'
+            '"risks":["大盘回调风险"]}',
+            {"input_tokens": 1000, "output_tokens": 300,
+             "cache_creation_tokens": 800, "cache_read_tokens": 0},
+        )
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+        )
+        assert result is not None
+        assert result.score == 85.7  # pydantic 模型保留 float
+
+        # 落库 ai_analysis
+        from sqlalchemy import select
+        row = sqlite_session.execute(
+            select(AiAnalysis)
+            .where(AiAnalysis.ts_code == "600519.SH")
+            .where(AiAnalysis.trade_date == date(2026, 4, 24))
+        ).scalar_one()
+
+        # 字段映射断言（按 v2.2 plan §2.1 映射表）
+        assert row.ai_score == 86  # round(85.7) → Integer
+        assert "北向" in row.thesis
+        assert row.key_catalysts == ["北向连续净买入", "白酒板块涨幅 TOP 3"]
+        assert row.risks == ["大盘回调风险"]
+        assert row.suggested_entry == "1680.00 元"
+        assert row.stop_loss == "1640.00 元"
+        assert row.input_tokens == 1000
+        assert row.output_tokens == 300
+        assert row.cache_creation_tokens == 800
+        assert row.cache_read_tokens == 0
+
+    def test_handles_null_entry_and_stop(
+        self, sqlite_session, mock_claude_client, basic_stock,
+    ) -> None:
+        """entry_price/stop_loss 为 null 时落库为 None（不是空字符串）。"""
+        mock_claude_client.analyze.return_value = (
+            '{"ts_code":"600519.SH","score":50,'
+            '"thesis":"占位测试论点，验证 null 字段映射不报错。",'
+            '"entry_price":null,"stop_loss":null,'
+            '"key_signals":[],"risks":[]}',
+            {"input_tokens": 100, "output_tokens": 50,
+             "cache_creation_tokens": 0, "cache_read_tokens": 0},
+        )
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+        )
+        assert result is not None
+
+        from sqlalchemy import select
+        row = sqlite_session.execute(
+            select(AiAnalysis)
+        ).scalar_one()
+        assert row.suggested_entry is None
+        assert row.stop_loss is None
+
+
+class TestAnalyzeStockWithAiFailure:
+    def test_invalid_json_retries_once_then_returns_none(
+        self, sqlite_session, mock_claude_client, basic_stock,
+    ) -> None:
+        """JSON 解析失败 → 重试 1 次 → 仍失败 → 返回 None（不写库）。"""
+        mock_claude_client.analyze.side_effect = [
+            ("not valid json at all", {"input_tokens": 100, "output_tokens": 10,
+                                       "cache_creation_tokens": 0, "cache_read_tokens": 0}),
+            ("still bad", {"input_tokens": 100, "output_tokens": 10,
+                           "cache_creation_tokens": 0, "cache_read_tokens": 0}),
+        ]
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+        )
+        assert result is None
+        # 调了 2 次（重试 1 次）
+        assert mock_claude_client.analyze.call_count == 2
+
+        # 不应有 ai_analysis 行写入
+        from sqlalchemy import select
+        rows = sqlite_session.execute(select(AiAnalysis)).scalars().all()
+        assert len(rows) == 0
+
+    def test_schema_violation_retries_once_then_returns_none(
+        self, sqlite_session, mock_claude_client, basic_stock,
+    ) -> None:
+        """JSON 合法但 schema 越界（score=120）→ 重试 1 次 → 失败返回 None。"""
+        bad_json = '{"ts_code":"600519.SH","score":120,"thesis":"score 越界 0-100，应触发 ValidationError 重试。"}'
+        mock_claude_client.analyze.side_effect = [
+            (bad_json, {"input_tokens": 100, "output_tokens": 10,
+                        "cache_creation_tokens": 0, "cache_read_tokens": 0}),
+            (bad_json, {"input_tokens": 100, "output_tokens": 10,
+                        "cache_creation_tokens": 0, "cache_read_tokens": 0}),
+        ]
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+        )
+        assert result is None
+        assert mock_claude_client.analyze.call_count == 2
+
+    def test_client_exception_returns_none(
+        self, sqlite_session, mock_claude_client, basic_stock,
+    ) -> None:
+        """SDK 异常（如 BadRequestError 或 5xx 重试耗尽）→ 返回 None，不传播。"""
+        mock_claude_client.analyze.side_effect = RuntimeError("simulated SDK failure")
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+        )
+        assert result is None
+
+    def test_first_attempt_succeeds_no_retry(
+        self, sqlite_session, mock_claude_client, basic_stock,
+    ) -> None:
+        """第一次就合规时不重试。"""
+        mock_claude_client.analyze.return_value = (
+            '{"ts_code":"600519.SH","score":75,'
+            '"thesis":"测试一次成功，不应触发重试逻辑，验证 mock 路径正常工作。",'
+            '"entry_price":null,"stop_loss":null,'
+            '"key_signals":[],"risks":[]}',
+            {"input_tokens": 100, "output_tokens": 50,
+             "cache_creation_tokens": 0, "cache_read_tokens": 0},
+        )
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+        )
+        assert result is not None
+        assert mock_claude_client.analyze.call_count == 1

@@ -1,25 +1,34 @@
-"""AI 分析层：Claude + 四段 prompt caching。**Phase 3 引入，当前未实现**。
+"""AI 分析层（v2.2 plan 已实现）。
 
-# 当前状态（2026-04-26）
+主入口：`analyze_stock_with_ai(session, ts_code, trade_date, rule_dim_scores)`。
+- 用 Anthropic Claude SDK + 4 段 prompt cache 做单股深度分析
+- 输出 StockAiAnalysis pydantic 对象（schema 校验失败重试 1 次）
+- 落库 ai_analysis 表（字段映射见 v2.2 plan §2.1）
+- 任何失败返回 None（让 combine 走 ai_score=None 降级）
 
-整个目录暂时只有此 `__init__.py`，所有计划文件均**未创建**：
-- `client.py`：anthropic SDK 包装 + cache_control
-- `prompts.py`：四段 cache 设计（system / methodology / static / dynamic）
-- `analyzer.py`：单股深度分析入口
-- `schemas.py`：pydantic 输出约束（防止幻觉股票代码）
-
-因此：
-- `combine.py` 里的 `ai_score` 永远为 `None`
-- `selection_result.final_score` = `rule_score`（已在 `_final_score_from` 显式防御）
-- `report/render_md.py` 的 AI 段不会渲染（thesis/key_signals 等字段都为 None）
-- `weights.yaml` 中的 `combine.ai_weight` 当前不生效（待 Phase 3 解开）
-
-# Phase 3 启动前必读
-
-实现 AI 调用层时务必同步处理审计报告中 P1-19（**Prompt Injection 风险**）：
-- 所有用户/数据驱动文本（新闻、公告、研报）必须 JSON 序列化或 XML 标签包裹
-- 输出强制 JSON Schema validation，拒绝越界字段
-- System prompt 顶部硬编码免责与不可改写规则
-
-详细计划：`PLAN.md` §Phase 3、`docs/audit-2026-04-26.md` §P0-2 / §P0-17 / §P1-19
+公共导出：
+- ClaudeClient: SDK 包装单例
+- StockAiAnalysis: pydantic 输出契约
+- analyze_stock_with_ai: 单股入口
+- 4 个 prompt builders: build_{system,methodology,static_stock,dynamic_stock}_prompt
 """
+from mo_stock.ai.analyzer import analyze_stock_with_ai
+from mo_stock.ai.client import ClaudeClient, reset_singleton_for_test
+from mo_stock.ai.prompts import (
+    build_dynamic_stock_prompt,
+    build_methodology_prompt,
+    build_static_stock_prompt,
+    build_system_prompt,
+)
+from mo_stock.ai.schemas import StockAiAnalysis
+
+__all__ = [
+    "ClaudeClient",
+    "StockAiAnalysis",
+    "analyze_stock_with_ai",
+    "build_dynamic_stock_prompt",
+    "build_methodology_prompt",
+    "build_static_stock_prompt",
+    "build_system_prompt",
+    "reset_singleton_for_test",
+]
