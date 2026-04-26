@@ -126,16 +126,16 @@ def _top_n_l1_codes(
 
 
 def _rank_to_bonus(rank: int) -> int:
-    """板块涨幅排名 → 加分。TOP 5 加分，之外 0。"""
-    if 1 <= rank <= 5:
-        return 50 - (rank - 1) * 5  # 50, 45, 40, 35, 30
-    return 0
+    """板块涨幅排名 → 加分。TOP 5 加分，之外 0。
+    上限 70（占维度满分 100 的 70%，与 trend 0-30 共凑 100）。"""
+    rank_table = {1: 70, 2: 60, 3: 50, 4: 40, 5: 30}
+    return rank_table.get(rank, 0)
 
 
 def _three_day_avg_bonus(avg_pct: float) -> int:
-    """板块近 3 日均涨幅（%）→ 加分。趋势加成。"""
+    """板块近 3 日均涨幅（%）→ 加分。趋势加成。上限 30。"""
     if avg_pct >= 5.0:
-        return 20
+        return 30
     if avg_pct >= 2.0:
-        return 10
+        return 15
     return 0

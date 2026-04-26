@@ -27,13 +27,13 @@ class TestNetRateTierBonus:
             (-3.0, 0),       # 净卖出（占比为负）
             (0.0, 0),        # 持平
             (1.5, 0),        # < 2% 阈值（信号太弱）
-            (2.0, 10),       # 边界 2%
-            (3.36, 10),      # 赤天化真实值 → 信号中等
-            (4.99, 10),
-            (5.0, 15),       # 边界 5%
-            (8.0, 15),
-            (10.0, 20),      # 边界 10%
-            (25.0, 20),      # 极端值封顶
+            (2.0, 15),       # 边界 2%
+            (3.36, 15),      # 赤天化真实值 → 信号中等 +15
+            (4.99, 15),
+            (5.0, 22),       # 边界 5%
+            (8.0, 22),
+            (10.0, 30),      # 边界 10% 满档
+            (25.0, 30),      # 极端值封顶
         ],
     )
     def test_tier_thresholds(self, net_rate_pct: float, expected: int) -> None:
@@ -52,11 +52,11 @@ class TestPurityBonus:
             (-1.0, 0),        # 异常负值
             (0.0, 0),
             (10.0, 0),        # < 15% 阈值
-            (15.0, 10),       # 边界 15%
-            (23.42, 10),      # 赤天化真实值 → 中等
-            (29.99, 10),
-            (30.0, 20),       # 边界 30%
-            (50.0, 20),
+            (15.0, 12),       # 边界 15%
+            (23.42, 12),      # 赤天化真实值 → 中等 +12
+            (29.99, 12),
+            (30.0, 25),       # 边界 30% 满档
+            (50.0, 25),
         ],
     )
     def test_purity_thresholds(self, amount_rate_pct: float, expected: int) -> None:
@@ -70,16 +70,16 @@ class TestReasonBonus:
     """上榜原因文本 → 加分。**仅涨幅类**加分；跌幅类由 _is_drop_rebound_reason 单独识别。"""
 
     def test_three_day_streak_strongest(self) -> None:
-        assert _reason_bonus("连续三日涨幅偏离值达 20%") == 10
+        assert _reason_bonus("连续三日涨幅偏离值达 20%") == 15
 
     def test_one_day_jump(self) -> None:
-        assert _reason_bonus("日涨幅偏离值达 7%") == 5
+        assert _reason_bonus("日涨幅偏离值达 7%") == 8
 
     def test_high_turnover(self) -> None:
-        assert _reason_bonus("日换手率达 20%") == 5
+        assert _reason_bonus("日换手率达 20%") == 8
 
     def test_no_limit_security(self) -> None:
-        assert _reason_bonus("无价格涨跌幅限制证券") == 5
+        assert _reason_bonus("无价格涨跌幅限制证券") == 8
 
     def test_drop_reasons_no_longer_bonus(self) -> None:
         # 跌幅类不再加分（之前给 5/10，跌停反弹策略跟"找强势股"目标矛盾）
@@ -95,7 +95,7 @@ class TestReasonBonus:
 
     def test_combo_reason_takes_max(self) -> None:
         # 多个原因用「、」拼接时，取最高分（不叠加避免双重计分）
-        assert _reason_bonus("日涨幅偏离值达 7%、连续三日涨幅偏离值达 20%") == 10
+        assert _reason_bonus("日涨幅偏离值达 7%、连续三日涨幅偏离值达 20%") == 15
 
 
 class TestIsDropRebound:

@@ -91,16 +91,17 @@ def _net_rate_tier_bonus(net_rate_pct: float | None) -> int:
     """龙虎榜净买入占当日总成交比例（%，Tushare 现成字段 net_rate）→ 加分。
 
     跨股可比：跟绝对金额相比，占比能消除「大盘股净额大但占比小」的偏差。
-    阈值（业界经验）：2% / 5% / 10% 三档。赤天化 600227 真实 3.36% → +10。
+    阈值：2% / 5% / 10% 三档。赤天化 600227 真实 3.36% → +15。
+    上限 30（占维度满分 100 的 30%，与基础 30 + purity 25 + reason 15 共凑 100）。
     """
     if net_rate_pct is None or net_rate_pct <= 0:
         return 0
     if net_rate_pct >= 10.0:
-        return 20
+        return 30
     if net_rate_pct >= 5.0:
-        return 15
+        return 22
     if net_rate_pct >= 2.0:
-        return 10
+        return 15
     return 0
 
 
@@ -108,23 +109,24 @@ def _purity_bonus(amount_rate_pct: float | None) -> int:
     """龙虎榜成交占当日总成交比例（%，Tushare 现成字段 amount_rate）→ 加分。
 
     比例越高 = 上榜资金主导今日成交 = 信号越纯（避免散户对倒虚假活跃）。
-    阈值：15% / 30% 两档。
+    阈值：15% / 30% 两档。上限 25。
     """
     if amount_rate_pct is None or amount_rate_pct <= 0:
         return 0
     if amount_rate_pct >= 30.0:
-        return 20
+        return 25
     if amount_rate_pct >= 15.0:
-        return 10
+        return 12
     return 0
 
 
 # 上榜原因关键词 → 分数。仅涨幅/换手类加分，跌幅类由 _is_drop_rebound_reason 单独识别后整股跳过
+# 上限 15（占维度满分 100 的 15%）。
 _REASON_KEYWORD_SCORES: list[tuple[str, int]] = [
-    ("连续三日涨幅", 10),
-    ("无价格涨跌幅限制", 5),
-    ("日涨幅偏离", 5),
-    ("日换手率", 5),
+    ("连续三日涨幅", 15),
+    ("无价格涨跌幅限制", 8),
+    ("日涨幅偏离", 8),
+    ("日换手率", 8),
 ]
 
 # 跌幅榜上榜关键词。命中即整股跳过（跌停反弹策略跟"找强势股"目标矛盾）

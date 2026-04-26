@@ -1,5 +1,7 @@
 # mo-stock 命令行手册
 
+> 相关文档：[打分规则详解](./scoring.md) | [数据库表结构](./schema.md)
+
 `mo-stock-selection` 所有可执行入口统一通过 `click` 命令组暴露。
 
 - **入口点**：`pyproject.toml` 中声明 `mo-stock = "mo_stock.cli:cli"`

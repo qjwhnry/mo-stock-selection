@@ -1,41 +1,72 @@
-"""涨停异动维度打分。
+"""涨停异动维度打分（PLAN §4.2 设计：limit 维度只作为板块信号 + 反包识别）。
 
-**思路**（见 plan §4.2）：
-- 首板加基础分，连板首日（第 2 板）加更多
-- 封板时间早 / 封单额大 / 打开次数少 → 加分
-- 炸板 ≥ 2 次直接置 0
-- **硬规则**：当日涨停股不作为"次日追高买入"推荐，仅作板块信号（在 scorer 层过滤）
+**核心思路**：当日涨停股会被 hard_reject.exclude_today_limit_up 过滤，所以 LimitFilter
+真正能进 TOP 20 的得分股是两类「跟涨停相关但今天非涨停」的股票：
 
-得分输出：0-100
+1. **断板反包**（PLAN.md 原文「首板 > 连板首日 > 断板反包」）：
+   - 昨天涨停 + 今天没涨停 + 今天涨幅 ≥ 1%（保持强势）
+   - 这种股 hard_reject 不过滤，是 limit 维度真正的"产出"
+   - 涨幅梯度加分：1~3% / 3~5% / 5~8% / ≥8% 四档
+
+2. **同板块涨停热度溢出**（PLAN.md「当日涨停股只作为板块信号」）：
+   - 看个股所属一级板块今天有几只涨停
+   - 板块涨停越多 → 板块热度越高 → 给同板块**非涨停**股加分
+   - 1~2 / 3~4 / 5~9 / ≥10 四档
+
+3. **当日涨停股**（保留打分供 analyzer 单股查询用）：
+   - 原有逻辑：连板/封单/早封/开板。但综合分会被 hard_reject 让 picked=False。
+
+得分输出：0-100。
 """
 from __future__ import annotations
 
-from datetime import date
-from typing import Any
+from datetime import date, timedelta
+from typing import Any, cast
 
 from loguru import logger
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mo_stock.filters.base import FilterBase, ScoreResult, clamp
 from mo_stock.storage import repo
+from mo_stock.storage.models import DailyKline, StockBasic
+
+_ONE_DAY = timedelta(days=1)
 
 
 class LimitFilter(FilterBase):
-    """涨停异动打分器。"""
+    """涨停异动 + 断板反包 + 板块涨停溢出 打分器。"""
 
     dim = "limit"
 
     def score_all(self, session: Session, trade_date: date) -> list[ScoreResult]:
-        """对当日涨停股打分。
-
-        策略：仅对当日出现在 limit_list 的股票打分；其他股票该维度为 0。
-        """
+        """三类股的 limit 维度得分（详见模块 docstring）。"""
         results: list[ScoreResult] = []
-        limit_rows = repo.get_limit_list(session, trade_date, limit_type="U")
 
+        # ---------- 准备数据 ----------
+        # 1) 当日涨停股
+        today_limit_codes = repo.get_limit_up_codes(session, trade_date)
+        # 2) 昨日涨停股（断板反包候选源）
+        yesterday = trade_date - _ONE_DAY
+        yesterday_limit_codes = repo.get_limit_up_codes(session, yesterday)
+        # 3) 当日板块涨停热度
+        sector_heat_map = repo.get_l1_limit_count_map(session, trade_date)
+        # 4) 股票 → 一级板块映射（板块溢出加分用）
+        member_map = repo.get_index_member_l1_map(session)
+        # 5) 当日 K 线（断板反包要看 pct_chg）
+        kline_pct_rows = session.execute(
+            select(DailyKline.ts_code, DailyKline.pct_chg)
+            .where(DailyKline.trade_date == trade_date),
+        ).all()
+        kline_pct_map: dict[str, float | None] = {
+            cast(str, row[0]): cast("float | None", row[1])
+            for row in kline_pct_rows
+        }
+
+        # ---------- 1. 当日涨停股原有打分（保留供 analyzer 用） ----------
+        limit_rows = repo.get_limit_list(session, trade_date, limit_type="U")
         if not limit_rows:
             logger.info("LimitFilter: {} 当日无涨停", trade_date)
-            return results
 
         # 读取细则参数（来自 weights.yaml 的 limit_filter 节）
         cfg = self.weights
@@ -103,7 +134,56 @@ class LimitFilter(FilterBase):
                 detail=detail,
             ))
 
-        logger.info("LimitFilter: {} 打分 {} 只涨停", trade_date, len(results))
+        # ---------- 2. 断板反包 + 板块涨停溢出（核心产出） ----------
+        # 候选股集合：所有 A 股，扣除「今日已经在 #1 打分的涨停股」
+        all_stocks = session.execute(select(StockBasic.ts_code)).scalars().all()
+        rebound_count = 0
+        sector_heat_count = 0
+
+        for ts_code in all_stocks:
+            if ts_code in today_limit_codes:
+                continue  # 今日涨停股已在上面打分
+
+            score = 0.0
+            detail = {}
+
+            # 2a. 断板反包：昨涨停今没涨停但保持涨势
+            today_pct = kline_pct_map.get(ts_code)
+            yesterday_was_limit = ts_code in yesterday_limit_codes
+            rebound = _break_board_rebound_bonus(
+                yesterday_was_limit, today_is_limit_up=False, today_pct_chg=today_pct,
+            )
+            if rebound > 0:
+                score += rebound
+                detail["break_board_rebound"] = rebound
+                detail["yesterday_limit_up"] = True
+                detail["today_pct_chg"] = round(today_pct or 0, 2)
+                rebound_count += 1
+
+            # 2b. 板块涨停热度溢出
+            l1_code = member_map.get(ts_code)
+            if l1_code:
+                heat_count = sector_heat_map.get(l1_code, 0)
+                heat_bonus = _sector_limit_heat_bonus(heat_count)
+                if heat_bonus > 0:
+                    score += heat_bonus
+                    detail["sector_limit_count"] = heat_count
+                    detail["sector_heat_bonus"] = heat_bonus
+                    sector_heat_count += 1
+
+            if score > 0:
+                results.append(ScoreResult(
+                    ts_code=ts_code,
+                    trade_date=trade_date,
+                    dim=self.dim,
+                    score=clamp(score),
+                    detail=detail,
+                ))
+
+        logger.info(
+            "LimitFilter: {} 涨停打分 {} 只 + 断板反包 {} 只 + 板块溢出 {} 只",
+            trade_date, len(limit_rows), rebound_count, sector_heat_count,
+        )
         return results
 
     # ---------- 辅助 ----------
@@ -140,3 +220,51 @@ class LimitFilter(FilterBase):
         if minutes <= 13 * 60 + 30:
             return 5
         return 0
+
+
+# ---------------------------------------------------------------------------
+# 模块级纯函数：断板反包 + 板块涨停溢出
+# ---------------------------------------------------------------------------
+
+def _break_board_rebound_bonus(
+    yesterday_was_limit_up: bool,
+    today_is_limit_up: bool,
+    today_pct_chg: float | None,
+) -> int:
+    """断板反包加分：昨涨停今没涨停但保持涨势。
+
+    PLAN.md 指定的核心场景：「首板 > 连板首日 > 断板反包」。
+    断板反包股 hard_reject 不会过滤（今天非涨停），是 limit 维度真正能进 TOP 的来源。
+
+    满分 100：基础 30（断板有效）+ 涨幅梯度 0-70（1~3% / 3~5% / 5~8% / ≥8%）。
+    """
+    if not yesterday_was_limit_up or today_is_limit_up:
+        return 0  # 不是断板（昨没涨停，或今天又涨停 = 连板）
+    if today_pct_chg is None or today_pct_chg < 1.0:
+        return 0  # 今天涨幅太小（< 1%），不算反包
+
+    # 基础分 30 + 涨幅梯度
+    if today_pct_chg >= 8.0:
+        return 100
+    if today_pct_chg >= 5.0:
+        return 70
+    if today_pct_chg >= 3.0:
+        return 50
+    return 30  # 1~3%
+
+
+def _sector_limit_heat_bonus(limit_count: int) -> int:
+    """板块涨停热度溢出加分：同一一级板块今天涨停股数 → 同板块非涨停股加分。
+
+    PLAN.md 指定：「当日涨停股只作为板块信号」—— 涨停的"溢出效应"通过此函数实现。
+    满分 60（板块层面信号，不应该单独占据 limit 维度满分）。
+    """
+    if limit_count <= 0:
+        return 0
+    if limit_count >= 10:
+        return 60
+    if limit_count >= 5:
+        return 40
+    if limit_count >= 3:
+        return 25
+    return 10  # 1~2 只

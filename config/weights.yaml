@@ -49,12 +49,12 @@ limit_filter:
     - threshold: 10.0
       score: 30
 
-# 资金流维度细则
+# 资金流维度细则（满分 100：today 0-50 + ratio 0-30 + rolling 0-20）
 moneyflow_filter:
-  today_net_inflow_bonus: 20      # 当日主力净流入为正加分
-  rolling_3d_bonus: 15            # 近 3 日累计为正再加
-  big_order_ratio_threshold: 0.4  # 大单+超大单净流入占比阈值
+  rolling_3d_bonus: 20            # 近 3 日累计为正再加（上限 0-20）
+  big_order_ratio_threshold: 0.4  # 大单+超大单净流入占比阈值（上限 0-30）
   small_up_big_down_penalty: 30   # 小单流入大单流出惩罚
+  # today_bonus 阈值在 _today_bonus_tier 代码中：≥5%→50, ≥1%→35, ≥0.3%→20, 弱→5
 
 # 龙虎榜维度细则（细则已在 lhb_filter.py 中以代码常量给出，本节预留可调键）
 # 当前 LhbFilter 自带分档（净额 0.2/0.5/1.0 亿；纯度 15%/30%；reason 关键词 5/10），

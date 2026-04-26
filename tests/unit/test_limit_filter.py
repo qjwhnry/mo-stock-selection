@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import pytest
 
-from mo_stock.filters.limit_filter import LimitFilter
+from mo_stock.filters.limit_filter import (
+    LimitFilter,
+    _break_board_rebound_bonus,
+    _sector_limit_heat_bonus,
+)
 
 
 class TestParseLimitTimes:
@@ -49,3 +53,63 @@ class TestFirstTimeBonus:
     def test_invalid_format_returns_0(self) -> None:
         assert LimitFilter._first_time_bonus("bad") == 0
         assert LimitFilter._first_time_bonus("") == 0
+
+
+class TestBreakBoardReboundBonus:
+    """断板反包：昨涨停今没涨停但今天保持强势 → 给基础分 + 涨幅梯度。
+
+    PLAN.md 指定的核心场景：「首板 > 连板首日 > 断板反包」。
+    断板反包股 hard_reject 不会过滤（今天非涨停），是 limit 维度真正能进 TOP 的来源。
+    """
+
+    @pytest.mark.parametrize(
+        ("yesterday_was_limit_up", "today_is_limit_up", "today_pct_chg", "expected"),
+        [
+            # 不满足条件的：
+            (False, False, 5.0, 0),   # 昨没涨停 → 不算反包
+            (True, True, 9.5, 0),     # 今天又涨停了 → 不是断板，是连板（由 LimitFilter 主流程处理）
+            (True, False, -2.0, 0),   # 今跌 → 不是反包
+            (True, False, 0.5, 0),    # 涨幅太小 < 1% 不算反包
+            # 满足条件：
+            (True, False, 1.5, 30),   # 1~3% 弱反包 → 基础 30
+            (True, False, 3.0, 50),   # 3~5% 中反包 → 基础 30 + 20
+            (True, False, 5.5, 70),   # 5~8% 强反包 → 基础 30 + 40
+            (True, False, 9.0, 100),  # ≥8% 极强反包 → 满档 100
+            # None 边界
+            (True, False, None, 0),
+        ],
+    )
+    def test_thresholds(
+        self,
+        yesterday_was_limit_up: bool,
+        today_is_limit_up: bool,
+        today_pct_chg: float | None,
+        expected: int,
+    ) -> None:
+        assert _break_board_rebound_bonus(
+            yesterday_was_limit_up, today_is_limit_up, today_pct_chg,
+        ) == expected
+
+
+class TestSectorLimitHeatBonus:
+    """板块涨停热度溢出：同一一级板块今天有多少只涨停股 → 给同板块非涨停股加分。
+
+    PLAN.md 指定：「当日涨停股只作为板块信号」—— 涨停的"溢出效应"通过此函数实现。
+    """
+
+    @pytest.mark.parametrize(
+        ("limit_count", "expected"),
+        [
+            (0, 0),     # 板块没涨停股，无溢出
+            (1, 10),    # 1 只涨停，弱热度
+            (2, 10),
+            (3, 25),    # 3-4 只，中热度
+            (4, 25),
+            (5, 40),    # 5-9 只，强热度
+            (8, 40),
+            (10, 60),   # ≥10 只，极强热度（满档）
+            (20, 60),
+        ],
+    )
+    def test_thresholds(self, limit_count: int, expected: int) -> None:
+        assert _sector_limit_heat_bonus(limit_count) == expected

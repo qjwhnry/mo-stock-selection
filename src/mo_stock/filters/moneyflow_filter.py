@@ -79,8 +79,8 @@ class MoneyflowFilter(FilterBase):
             detail["big_ratio"] = round(big_ratio, 3)
 
             if big_ratio >= ratio_threshold:
-                # 占比越高，越纯粹的机构/游资行为
-                ratio_bonus = min(25.0, big_ratio * 50)
+                # 占比越高，越纯粹的机构/游资行为；上限 30
+                ratio_bonus = min(30.0, big_ratio * 60)
                 score += ratio_bonus
                 detail["ratio_bonus"] = round(ratio_bonus, 1)
 
@@ -127,7 +127,8 @@ def _today_bonus_tier(
     单位换算：moneyflow.net_mf_amount 是万元，daily_kline.amount 是千元。
         ratio (%) = 1000 × net_mf_wan / amount_qy
 
-    业界经验阈值：≥5% 极强 / 1~5% 强 / 0.3~1% 中 / 0~0.3% 弱（赤天化 0.157%）
+    分档：≥5% 极强 / 1~5% 强 / 0.3~1% 中 / 0~0.3% 弱（赤天化 0.157%）。
+    上限 50（占维度满分 100 的一半，与 ratio_bonus 30 + rolling 20 共凑 100）。
     """
     if not net_mf_wan or net_mf_wan <= 0:
         return 0
@@ -135,9 +136,9 @@ def _today_bonus_tier(
         return 0
     ratio_pct = 1000.0 * net_mf_wan / daily_amount_qy
     if ratio_pct >= 5.0:
-        return 25
+        return 50
     if ratio_pct >= 1.0:
-        return 18
+        return 35
     if ratio_pct >= 0.3:
-        return 10
-    return 3
+        return 20
+    return 5
