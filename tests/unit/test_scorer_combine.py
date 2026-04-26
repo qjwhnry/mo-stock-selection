@@ -128,3 +128,49 @@ class TestV21SixDimensionWeights:
         )
         assert with_theme > without_theme
         assert (with_theme - without_theme) == pytest.approx(5.0)  # 50 × 0.10
+
+
+# ============================================================================
+# v2.2 Task 4：AI 候选挑选 + final_score 重排
+# ============================================================================
+
+class TestPickAiCandidates:
+    """_pick_ai_candidates: combined + reject_map → 取未被淘汰的 TOP ai_top_n。"""
+
+    def test_excludes_rejected_stocks(self) -> None:
+        from mo_stock.scorer.combine import _pick_ai_candidates
+        combined = [("A.SH", 80.0), ("B.SH", 70.0), ("C.SH", 60.0)]
+        reject_map = {"B.SH": "ST"}
+        result = _pick_ai_candidates(combined, reject_map, ai_top_n=10)
+        assert result == ["A.SH", "C.SH"]
+
+    def test_caps_at_ai_top_n(self) -> None:
+        from mo_stock.scorer.combine import _pick_ai_candidates
+        combined = [(f"{i}.SH", 100 - i) for i in range(100)]
+        result = _pick_ai_candidates(combined, reject_map={}, ai_top_n=50)
+        assert len(result) == 50
+        assert result[0] == "0.SH"  # rule_score 最高的在前
+        assert result[-1] == "49.SH"
+
+    def test_preserves_rule_score_order(self) -> None:
+        """combined 已按 rule_score 降序传入，函数应按原顺序取前 N。"""
+        from mo_stock.scorer.combine import _pick_ai_candidates
+        combined = [("A.SH", 80.0), ("B.SH", 75.0), ("C.SH", 70.0)]
+        result = _pick_ai_candidates(combined, reject_map={}, ai_top_n=2)
+        assert result == ["A.SH", "B.SH"]
+
+
+class TestFinalScoreRerank:
+    """v2.2 关键修正：AI 融合后必须按 final_score 重排，不能沿用 rule_score 排名。"""
+
+    def test_high_ai_score_overtakes_high_rule_score(self) -> None:
+        """规则分 60 + AI 90 (final=72) 应该排在 规则分 70 + AI 50 (final=62) 前面。"""
+        from mo_stock.scorer.combine import _final_score_from
+        a_final = _final_score_from(60.0, 90.0)
+        b_final = _final_score_from(70.0, 50.0)
+        assert a_final > b_final  # 72 > 62
+
+    def test_ai_none_keeps_rule_score(self) -> None:
+        """AI 缺失时降级为纯 rule_score，与 v2.1 行为一致。"""
+        from mo_stock.scorer.combine import _final_score_from
+        assert _final_score_from(70.0, None) == 70.0

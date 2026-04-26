@@ -106,22 +106,56 @@ def _final_score_from(rule_score: float, ai_score: float | None,
     return (rule_score * rule_weight + ai_score * ai_weight) / total_w
 
 
+def _pick_ai_candidates(
+    combined: list[tuple[str, float]],
+    reject_map: dict[str, str],
+    ai_top_n: int,
+) -> list[str]:
+    """从 combined 中挑出未被硬规则淘汰的 TOP ai_top_n（v2.2 plan §3.2）。
+
+    combined 必须已按 rule_score 降序传入。返回 ts_code 列表，按原顺序。
+    """
+    return [
+        ts_code for ts_code, _ in combined
+        if ts_code not in reject_map
+    ][:ai_top_n]
+
+
 def combine_scores(
     session: Session,
     trade_date: date,
     dimension_weights: dict[str, float],
     hard_reject_cfg: dict[str, Any],
     top_n: int = 20,
+    enable_ai: bool = True,
+    ai_top_n: int | None = None,
 ) -> int:
-    """读当日所有维度的 filter_score_daily，做加权融合 → 应用硬规则 → 取 TOP N。
+    """读当日所有维度的 filter_score_daily，做加权融合 + AI 分析 → 应用硬规则 → 取 TOP N。
 
     **幂等**：同一交易日重跑会 upsert `selection_result`，不会报唯一键冲突。
-    综合分算法见模块 docstring（固定分母）。MVP 阶段 AI 分为 None，
-    final_score = rule_score（见 _final_score_from 显式防御）。
+    综合分算法见模块 docstring（固定分母）。
+
+    v2.2 后流程：
+    1. 算 rule_score（固定分母融合 5 维）
+    2. 应用硬规则得 reject_map
+    3. 取未被淘汰的 TOP ai_top_n 调 AI（enable_ai=False 时跳过）
+    4. _final_score_from(rule, ai) 融合（AI 缺失降级为 rule）
+    5. **按 final_score 重排** → 分配 rank/picked → upsert
+
+    Args:
+        enable_ai: True → 调 AI；False → ai_score 全为 None，行为等同 v2.1
+        ai_top_n: 进 AI 的候选数；None → 走 settings.top_n_after_filter（默认 50）
 
     Returns:
         本次真正 picked（入选 TOP N）的股票数。
     """
+    from config.settings import settings
+
+    # 解析 ai_top_n：None → settings 唯一事实源（v2.2 plan §0.2.1 第 7 条）
+    effective_ai_top_n = (
+        ai_top_n if ai_top_n is not None else settings.top_n_after_filter
+    )
+
     # ---------- 1. 读当日全部维度得分，按 ts_code 聚合 ----------
     stmt = select(FilterScoreDaily).where(FilterScoreDaily.trade_date == trade_date)
     score_rows = session.execute(stmt).scalars().all()
@@ -133,9 +167,19 @@ def combine_scores(
     # stock_scores[ts_code][dim] = score （只记录 score > 0 的有效信号；
     # 缺失维度由 _weighted_combine 自动按 0 计入分子但分母不缩）
     stock_scores: dict[str, dict[str, float]] = defaultdict(dict)
+    # 同时重建 dim_scores_map 给 AI prompt 用（含完整 detail）
+    dim_scores_map: dict[str, dict[str, ScoreResult]] = defaultdict(dict)
     for r in score_rows:
         if r.score > 0:
             stock_scores[r.ts_code][r.dim] = r.score
+        # detail 即便 score=0 也保留供 AI 参考
+        dim_scores_map[r.ts_code][r.dim] = ScoreResult(
+            ts_code=r.ts_code,
+            trade_date=r.trade_date,
+            dim=r.dim,
+            score=r.score,
+            detail=r.detail or {},
+        )
 
     # ---------- 2. 按权重融合（固定分母 = 全部维度权重之和）----------
     combined: list[tuple[str, float]] = []
@@ -148,32 +192,67 @@ def combine_scores(
         session, trade_date, hard_reject_cfg, [c[0] for c in combined]
     )
 
-    # ---------- 4. 排序 → 准备 upsert 数据 ----------
+    # ---------- 4. 按 rule_score 降序，取 AI 候选 ----------
     combined.sort(key=lambda x: x[1], reverse=True)
+
+    ai_results: dict[str, float] = {}  # {ts_code: ai_score}
+    if enable_ai:
+        ai_candidates = _pick_ai_candidates(combined, reject_map, effective_ai_top_n)
+        logger.info(
+            "combine_scores: 调 AI 分析 {} 只规则层 TOP 候选股", len(ai_candidates),
+        )
+        # 延迟 import 避免循环引用 + 无 AI 模块时 enable_ai=False 跑不踩雷
+        from mo_stock.ai.analyzer import analyze_stock_with_ai
+        for ts_code in ai_candidates:
+            ai_obj = analyze_stock_with_ai(
+                session, ts_code, trade_date,
+                rule_dim_scores=dim_scores_map.get(ts_code, {}),
+            )
+            if ai_obj is not None:
+                ai_results[ts_code] = ai_obj.score
+        logger.info(
+            "combine_scores: AI 实际成功 {} 只（候选 {}，失败 {}）",
+            len(ai_results), len(ai_candidates),
+            len(ai_candidates) - len(ai_results),
+        )
+
+    # ---------- 5. 融合 final_score 并按 final_score 重排（v2.2 plan §0.2.1 第 11 条）----------
+    scored: list[dict[str, Any]] = []
+    for ts_code, rule_score in combined:
+        ai_score = ai_results.get(ts_code)  # None 时 _final_score_from 走降级
+        final_score = _final_score_from(rule_score, ai_score)
+        scored.append({
+            "ts_code": ts_code,
+            "rule_score": rule_score,
+            "ai_score": ai_score,
+            "final_score": round(final_score, 2),
+            "reject_reason": reject_map.get(ts_code),
+        })
+
+    # **关键修正**：按 final_score 重排，而不是沿用 rule_score 排名
+    scored.sort(key=lambda x: x["final_score"], reverse=True)
 
     rows: list[dict[str, Any]] = []
     picked_rank = 0
 
-    for ts_code, rule_score in combined:
-        reject_reason = reject_map.get(ts_code)
+    for item in scored:
+        reject_reason = item["reject_reason"]
         picked = reject_reason is None and picked_rank < top_n
-
         if picked:
             picked_rank += 1
             rank = picked_rank
         else:
             rank = 0
 
-        # 只落库入选的，或 score > 0 的未入选项（避免表过度膨胀）
-        if picked or rule_score > 0:
-            ai_score: float | None = None  # P0-2/P0-17：AI 模块未实现前永远 None
+        # 只落库入选的，或 rule_score > 0 的未入选项（避免表过度膨胀）
+        if picked or item["rule_score"] > 0:
             rows.append({
                 "trade_date": trade_date,
-                "ts_code": ts_code,
+                "ts_code": item["ts_code"],
                 "rank": rank,
-                "rule_score": rule_score,
-                "ai_score": ai_score,
-                "final_score": _final_score_from(rule_score, ai_score),
+                "rule_score": item["rule_score"],
+                "ai_score": item["ai_score"],
+                "final_score": item["final_score"],
                 "picked": picked,
                 "reject_reason": reject_reason,
             })
