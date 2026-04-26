@@ -123,18 +123,22 @@ def populated_session(tmp_path):
     ))
 
     # 日线
-    for ts_code, close in [
-        ("600519.SH", 1780.5),
-        ("000001.SZ", 11.35),
-        ("300750.SZ", 285.0),
-        ("601318.SH", 48.2),
-        ("002594.SZ", 220.0),
+    # amount 单位：千元（与 Tushare daily 接口一致）。MoneyflowFilter 用它作为 net_mf_amount
+    # 占比的分母（ratio_pct = 1000 × net_mf_wan / amount_qy），fixture 必须给非空合理值，
+    # 否则 _today_bonus_tier 返回 0 → 整只股 continue 跳过，results 为空、断言全挂。
+    for ts_code, close, amount in [
+        ("600519.SH", 1780.5, 985000.0),   # 9.85 亿元；配 net_mf=8000 万 → ratio≈8.12% → today_bonus=50
+        ("000001.SZ", 11.35, 200000.0),    # 仅供 LimitFilter，moneyflow 不到这只
+        ("300750.SZ", 285.0, 600000.0),    # 同上
+        ("601318.SH", 48.2, 300000.0),     # 3 亿元；配 net_mf=500 万 → ratio≈1.67% → today_bonus=35
+        ("002594.SZ", 220.0, 350000.0),    # net_mf<0 已被跳过，amount 任意
     ]:
         session.add(DailyKline(
             ts_code=ts_code,
             trade_date=trade_date,
             close=close,
             pct_chg=5.0 if ts_code in ("300750.SZ", "000001.SZ") else 1.2,
+            amount=amount,
         ))
 
     session.commit()
@@ -187,9 +191,10 @@ class TestFiltersEndToEnd:
         # 仅净流入的股票会被打分；净流出的 002594 直接跳过（不 append，避免污染综合分）
         assert set(by_code.keys()) == {"600519.SH", "601318.SH"}
 
-        # 600519：当日净入(+20) + 大单占比>40%(加分) + 3日正(+15) → 应 > 50
+        # 600519：当日净入占比 8.12% 触发 today_bonus=50（≥5% 极强档）
+        # + 大单占比 0.596 > 0.4 → ratio_bonus=30 + 3 日正 → +15。score = 95
         assert by_code["600519.SH"].score >= 50.0
 
-        # 601318：当日弱净入 +20 基础分，小单净入+大单净出触发 -30 惩罚
-        # 但 max(score, 20) 保底所以不会 <20
+        # 601318：当日净入占比 1.67% 触发 today_bonus=35（[1%, 5%) 强档）
+        # 小单净入 + 大单净出 → -30 惩罚；3 日正 +15。最终 35 + 15 - 30 = 20
         assert by_code["601318.SH"].score == 20.0
