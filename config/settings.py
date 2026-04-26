@@ -2,17 +2,28 @@
 
 使用 pydantic-settings 从 .env / 环境变量读取，所有模块统一通过
 `from config.settings import settings` 获取配置实例，便于测试时注入。
+
+**优先级策略**（v2.2 后）：
+- `.env` 文件 **强制覆盖** 系统环境变量
+- 即 `.env` 是唯一事实源；系统里残留的 `ANTHROPIC_API_KEY=''` 等空值不会污染配置
+- 实施：在 Settings 实例化前 `load_dotenv(override=True)` 先把 .env 写入 os.environ
 """
 from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 项目根目录：config/settings.py → config/ → 项目根
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+
+# **关键**：在 Settings 类被读取前先用 dotenv 强制覆盖系统环境变量。
+# 这样 OS 中残留的 ANTHROPIC_API_KEY='' 等空字符串不会盖掉 .env 里的真实值。
+# 注意：仅本项目本进程生效；不修改 .env 文件本身、不污染其他进程。
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 
 class Settings(BaseSettings):
