@@ -1,15 +1,19 @@
-"""龙虎榜维度打分。
+"""龙虎榜维度打分（v2.1 plan §3.4：base 60 + seat 40 重排）。
 
-**思路**（见 plan §4 lhb 维度）：
-- 数据源：lhb 表（Tushare top_list），仅对当日上榜股打分
-- 核心信号：席位净买入 > 0 = 游资/机构看多
-- 加分维度（**全部用 Tushare 现成的占比字段**，跨股可比）：
-  1. net_rate（净买入占当日总成交 %）—— 替代绝对金额绝避免大盘股偏弱、小盘股偏强
-  2. amount_rate（席位成交占当日总成交 %）—— 反映席位主导度
-  3. 上榜原因 reason —— 仅涨幅/换手类加分；跌幅类整股跳过
-- 反向：net_rate ≤ 0（净卖出）/ 跌幅榜上榜 → 不加分（视为该维度信号缺失）
+**思路**：
+- 数据源：lhb 表（Tushare top_list）做 base，lhb_seat_detail 表（top_inst）做 seat
+- base 上限 60：base_score 20 + tier(0-20) + purity(0-12) + reason(0-8)
+- seat 上限 40 / 下限 -15：
+  - 机构净买 ≥ 1000 万 → +20（远比 net_rate 更强信号）
+  - 知名游资净买 ≥ 500 万 → +12
+  - 知名游资净卖 ≥ 1000 万 → -15（量化 / 一日游风险）
+  - 北向净买 ≥ 3000 万 → +8
+- 跌幅榜（"跌幅偏离" / "跌幅达"）reason 整股跳过
 
 得分输出：0-100。
+
+**口径变更**：从 v1 的"base 0-100"改成 v2.1 的"base 60 + seat 40"。
+detail 中含 `lhb_formula_version=2`，无该字段的旧分数不与新分数横比。
 """
 from __future__ import annotations
 
@@ -21,52 +25,59 @@ from sqlalchemy.orm import Session
 
 from mo_stock.filters.base import FilterBase, ScoreResult, clamp
 from mo_stock.storage import repo
+from mo_stock.storage.models import LhbSeatDetail
 
 
 class LhbFilter(FilterBase):
-    """龙虎榜打分器。"""
+    """龙虎榜打分器（v2.1 base + seat 双层结构）。"""
 
     dim = "lhb"
 
     def score_all(self, session: Session, trade_date: date) -> list[ScoreResult]:
-        """对当日上榜股打分。其它股票该维度视为缺失（combine 动态分母处理）。"""
         results: list[ScoreResult] = []
         rows = repo.get_lhb_today(session, trade_date)
-
         if not rows:
             logger.info("LhbFilter: {} 当日无龙虎榜数据", trade_date)
             return results
 
+        # 一次性查席位明细，按 ts_code 分组（缺失则 [] 不影响打分）
+        seats_map = repo.get_lhb_seats_today(session, trade_date)
+
+        cfg = self.weights
+        base_score_value = cfg.get("base_score", 20)
         skipped_drop = 0
+
         for r in rows:
-            # 跌幅榜上榜（跌停反弹机构抄底）跟"找强势股"目标矛盾，整股跳过
+            # 跌幅榜上榜整股跳过（跌停反弹与"找强势股"目标矛盾）
             if _is_drop_rebound_reason(r.reason):
                 skipped_drop += 1
                 continue
 
-            net_rate = r.net_rate  # Tushare 现成字段：净买入占当日总成交 %
-            # 净卖出（net_rate <= 0）/ 字段缺失 → 视为该维度信号缺失，不入 results
-            if net_rate is None or net_rate <= 0:
+            # 净卖出 / 字段缺失 → 视为该维度信号缺失，不入 results
+            if r.net_rate is None or r.net_rate <= 0:
                 continue
 
-            score = 30.0  # 基础分：上榜（涨幅类）且净买入
+            # base (上限 60)
+            tier = _net_rate_tier_bonus(r.net_rate)
+            purity = _purity_bonus(r.amount_rate)
+            reason_b = _reason_bonus(r.reason)
+            score = float(base_score_value) + tier + purity + reason_b
+
             detail: dict[str, Any] = {
-                "net_rate_pct": round(net_rate, 2),
+                "lhb_formula_version": 2,
+                "net_rate_pct": round(r.net_rate, 2),
                 "amount_rate_pct": round(r.amount_rate or 0, 2),
                 "reason": r.reason,
+                "net_rate_tier_bonus": tier,
+                "purity_bonus": purity,
+                "reason_bonus": reason_b,
             }
 
-            tier = _net_rate_tier_bonus(net_rate)
-            score += tier
-            detail["net_rate_tier_bonus"] = tier
-
-            purity = _purity_bonus(r.amount_rate)
-            score += purity
-            detail["purity_bonus"] = purity
-
-            reason_b = _reason_bonus(r.reason)
-            score += reason_b
-            detail["reason_bonus"] = reason_b
+            # seat (上限 40, 下限 -15)
+            seats = seats_map.get(r.ts_code, [])
+            seat_delta, seat_detail = _seat_structure_score(seats, cfg)
+            score += seat_delta
+            detail.update(seat_detail)
 
             results.append(ScoreResult(
                 ts_code=r.ts_code,
@@ -77,67 +88,63 @@ class LhbFilter(FilterBase):
             ))
 
         logger.info(
-            "LhbFilter: {} 共 {} 只股净买入上榜（额外跳过 {} 只跌幅榜）",
+            "LhbFilter: {} 共 {} 只股入选（跳过跌幅榜 {} 只）",
             trade_date, len(results), skipped_drop,
         )
         return results
 
 
 # ---------------------------------------------------------------------------
-# 纯函数辅助：分档 + 关键词加分
+# base 子项纯函数（v2.1 重排：上限 20 / 12 / 8）
 # ---------------------------------------------------------------------------
 
 def _net_rate_tier_bonus(net_rate_pct: float | None) -> int:
-    """龙虎榜净买入占当日总成交比例（%，Tushare 现成字段 net_rate）→ 加分。
+    """龙虎榜净买入占当日总成交比例（%）→ 加分。
 
-    跨股可比：跟绝对金额相比，占比能消除「大盘股净额大但占比小」的偏差。
-    阈值：2% / 5% / 10% 三档。赤天化 600227 真实 3.36% → +15。
-    上限 30（占维度满分 100 的 30%，与基础 30 + purity 25 + reason 15 共凑 100）。
+    v2.1 阈值：2% → 10、5% → 15、10% → 20（上限 20）。
     """
     if net_rate_pct is None or net_rate_pct <= 0:
         return 0
     if net_rate_pct >= 10.0:
-        return 30
+        return 20
     if net_rate_pct >= 5.0:
-        return 22
-    if net_rate_pct >= 2.0:
         return 15
+    if net_rate_pct >= 2.0:
+        return 10
     return 0
 
 
 def _purity_bonus(amount_rate_pct: float | None) -> int:
-    """龙虎榜成交占当日总成交比例（%，Tushare 现成字段 amount_rate）→ 加分。
+    """龙虎榜成交占当日总成交比例（%）→ 加分。
 
-    比例越高 = 上榜资金主导今日成交 = 信号越纯（避免散户对倒虚假活跃）。
-    阈值：15% / 30% 两档。上限 25。
+    v2.1 阈值：15% → 6、30% → 12（上限 12）。
     """
     if amount_rate_pct is None or amount_rate_pct <= 0:
         return 0
     if amount_rate_pct >= 30.0:
-        return 25
-    if amount_rate_pct >= 15.0:
         return 12
+    if amount_rate_pct >= 15.0:
+        return 6
     return 0
 
 
-# 上榜原因关键词 → 分数。仅涨幅/换手类加分，跌幅类由 _is_drop_rebound_reason 单独识别后整股跳过
-# 上限 15（占维度满分 100 的 15%）。
+# v2.1 关键词权重：连续三日涨幅 8（最强），其它涨幅类 5
 _REASON_KEYWORD_SCORES: list[tuple[str, int]] = [
-    ("连续三日涨幅", 15),
-    ("无价格涨跌幅限制", 8),
-    ("日涨幅偏离", 8),
-    ("日换手率", 8),
+    ("连续三日涨幅", 8),
+    ("无价格涨跌幅限制", 5),
+    ("日涨幅偏离", 5),
+    ("日换手率", 5),
 ]
 
-# 跌幅榜上榜关键词。命中即整股跳过（跌停反弹策略跟"找强势股"目标矛盾）
+# 跌幅榜上榜关键词，命中即整股跳过
 _DROP_REASON_KEYWORDS: tuple[str, ...] = (
-    "跌幅偏离",   # "日跌幅偏离值达 7%" / "连续三日跌幅偏离值达 20%"
-    "跌幅达",     # "无价格涨跌幅限制日跌幅达 30%"
+    "跌幅偏离",
+    "跌幅达",
 )
 
 
 def _reason_bonus(reason: str | None) -> int:
-    """上榜原因文本 → 加分。多原因取最大值。仅涨幅类才加分。"""
+    """上榜原因文本 → 加分。多原因取最大值。仅涨幅类加分。"""
     if not reason:
         return 0
     return max(
@@ -147,7 +154,66 @@ def _reason_bonus(reason: str | None) -> int:
 
 
 def _is_drop_rebound_reason(reason: str | None) -> bool:
-    """识别"跌幅榜上榜"。命中则整股不入 LhbFilter 结果（避免机构抄底跌停股污染选股）。"""
+    """识别跌幅榜上榜（命中即整股跳过）。"""
     if not reason:
         return False
     return any(kw in reason for kw in _DROP_REASON_KEYWORDS)
+
+
+# ---------------------------------------------------------------------------
+# seat 部分（v2.1 新增，上限 40 / 下限 -15）
+# ---------------------------------------------------------------------------
+
+def _seat_structure_score(
+    seats: list[LhbSeatDetail], cfg: dict[str, Any],
+) -> tuple[float, dict[str, Any]]:
+    """龙虎榜席位结构加减分。
+
+    seat_type 可叠加：
+    - institution: 净买 ≥ min_net_buy_yuan → +bonus
+    - hot_money_buy: 净买 ≥ min_net_buy_yuan → +bonus
+    - hot_money_sell: 净卖 ≥ min_net_sell_yuan → -penalty
+    - northbound_buy: 净买 ≥ min_net_buy_yuan → +bonus
+
+    上限 40 / 下限 -15（仅 hot_money_sell 一项可扣，且 base ≥ 20 不会负总分）。
+    """
+    if not seats:
+        return 0.0, {}
+
+    inst_net = sum((s.net_buy or 0) for s in seats if s.seat_type == "institution")
+    hot_net  = sum((s.net_buy or 0) for s in seats if s.seat_type == "hot_money")
+    nb_net   = sum((s.net_buy or 0) for s in seats if s.seat_type == "northbound")
+
+    score = 0.0
+    detail: dict[str, Any] = {}
+
+    inst_cfg = cfg.get("institution", {})
+    if inst_net >= inst_cfg.get("min_net_buy_yuan", 10_000_000):
+        bonus = inst_cfg.get("bonus", 20)
+        score += bonus
+        detail["institution_net_buy"] = round(inst_net, 0)
+        detail["institution_bonus"] = bonus
+
+    hm_buy_cfg = cfg.get("hot_money_buy", {})
+    if hot_net >= hm_buy_cfg.get("min_net_buy_yuan", 5_000_000):
+        bonus = hm_buy_cfg.get("bonus", 12)
+        score += bonus
+        detail["hot_money_net_buy"] = round(hot_net, 0)
+        detail["hot_money_bonus"] = bonus
+
+    hm_sell_cfg = cfg.get("hot_money_sell", {})
+    if hot_net <= -hm_sell_cfg.get("min_net_sell_yuan", 10_000_000):
+        penalty = hm_sell_cfg.get("penalty", 15)
+        score -= penalty
+        detail["hot_money_sell_penalty"] = -penalty
+
+    nb_cfg = cfg.get("northbound_buy", {})
+    if nb_net >= nb_cfg.get("min_net_buy_yuan", 30_000_000):
+        bonus = nb_cfg.get("bonus", 8)
+        score += bonus
+        detail["northbound_net_buy"] = round(nb_net, 0)
+        detail["northbound_bonus"] = bonus
+
+    # 上限 40 / 下限 -15
+    score = max(-15.0, min(40.0, score))
+    return score, detail
