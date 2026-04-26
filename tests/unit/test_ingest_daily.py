@@ -205,7 +205,8 @@ class TestLhbRowsFromDf:
         assert r["net_rate"] == 2.33
         assert r["amount_rate"] == 4.77
         assert r["reason"] == "日涨幅偏离值达 7%"
-        assert r["seat"] is None
+        # v2.1：seat 字段已从 lhb 表 DROP，rows 不再包含此键
+        assert "seat" not in r
         # float_values 不入库
         assert "float_values" not in r
 

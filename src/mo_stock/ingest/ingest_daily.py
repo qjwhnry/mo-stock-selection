@@ -575,7 +575,7 @@ def _lhb_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
             "net_rate": _nf(r.get("net_rate")),
             "amount_rate": _nf(r.get("amount_rate")),
             "reason": _str_or_none(r.get("reason")),
-            "seat": None,  # 待 top_inst 接入后填充
+            # v2.1：seat JSONB 已 DROP，席位明细走 lhb_seat_detail（top_inst ingest）
         }
         for _, r in df.iterrows()
     ]
