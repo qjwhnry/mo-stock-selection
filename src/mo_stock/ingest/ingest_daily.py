@@ -325,10 +325,10 @@ class DailyIngestor:
 
         # 步骤名 → 调用，按业务优先级排序（基础行情在前，衍生数据在后）
         steps: list[tuple[str, Callable[[date], int]]] = [
-            # ("daily_kline", self.ingest_daily_kline),
-            # ("daily_basic", self.ingest_daily_basic),
-            # ("limit_list", self.ingest_limit_list),
-            # ("moneyflow", self.ingest_moneyflow),
+            ("daily_kline", self.ingest_daily_kline),
+            ("daily_basic", self.ingest_daily_basic),
+            ("limit_list", self.ingest_limit_list),
+            ("moneyflow", self.ingest_moneyflow),
             ("lhb", self.ingest_lhb),
             ("sw_daily", self.ingest_sw_daily),
         ]
