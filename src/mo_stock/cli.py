@@ -37,6 +37,7 @@ from mo_stock.filters.lhb_filter import LhbFilter
 from mo_stock.filters.limit_filter import LimitFilter
 from mo_stock.filters.moneyflow_filter import MoneyflowFilter
 from mo_stock.filters.sector_filter import SectorFilter
+from mo_stock.filters.theme_filter import ThemeFilter
 from mo_stock.ingest.ingest_daily import DailyIngestor
 from mo_stock.report.render_md import render_daily_report
 from mo_stock.scorer.combine import combine_scores, persist_filter_scores
@@ -215,11 +216,12 @@ def run_once(date_str: str | None, skip_ingest: bool, skip_enhanced: bool, force
     dim_weights: dict[str, float] = cfg.get("dimension_weights", {})
     hard_reject: dict = cfg.get("hard_reject", {})
 
-    # ---------- 3. 规则层打分（4 维度：limit + moneyflow + lhb + sector）----------
+    # ---------- 3. 规则层打分（5 维度：limit + moneyflow + lhb + sector + theme）----------
     limit_filter = LimitFilter(weights=cfg.get("limit_filter", {}))
     mf_filter = MoneyflowFilter(weights=cfg.get("moneyflow_filter", {}))
     lhb_filter = LhbFilter(weights=cfg.get("lhb_filter", {}))
     sector_filter = SectorFilter(weights=cfg.get("sector_filter", {}))
+    theme_filter = ThemeFilter(weights=cfg.get("theme_filter", {}))
 
     with get_session() as session:
         all_scores = [
@@ -227,6 +229,7 @@ def run_once(date_str: str | None, skip_ingest: bool, skip_enhanced: bool, force
             *mf_filter.score_all(session, trade_date),
             *lhb_filter.score_all(session, trade_date),
             *sector_filter.score_all(session, trade_date),
+            *theme_filter.score_all(session, trade_date),
         ]
 
         persist_filter_scores(session, all_scores)

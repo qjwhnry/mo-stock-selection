@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import pytest
+
 from mo_stock.filters.base import clamp
 from mo_stock.scorer.combine import _weighted_combine
 
@@ -74,3 +76,55 @@ class TestWeightedCombine:
 
     def test_zero_total_weight_returns_zero(self) -> None:
         assert _weighted_combine({"lhb": 80.0}, {"lhb": 0.0}) == 0.0
+
+
+# ============================================================================
+# v2.1 plan Task 6：6 维度（新增 theme）总和 1.00 验证
+# ============================================================================
+
+# 与 weights.yaml v2.1 一致
+_V2_1_DIMENSION_WEIGHTS = {
+    "limit": 0.25,
+    "moneyflow": 0.25,
+    "lhb": 0.20,
+    "sector": 0.10,
+    "theme": 0.10,
+    "sentiment": 0.10,
+}
+
+
+class TestV21SixDimensionWeights:
+    def test_six_dim_weights_sum_to_one(self) -> None:
+        """v2.1 后 6 维权重总和 1.0，固定分母不变。"""
+        assert abs(sum(_V2_1_DIMENSION_WEIGHTS.values()) - 1.0) < 1e-9
+
+    def test_combine_handles_missing_theme_dim(self) -> None:
+        """缺失维度按 0 计入分子但分母不缩。
+
+        题材维度无信号时（旧数据回测 / theme ingest 失败），不影响其它维度结果。
+        """
+        # 4 维有分，theme 与 sentiment 缺失
+        dim_scores = {"limit": 50.0, "moneyflow": 50.0, "lhb": 60.0, "sector": 30.0}
+        final = _weighted_combine(dim_scores, _V2_1_DIMENSION_WEIGHTS)
+        # (50*0.25 + 50*0.25 + 60*0.20 + 30*0.10) / 1.0 = 12.5+12.5+12+3 = 40.0
+        assert final == 40.0
+
+    def test_theme_dim_contributes_via_weight(self) -> None:
+        """theme 维度命中时按 0.10 权重贡献。"""
+        dim_scores = {"theme": 80.0}
+        final = _weighted_combine(dim_scores, _V2_1_DIMENSION_WEIGHTS)
+        # 80 * 0.10 / 1.0 = 8
+        assert final == 8.0
+
+    def test_resonance_with_theme_beats_no_theme(self) -> None:
+        """有 theme 共振的股票 > 没 theme 共振的（验证新维度真的进入打分）。"""
+        with_theme = _weighted_combine(
+            {"limit": 50, "moneyflow": 50, "lhb": 60, "sector": 30, "theme": 50},
+            _V2_1_DIMENSION_WEIGHTS,
+        )
+        without_theme = _weighted_combine(
+            {"limit": 50, "moneyflow": 50, "lhb": 60, "sector": 30},
+            _V2_1_DIMENSION_WEIGHTS,
+        )
+        assert with_theme > without_theme
+        assert (with_theme - without_theme) == pytest.approx(5.0)  # 50 × 0.10

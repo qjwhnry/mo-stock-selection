@@ -1,15 +1,16 @@
 # ==============================================================
 # 选股权重配置（可热调，无需改代码）
-# 所有权重在 combine 前做归一化，相加不强制 = 1，但 5 维度相对值决定贡献比
+# v2.1：6 维度（新增 theme），dimension_weights 总和 = 1.00 固定分母
 # ==============================================================
 
-# 5 维度权重（规则层综合分计算）
+# 6 维度权重（规则层综合分 = Σ score × w / Σ w_全部维度）
 dimension_weights:
-  limit: 0.25      # 异动涨停
-  moneyflow: 0.25  # 主力资金流向
-  lhb: 0.20        # 龙虎榜
-  sector: 0.15     # 板块 / 行业
-  sentiment: 0.15  # 新闻公告 + 研报情绪
+  limit: 0.25       # 异动涨停
+  moneyflow: 0.25   # 主力资金流向
+  lhb: 0.20         # 龙虎榜（base 60 + seat 40）
+  sector: 0.10      # 申万一级行业（v2.1：从 0.15 拆出 0.05 给 theme）
+  theme: 0.10       # 同花顺概念 + 涨停最强 + 资金流（v2.1 新增独立维度）
+  sentiment: 0.10   # 新闻公告 + 研报情绪（Phase 2 待接入）
 
 # 规则分 vs AI 分 的融合权重（Phase 3 启用）
 combine:
@@ -30,6 +31,8 @@ hard_reject:
   exclude_today_limit_up: true
   # 跌停股不推荐（避免"机构抄底"误判，跟 limit_up 对称）
   exclude_today_limit_down: true
+  # 当日停牌（amount=0 / NULL）排除（v2 新增）
+  exclude_suspended: true
   # 次新过滤：上市不满 N 日
   min_list_days: 60
   # ST / *ST 直接排除
@@ -56,11 +59,46 @@ moneyflow_filter:
   small_up_big_down_penalty: 30   # 小单流入大单流出惩罚
   # today_bonus 阈值在 _today_bonus_tier 代码中：≥5%→50, ≥1%→35, ≥0.3%→20, 弱→5
 
-# 龙虎榜维度细则（细则已在 lhb_filter.py 中以代码常量给出，本节预留可调键）
-# 当前 LhbFilter 自带分档（净额 0.2/0.5/1.0 亿；纯度 15%/30%；reason 关键词 5/10），
-# 若需调阈值，往这里加 key 后改 LhbFilter 读取 self.weights 即可。
-lhb_filter: {}
+# 龙虎榜维度细则（v2.1 重排：base 60 + seat 40）
+lhb_filter:
+  base_score: 20              # 上榜 + 净买入基础分
+  # base 子项的分档值现在硬编码在 lhb_filter._net_rate_tier_bonus / _purity_bonus / _reason_bonus
+  # （tier 0-20 / purity 0-12 / reason 0-8），如需调改函数即可。
+  # seat 部分（上限 40 / 下限 -15）
+  institution:
+    min_net_buy_yuan: 10000000
+    bonus: 20
+  hot_money_buy:
+    min_net_buy_yuan: 5000000
+    bonus: 12
+  hot_money_sell:
+    min_net_sell_yuan: 10000000
+    penalty: 15
+  northbound_buy:
+    min_net_buy_yuan: 30000000
+    bonus: 8
 
-# 板块维度细则
+# 板块维度细则（申万一级，v2.1 后保持不变）
 sector_filter:
   top_n_sectors: 5    # 当日涨幅 TOP N 板块加分（默认 5，命中第 1 +50、第 5 +30）
+
+# 题材维度细则（v2.1 新增，独立维度 dim=theme）
+theme_filter:
+  top_n_themes: 10
+  # 同花顺概念涨幅排名 → 加分（找 ≥ rank 的最小 key）
+  ths_rank_bonus:
+    1: 50
+    2: 42
+    3: 35
+    4: 28
+    5: 22
+    10: 12
+  # 涨停最强概念排名 → 加分
+  limit_concept_rank_bonus:
+    1: 50
+    3: 35
+    5: 22
+    10: 12
+  # 概念资金净流入 > 0 → 加分
+  concept_moneyflow_positive_bonus: 15
+  max_theme_bonus: 100  # 三类信号合成上限
