@@ -64,7 +64,34 @@ def _setup_logging() -> None:
 
 
 def _parse_date(s: str) -> date:
-    return datetime.strptime(s, "%Y-%m-%d").date()
+    """CLI 日期解析：严格 'YYYY-MM-DD'，非法格式抛 click.BadParameter。
+
+    P2-21：用 click.BadParameter 替代裸 ValueError，CLI 层会优雅显示而不是栈追踪。
+    """
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise click.BadParameter(
+            f"日期格式错误：{s!r}（期望 YYYY-MM-DD，例如 2026-04-26）"
+        ) from exc
+
+
+def _ensure_trade_date(d: date, *, force: bool, kind: str = "选股") -> None:
+    """P2-21：校验 d 是否为 A 股交易日；不是则提示并要求 --force 才继续。
+
+    用于 run-once / analyze 等"按交易日"语义的命令。回填类命令（backfill /
+    refresh-cal）不调用此函数（因为本就需要跨非交易日的连续日期）。
+    """
+    from mo_stock.storage import repo
+
+    with get_session() as session:
+        if repo.is_trade_date(session, d):
+            return
+    msg = f"{d.isoformat()} 不是 A 股交易日（周末 / 节假日 / 交易日历缺失）"
+    if force:
+        click.echo(f"[警告] {msg}，--force 已指定，继续运行 {kind} 流程", err=True)
+        return
+    raise click.UsageError(f"{msg}；如确需运行，加 --force")
 
 
 # ------------------------------------------------------------------
@@ -158,9 +185,11 @@ def backfill(days: int, end: str | None) -> None:
 @cli.command("run-once")
 @click.option("--date", "date_str", default=None, help="选股日 YYYY-MM-DD，默认今日")
 @click.option("--skip-ingest", is_flag=True, help="跳过数据拉取步骤（用于已经有数据时的重算）")
-def run_once(date_str: str | None, skip_ingest: bool) -> None:
+@click.option("--force", is_flag=True, help="允许在非交易日运行（默认会拒绝）")
+def run_once(date_str: str | None, skip_ingest: bool, force: bool) -> None:
     """对指定交易日跑一次端到端选股流程：ingest → filter → combine → report。"""
     trade_date = _parse_date(date_str) if date_str else date.today()
+    _ensure_trade_date(trade_date, force=force, kind="run-once")
     logger.info("=== run-once {} ===", trade_date)
 
     # ---------- 1. 数据拉取 ----------
@@ -214,7 +243,8 @@ def run_once(date_str: str | None, skip_ingest: bool) -> None:
 @click.argument("ts_code")
 @click.option("--date", "date_str", default=None, help="分析的交易日 YYYY-MM-DD，默认今日")
 @click.option("--json", "as_json", is_flag=True, help="以 JSON 格式输出（便于脚本解析）")
-def analyze(ts_code: str, date_str: str | None, as_json: bool) -> None:
+@click.option("--force", is_flag=True, help="允许在非交易日运行（默认会拒绝）")
+def analyze(ts_code: str, date_str: str | None, as_json: bool, force: bool) -> None:
     """对单只股票跑一次规则层分析（不写库）。
 
     示例：
@@ -223,6 +253,7 @@ def analyze(ts_code: str, date_str: str | None, as_json: bool) -> None:
     import json as _json
 
     trade_date = _parse_date(date_str) if date_str else date.today()
+    _ensure_trade_date(trade_date, force=force, kind="analyze")
 
     with get_session() as session:
         result = analyze_stock(session, ts_code, trade_date)

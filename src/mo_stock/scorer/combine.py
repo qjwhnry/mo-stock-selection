@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any
@@ -41,6 +42,10 @@ from mo_stock.storage.models import (
     SelectionResult,
     StockBasic,
 )
+
+# P2-6：ST 名称识别——同时覆盖 "ST"、"*ST"、半角/全角空格污染等场景
+# 大小写不敏感；任意位置出现都算（兜底 is_st 字段未同步的情况）
+_ST_NAME_RE = re.compile(r"\*?ST", re.IGNORECASE)
 
 
 def persist_filter_scores(session: Session, results: list[ScoreResult]) -> int:
@@ -83,6 +88,24 @@ def _weighted_combine(
     return sum(dim_scores.get(d, 0.0) * w for d, w in dim_weights.items()) / total_w
 
 
+def _final_score_from(rule_score: float, ai_score: float | None,
+                       rule_weight: float = 0.6, ai_weight: float = 0.4) -> float:
+    """rule + ai 融合公式（P0-2 显式防御）。
+
+    - ai_score 为 None（MVP 阶段 / AI 模块未启用）：直接返回 rule_score，
+      不按权重重缩放，保持 0-100 区间稳定。
+    - ai_score 为数值：按 rule_weight / ai_weight 加权平均。
+
+    Phase 3 接入 AI 后只需保证 ai_score 有值，无需改本函数。
+    """
+    if ai_score is None:
+        return rule_score
+    total_w = rule_weight + ai_weight
+    if total_w <= 0:
+        return rule_score
+    return (rule_score * rule_weight + ai_score * ai_weight) / total_w
+
+
 def combine_scores(
     session: Session,
     trade_date: date,
@@ -93,7 +116,8 @@ def combine_scores(
     """读当日所有维度的 filter_score_daily，做加权融合 → 应用硬规则 → 取 TOP N。
 
     **幂等**：同一交易日重跑会 upsert `selection_result`，不会报唯一键冲突。
-    综合分算法见模块 docstring（固定分母）。MVP 阶段 AI 分为 None，final_score = rule_score。
+    综合分算法见模块 docstring（固定分母）。MVP 阶段 AI 分为 None，
+    final_score = rule_score（见 _final_score_from 显式防御）。
 
     Returns:
         本次真正 picked（入选 TOP N）的股票数。
@@ -142,13 +166,14 @@ def combine_scores(
 
         # 只落库入选的，或 score > 0 的未入选项（避免表过度膨胀）
         if picked or rule_score > 0:
+            ai_score: float | None = None  # P0-2/P0-17：AI 模块未实现前永远 None
             rows.append({
                 "trade_date": trade_date,
                 "ts_code": ts_code,
                 "rank": rank,
                 "rule_score": rule_score,
-                "ai_score": None,               # MVP 阶段
-                "final_score": rule_score,      # Phase 3 后改为 rule*0.6 + ai*0.4
+                "ai_score": ai_score,
+                "final_score": _final_score_from(rule_score, ai_score),
                 "picked": picked,
                 "reject_reason": reject_reason,
             })
@@ -197,6 +222,7 @@ def _build_hard_reject_map(
     - `min_list_days` (默认 60)：上市不满 N 日的次新过滤；设 0 或负值则不过滤
     - `exclude_today_limit_up` (默认 True)：当日涨停次日不追高
     - `exclude_today_limit_down` (默认 True)：当日跌停次日不抄底（跟 limit_up 对称）
+    - `exclude_suspended` (默认 True)：当日停牌（amount=0 / amount 缺失）排除
     - `negative_announcement_keywords`：命中任一关键词直接淘汰
     """
     reject: dict[str, str] = {}
@@ -208,6 +234,7 @@ def _build_hard_reject_map(
     exclude_st = cfg.get("exclude_st", True)
     exclude_today_limit_up = cfg.get("exclude_today_limit_up", True)
     exclude_today_limit_down = cfg.get("exclude_today_limit_down", True)
+    exclude_suspended = cfg.get("exclude_suspended", True)
     neg_keywords: list[str] = cfg.get("negative_announcement_keywords", [])
 
     # 1. 股票基础过滤（ST 与 次新 独立开关）
@@ -259,6 +286,20 @@ def _build_hard_reject_map(
             if ts not in reject:
                 reject[ts] = "当日跌停，避免次日抄底"
 
+    # 2c. P2-8：当日停牌过滤——成交额为 0 或缺失视为停牌
+    # 即便 ingest 把停牌行写入了 daily_kline（pct_chg 可能为 0），amount 一定 ≈ 0；
+    # 龙虎榜 / 资金流偶尔有数据残留，不应被选中。
+    if exclude_suspended:
+        suspended_rows = session.execute(
+            select(DailyKline.ts_code)
+            .where(DailyKline.trade_date == trade_date)
+            .where(DailyKline.ts_code.in_(candidates))
+            .where((DailyKline.amount.is_(None)) | (DailyKline.amount <= 0))
+        ).scalars().all()
+        for ts in suspended_rows:
+            if ts not in reject:
+                reject[ts] = "当日停牌（成交额为 0）"
+
     # 3. 近 7 日负面公告关键词命中
     if neg_keywords:
         start = trade_date - timedelta(days=7)
@@ -277,8 +318,10 @@ def _build_hard_reject_map(
 
 
 def _name_is_st(name: str | None) -> bool:
-    """根据股票名称判断是否 ST（兜底 is_st 字段可能未同步的情况）。"""
+    """根据股票名称判断是否 ST（兜底 is_st 字段未同步）。
+
+    P2-6：用 regex 替代 startswith，覆盖 "*ST"、"ST"、大小写、首尾空格等场景。
+    """
     if not name:
         return False
-    upper = name.upper()
-    return "ST" in upper or name.startswith("*ST")
+    return bool(_ST_NAME_RE.search(name))

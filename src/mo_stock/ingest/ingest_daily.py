@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
@@ -372,16 +372,31 @@ class DailyIngestor:
 # ------------------------------------------------------------------------
 
 def _parse_date(v: Any) -> date | None:
-    """'20260422' 或 date 或 None → date | None。"""
+    """'20260422' / 'YYYY-MM-DD' / date / None → date | None。
+
+    P1-12：显式按 'YYYYMMDD' 解析（Tushare 全部接口的日期标准格式），
+    避免 pandas 模糊推断带来的时区/格式漂移。失败时尝试 'YYYY-MM-DD'
+    兜底（Tushare 部分新接口返回带连字符的日期），都失败再 raise。
+    """
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return None
-    if isinstance(v, date):
+    if isinstance(v, date) and not isinstance(v, datetime):
         return v
+    if isinstance(v, datetime):
+        return v.date()
     s = str(v).strip()
     if not s or s == "nan":
         return None
-    parsed: date = pd.to_datetime(s).date()
-    return parsed
+    # Tushare 主流格式 'YYYYMMDD'
+    try:
+        return datetime.strptime(s, "%Y%m%d").date()
+    except ValueError:
+        pass
+    # 兜底：'YYYY-MM-DD' 或 ISO 格式
+    try:
+        return datetime.strptime(s, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError(f"_parse_date: 无法解析日期字符串 {s!r}（期望 YYYYMMDD 或 YYYY-MM-DD）") from exc
 
 
 def _nf(v: Any) -> float | None:

@@ -13,12 +13,14 @@
 """
 from __future__ import annotations
 
+import socket
 import time
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
+import requests
 import tushare as ts
 from loguru import logger
 from tenacity import (
@@ -33,6 +35,17 @@ from config.settings import settings
 
 class TushareError(Exception):
     """Tushare 调用失败。"""
+
+
+# P1-10：仅对网络层 / 临时性错误重试。
+# Tushare SDK 在积分不足、参数错误时抛 ValueError / Exception，重试只是浪费配额。
+# 注意 tushare-pro 偶尔抛通用 Exception，但根因是网络的子集会通过下面这些类被 tenacity 命中。
+_RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    requests.RequestException,   # 包含 ConnectionError / Timeout / HTTPError 等
+    ConnectionError,             # 内置 socket 层
+    TimeoutError,                # 内置 timeout
+    socket.timeout,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -108,7 +121,7 @@ class TushareClient:
     # ---------- 底层调用器 ----------
 
     @retry(
-        retry=retry_if_exception_type(Exception),
+        retry=retry_if_exception_type(_RETRYABLE_EXCEPTIONS),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=20),
         reraise=True,

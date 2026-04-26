@@ -290,10 +290,27 @@ def upsert_rows(
 
     Returns:
         upsert 的行数
+
+    P0-9：开发期断言 conflict_cols 与表主键对齐。当主键被改而调用方忘记更新
+    conflict_cols 时会立刻报错（而不是等运行时撞 ON CONFLICT 失败）。
+    若调用方使用唯一索引（非主键）触发冲突，可显式传 update_cols 跳过此校验
+    场景，但本项目现有所有 upsert 都用主键，因此这条断言始终生效。
     """
     rows_list = list(rows)
     if not rows_list:
         return 0
+
+    # primary_key 在 SQLAlchemy 类型 stub 中标为 Iterable[NamedColumn]，
+    # 运行时是 PrimaryKeyConstraint 暴露 .columns；用 list() 强制取列对象后再取 name
+    pk_names = {col.name for col in list(model.__table__.primary_key)}
+    # 仅当 conflict_cols 完全等于主键列时直接放行；不一致就 raise，避免
+    # 运行时 PG 抛 "no unique or exclusion constraint matching the ON CONFLICT
+    # specification"（错误信息晦涩，不易定位）。
+    if set(conflict_cols) != pk_names:
+        raise ValueError(
+            f"upsert_rows: conflict_cols={conflict_cols} 与 {model.__name__} "
+            f"主键 {sorted(pk_names)} 不一致；请检查模型定义或 repo 封装"
+        )
 
     # pg_insert 接受 ORM 类；运行时会自动取 __table__
     stmt = pg_insert(model).values(rows_list)

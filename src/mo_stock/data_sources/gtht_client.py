@@ -213,6 +213,8 @@ class GthtClient:
 
         logger.debug("GTHT call: cwd={} cmd={}", skill_dir, cmd)
 
+        # P2-16：超时改可配（settings.gtht_skill_timeout，默认 60s）
+        timeout_s = settings.gtht_skill_timeout
         try:
             proc = subprocess.run(  # noqa: S603 - 命令为受信常量 + 校验过的 skill
                 cmd,
@@ -222,13 +224,16 @@ class GthtClient:
                 # 显式使用 UTF-8 解码并容错，避免 Windows 默认 gbk 解码导致线程报错。
                 encoding="utf-8",
                 errors="replace",
-                timeout=60,
+                timeout=timeout_s,
                 check=False,
             )
         except FileNotFoundError as exc:
             raise GthtError("node 未安装或不在 PATH 中") from exc
         except subprocess.TimeoutExpired as exc:
-            raise GthtError(f"GTHT 调用超时: {skill}/{gateway}/{tool}") from exc
+            raise GthtError(
+                f"GTHT 调用超时（{timeout_s}s）: {skill}/{gateway}/{tool}；"
+                f"如需放宽，调高 settings.gtht_skill_timeout"
+            ) from exc
 
         if proc.returncode != 0:
             raise GthtError(
@@ -261,6 +266,7 @@ class GthtClient:
         )
         if not skill_dir.exists():
             raise GthtError(f"GTHT skill 目录不存在: {skill_dir}")
+        # P2-16：authChecker 超时单独可配（默认 30s，只看退出码不需要太长）
         try:
             return subprocess.run(  # noqa: S603
                 ["node", "skill-entry.js", "authChecker", subcommand],
@@ -270,7 +276,7 @@ class GthtClient:
                 # authChecker 只看退出码，但仍需安全解码 stdout/stderr，避免后台 reader 线程异常。
                 encoding="utf-8",
                 errors="replace",
-                timeout=30,
+                timeout=settings.gtht_authchecker_timeout,
                 check=False,
             )
         except FileNotFoundError as exc:

@@ -19,14 +19,18 @@ def is_trading_day(session: Session, d: date) -> bool:
 
 
 def previous_trading_day(session: Session, d: date) -> date | None:
-    """返回 d 之前最近的交易日（不含 d 本身）。"""
+    """返回 d 之前最近的交易日（不含 d 本身）。
+
+    P2-14：兜底窗口改为 14 天。春节连续放假 ~9 自然日 + 周末 + 临时调休
+    最长可达 11~12 天，原 10 天兜底是临界值，14 天给出安全余量。
+    """
     row = session.get(TradeCal, d)
     if row and row.pretrade_date:
         return row.pretrade_date
 
-    # 兜底：向前最多找 10 天
+    # 兜底：向前最多找 14 天（春节最长场景下足够）
     cursor = d - timedelta(days=1)
-    for _ in range(10):
+    for _ in range(14):
         if is_trading_day(session, cursor):
             return cursor
         cursor -= timedelta(days=1)

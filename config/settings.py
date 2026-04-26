@@ -30,6 +30,15 @@ class Settings(BaseSettings):
         default="",
         description="国泰海通灵犀 API Key；首次使用时自动落盘到 gtht_entry_json_path",
     )
+    # P2-16：研报全量查询有时超过 60s，留可配置入口避免硬编码
+    gtht_skill_timeout: int = Field(
+        default=60,
+        description="GTHT skill 子进程调用超时（秒）；研报类查询可调到 120+",
+    )
+    gtht_authchecker_timeout: int = Field(
+        default=30,
+        description="GTHT authChecker 子进程超时（秒）；只看退出码，不需要太长",
+    )
 
     # ---------- GTHT 辅助 LLM（OpenAI 兼容）----------
     gtht_llm_api_key: str = Field(default="", description="辅助 LLM 的 API Key")
