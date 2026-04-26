@@ -1,5 +1,17 @@
 # mo-stock-selection
 
+> ⚠️ **本 README 部分内容已过期（2026-04-26 起）**
+>
+> 项目从 v2.1 起把"题材增强"从 sector 维度拆出独立 `theme` 维度，规则层从 **5 维**升级为 **6 维**（limit / moneyflow / lhb / sector / **theme** / sentiment），LhbFilter 改为 base 60 + seat 40 双层结构。
+>
+> **当前架构与调用链路请看 → [docs/architecture.md](docs/architecture.md)**
+> 评分公式与维度细则 → [docs/scoring.md](docs/scoring.md)
+> CLI 完整手册 → [docs/cli.md](docs/cli.md)
+>
+> 本 README 下方的"5 个分析维度"和"架构概览"小节描述的是 v1 状态，仅作历史参考。后续会择机重写本 README 与新架构对齐。
+
+---
+
 **A 股每日批量选股系统** —— 5 维度规则快筛 + Claude AI 深度分析。
 
 ## 核心目标

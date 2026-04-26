@@ -1,5 +1,23 @@
 # mo-stock-selection：A 股每日批量选股系统
 
+> ⚠️ **本文档为项目早期（v1）规划，2026-04-26 起部分内容已被实际架构替代**
+>
+> 本 PLAN.md 记录的是项目从 0 到 1 的最初设计，包括 5 维度规则层、rule×0.6 + ai×0.4 融合公式、Phase 1-4 路线图。**作为历史/决策溯源资料保留**，但不再代表当前实现。
+>
+> **以下内容已被新版替代**：
+> - 5 维度 → **6 维度**（拆出 theme 维度）
+> - LhbFilter 简单加权 → **base 60 + seat 40 双层**（含席位身份分类）
+> - `Lhb.seat` JSONB → **`lhb_seat_detail` 独立表**（PK 含 sha1 内容寻址）
+>
+> **当前架构与最新设计请看**：
+> - [docs/architecture.md](docs/architecture.md) — 调用链路 + 文件索引
+> - [docs/scoring.md](docs/scoring.md) — 6 维度评分公式
+> - [docs/superpowers/plans/2026-04-26-theme-lhb-integration.md](docs/superpowers/plans/2026-04-26-theme-lhb-integration.md) — v2.1 集成 plan
+>
+> 后续大版本（如 v3）会重写本文档。
+
+---
+
 ## Context
 
 用户要在 `D:/QuantProjects/mo-stock-selection`（当前空目录）从零搭建一套 **A 股短线选股系统**，每日收盘后自动跑、综合 5 个维度、输出候选股清单 + 裁决理由。可参考邻目录 `D:/QuantProjects/mo-skills` 已有的 Tushare / GTHT 灵犀 / stock-trader 三套技能，避免重复造轮子。
