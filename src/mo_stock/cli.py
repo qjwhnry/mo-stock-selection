@@ -40,7 +40,7 @@ from mo_stock.filters.sector_filter import SectorFilter
 from mo_stock.filters.theme_filter import ThemeFilter
 from mo_stock.ingest.ingest_daily import DailyIngestor
 from mo_stock.report.render_md import render_daily_report
-from mo_stock.scorer.combine import combine_scores, persist_filter_scores
+from mo_stock.scorer.combine import combine_scores, replace_filter_scores
 from mo_stock.storage.db import engine, get_session
 from mo_stock.storage.models import Base
 
@@ -219,6 +219,7 @@ def run_once(
     cfg = load_weights_yaml(weights_path)
     dim_weights: dict[str, float] = cfg.get("dimension_weights", {})
     hard_reject: dict = cfg.get("hard_reject", {})
+    combine_cfg: dict = cfg.get("combine", {})
 
     # ---------- 3. 规则层打分（5 维度：limit + moneyflow + lhb + sector + theme）----------
     limit_filter = LimitFilter(weights=cfg.get("limit_filter", {}))
@@ -236,7 +237,12 @@ def run_once(
             *theme_filter.score_all(session, trade_date),
         ]
 
-        persist_filter_scores(session, all_scores)
+        # v2.3：用 replace 而非 upsert，清掉旧维度脏分数（如旧版 sector_heat_bonus）
+        replace_filter_scores(
+            session, trade_date,
+            dims=["limit", "moneyflow", "lhb", "sector", "theme"],
+            results=all_scores,
+        )
 
         # ---------- 4. 综合打分 + AI（可选）+ 硬规则 ----------
         combine_scores(
@@ -246,6 +252,7 @@ def run_once(
             hard_reject_cfg=hard_reject,
             top_n=settings.top_n_final,
             enable_ai=not skip_ai,
+            combine_cfg=combine_cfg,
         )
 
     # ---------- 5. 生成报告 ----------

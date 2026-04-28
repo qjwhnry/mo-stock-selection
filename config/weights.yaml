@@ -16,6 +16,13 @@ dimension_weights:
 combine:
   rule_weight: 0.6
   ai_weight: 0.4
+  # v2.3：板块多样化 cap —— 最终 Top N 中同一申万一级板块最多入选数。
+  # 0 或负值 = 禁用 cap（行为同 v2.2，纯按 final_score 取 TOP N）。
+  # 默认 4：Top 20 时强制至少 5 个板块；防止 1 个板块全员霸榜。
+  max_stocks_per_sector: 4
+  # 无 index_member 映射的股票最多入选数（兜底）。当板块同步失败、全市场都
+  # 变成 unknown 时，避免 cap 静默失效。0 = 不限（默认）。
+  max_unknown_sector_stocks: 0
 
 # 硬规则：触发任一则直接淘汰（不入 selection_result.picked）
 hard_reject:

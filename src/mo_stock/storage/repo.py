@@ -136,31 +136,6 @@ def get_limit_up_codes(session: Session, trade_date: date) -> set[str]:
     return set(session.execute(stmt).scalars().all())
 
 
-def get_l1_limit_count_map(session: Session, trade_date: date) -> dict[str, int]:
-    """获取当日每个一级板块涨停股数量 {l1_code: count}。
-
-    用于 SectorLimitHeat 加分：同一板块涨停股越多 → 板块热度越高 → 给同板块
-    非涨停股加分（PLAN.md「当日涨停股只作为板块信号」的核心实现）。
-    """
-    # 子查询：拿当日涨停股的 l1_code（join index_member）
-    stmt = (
-        select(IndexMember.l1_code, IndexMember.ts_code)
-        .where(IndexMember.l1_code.isnot(None))
-        .where(
-            IndexMember.ts_code.in_(
-                select(LimitList.ts_code)
-                .where(LimitList.trade_date == trade_date)
-                .where(LimitList.limit_type == "U")
-            )
-        )
-    )
-    result: dict[str, int] = {}
-    for l1, _ts in session.execute(stmt).all():
-        if l1 is not None:
-            result[l1] = result.get(l1, 0) + 1
-    return result
-
-
 def get_lhb_today(session: Session, trade_date: date) -> Sequence[Lhb]:
     """获取当日全市场龙虎榜上榜股（LhbFilter.score_all 主源）。"""
     stmt = select(Lhb).where(Lhb.trade_date == trade_date)

@@ -9,7 +9,6 @@ import pytest
 from mo_stock.filters.limit_filter import (
     LimitFilter,
     _break_board_rebound_bonus,
-    _sector_limit_heat_bonus,
 )
 
 
@@ -91,25 +90,5 @@ class TestBreakBoardReboundBonus:
         ) == expected
 
 
-class TestSectorLimitHeatBonus:
-    """板块涨停热度溢出：同一一级板块今天有多少只涨停股 → 给同板块非涨停股加分。
-
-    PLAN.md 指定：「当日涨停股只作为板块信号」—— 涨停的"溢出效应"通过此函数实现。
-    """
-
-    @pytest.mark.parametrize(
-        ("limit_count", "expected"),
-        [
-            (0, 0),     # 板块没涨停股，无溢出
-            (1, 10),    # 1 只涨停，弱热度
-            (2, 10),
-            (3, 25),    # 3-4 只，中热度
-            (4, 25),
-            (5, 40),    # 5-9 只，强热度
-            (8, 40),
-            (10, 60),   # ≥10 只，极强热度（满档）
-            (20, 60),
-        ],
-    )
-    def test_thresholds(self, limit_count: int, expected: int) -> None:
-        assert _sector_limit_heat_bonus(limit_count) == expected
+# v2.3 起移除 sector_heat_bonus（与 sector 维度共线性 → 板块全员霸榜）。
+# 见 docs/audit-sector-concentration-2026-04-28.md。

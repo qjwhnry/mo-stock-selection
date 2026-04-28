@@ -24,7 +24,7 @@ from mo_stock.filters.sector_filter import SectorFilter
 from mo_stock.filters.theme_filter import ThemeFilter
 from mo_stock.ingest.ingest_daily import DailyIngestor
 from mo_stock.report.render_md import render_daily_report
-from mo_stock.scorer.combine import combine_scores, persist_filter_scores
+from mo_stock.scorer.combine import combine_scores, replace_filter_scores
 from mo_stock.storage.db import get_session
 
 # A 股交易时区，所有时点判断都基于此（UTC+8）
@@ -89,6 +89,7 @@ def run_daily_pipeline(
         cfg = load_weights_yaml(weights_path)
         dim_weights = cfg.get("dimension_weights", {})
         hard_reject = cfg.get("hard_reject", {})
+        combine_cfg = cfg.get("combine", {})
 
         # 5 维 filter（v2.1：新增 theme），与 cli.run_once 保持一致
         limit_filter = LimitFilter(weights=cfg.get("limit_filter", {}))
@@ -105,7 +106,12 @@ def run_daily_pipeline(
                 *sector_filter.score_all(session, trade_date),
                 *theme_filter.score_all(session, trade_date),
             ]
-            persist_filter_scores(session, scores)
+            # v2.3：用 replace 而非 upsert，清掉旧维度脏分数
+            replace_filter_scores(
+                session, trade_date,
+                dims=["limit", "moneyflow", "lhb", "sector", "theme"],
+                results=scores,
+            )
 
             combine_scores(
                 session,
@@ -114,6 +120,7 @@ def run_daily_pipeline(
                 hard_reject_cfg=hard_reject,
                 top_n=settings.top_n_final,
                 enable_ai=not skip_ai,
+                combine_cfg=combine_cfg,
             )
 
         with get_session() as session:

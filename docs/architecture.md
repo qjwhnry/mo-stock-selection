@@ -31,12 +31,14 @@
 │                  LimitFilter, MoneyflowFilter, LhbFilter,          │
 │                  SectorFilter, ThemeFilter (v2.1 新)               │
 │                                                                    │
-│  3. persist   → persist_filter_scores → filter_score_daily 表      │
+│  3. persist   → replace_filter_scores → filter_score_daily 表     │
+│                  (v2.3：DELETE+INSERT 同 trade_date+dim，避免脏数据)│
 │                                                                    │
 │  4. combine   → combine_scores                                     │
 │                  ├─ _weighted_combine（固定分母 1.0）              │
 │                  ├─ _build_hard_reject_map（硬规则）               │
-│                  └─ TOP N → selection_result 表                    │
+│                  ├─ 板块多样化 cap（v2.3：每板块 ≤ 4 只）          │
+│                  └─ DELETE+INSERT selection_result（每日全量替换） │
 │                                                                    │
 │  5. report    → render_daily_report → MD + JSON 文件               │
 └────────────────────────────────────────────────────────────────────┘
@@ -109,10 +111,11 @@ cli.py:run_once()
 │  └─ ThemeFilter.score_all()    ──→ ScoreResult[] (theme) ★v2.1 新维度
 │                                      多概念取最高 + 渐进降级
 │
-├─ persist_filter_scores(all_scores)
-│  └─ upsert filter_score_daily（dim 列含 5 类 + sentiment 缺失）
+├─ replace_filter_scores(td, dims=[limit/moneyflow/lhb/sector/theme], all_scores)
+│  └─ DELETE WHERE trade_date AND dim IN (...) → INSERT 本轮结果
+│      （v2.3：避免旧维度脏数据残留，如旧版 sector_heat_bonus）
 │
-├─ combine_scores(td, weights, hard_reject, top_n=20, enable_ai=True, ai_top_n=None)
+├─ combine_scores(td, weights, hard_reject, top_n=20, enable_ai=True, combine_cfg=...)
 │  ├─ 读 filter_score_daily 当日数据 + 重建 dim_scores_map[ts_code][dim] = ScoreResult
 │  ├─ _weighted_combine (固定分母 = Σ 6 维权重 = 1.0)
 │  ├─ _build_hard_reject_map (ST/次新/涨停/跌停/停牌/负面公告)
@@ -121,7 +124,9 @@ cli.py:run_once()
 │  │       └─ Claude 4 段 prompt cache → schemas.StockAiAnalysis → upsert ai_analysis
 │  ├─ _final_score_from(rule, ai_score) — 按 rule_weight×rule + ai_weight×ai 融合
 │  ├─ ⭐ 按 final_score 重排（不只是 rule_score 排序，AI 才能真正影响 TOP N）
-│  └─ upsert selection_result (TOP 20 picked + 0 rank reject)
+│  ├─ ⭐ v2.3 板块多样化 cap：申万一级 max_stocks_per_sector（默认 4），仅入选股消耗名额
+│  └─ DELETE selection_result + INSERT 本轮 rows
+│      （v2.3：每日一份完整快照，避免旧 picked=True 残留污染报告）
 │
 └─ render_daily_report(td)
    └─ 生成 data/reports/2026-04-26.{md,json}

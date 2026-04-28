@@ -51,6 +51,22 @@ def sqlite_session(tmp_path):
 
 
 @pytest.fixture
+def loguru_caplog(caplog):
+    """让 stdlib `caplog` 捕获 loguru 日志。
+
+    loguru 默认不 propagate 到 stdlib logging，pytest 的 `caplog` 因此抓不到
+    `logger.warning(...)`。本 fixture 在测试期间把 caplog handler 挂到 loguru，
+    退出时清理。
+    """
+    from loguru import logger
+    handler_id = logger.add(
+        caplog.handler, format="{message}", level=0, filter=lambda r: True,
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+@pytest.fixture
 def mock_claude_client(monkeypatch):
     """统一 mock ClaudeClient.analyze() 用于 AI 模块单测（v2.2 plan §2.5）。
 

@@ -1,22 +1,22 @@
-"""涨停异动维度打分（PLAN §4.2 设计：limit 维度只作为板块信号 + 反包识别）。
+"""涨停异动维度打分（PLAN §4.2 设计：limit 维度只作为个股涨停 + 反包信号）。
 
 **核心思路**：当日涨停股会被 hard_reject.exclude_today_limit_up 过滤，所以 LimitFilter
-真正能进 TOP 20 的得分股是两类「跟涨停相关但今天非涨停」的股票：
+真正能进 TOP 20 的得分股是「跟涨停相关但今天非涨停」的断板反包股：
 
 1. **断板反包**（PLAN.md 原文「首板 > 连板首日 > 断板反包」）：
    - 昨天涨停 + 今天没涨停 + 今天涨幅 ≥ 1%（保持强势）
    - 这种股 hard_reject 不过滤，是 limit 维度真正的"产出"
    - 涨幅梯度加分：1~3% / 3~5% / 5~8% / ≥8% 四档
 
-2. **同板块涨停热度溢出**（PLAN.md「当日涨停股只作为板块信号」）：
-   - 看个股所属一级板块今天有几只涨停
-   - 板块涨停越多 → 板块热度越高 → 给同板块**非涨停**股加分
-   - 1~2 / 3~4 / 5~9 / ≥10 四档
-
-3. **当日涨停股**（保留打分供 analyzer 单股查询用）：
+2. **当日涨停股**（保留打分供 analyzer 单股查询用）：
    - 原有逻辑：连板/封单/早封/开板。但综合分会被 hard_reject 让 picked=False。
 
 得分输出：0-100。
+
+**v2.3 修正（audit-sector-concentration-2026-04-28）**：
+旧版本曾有第 3 类"同板块涨停热度溢出"（给同板块所有非涨停股加 60 分），
+此机制与 `sector` 维度（TOP1 板块 +70）形成多重共线性，导致 1 个板块强势同时拉高
+4 个维度，最终 Top N 全部来自同一板块。已删除，板块热度信号集中在 `sector` 维度。
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ _ONE_DAY = timedelta(days=1)
 
 
 class LimitFilter(FilterBase):
-    """涨停异动 + 断板反包 + 板块涨停溢出 打分器。"""
+    """涨停异动 + 断板反包打分器（v2.3 起，板块热度信号集中到 sector 维度）。"""
 
     dim = "limit"
 
@@ -49,11 +49,7 @@ class LimitFilter(FilterBase):
         # 2) 昨日涨停股（断板反包候选源）
         yesterday = trade_date - _ONE_DAY
         yesterday_limit_codes = repo.get_limit_up_codes(session, yesterday)
-        # 3) 当日板块涨停热度
-        sector_heat_map = repo.get_l1_limit_count_map(session, trade_date)
-        # 4) 股票 → 一级板块映射（板块溢出加分用）
-        member_map = repo.get_index_member_l1_map(session)
-        # 5) 当日 K 线（断板反包要看 pct_chg）
+        # 3) 当日 K 线（断板反包要看 pct_chg）
         kline_pct_rows = session.execute(
             select(DailyKline.ts_code, DailyKline.pct_chg)
             .where(DailyKline.trade_date == trade_date),
@@ -134,11 +130,11 @@ class LimitFilter(FilterBase):
                 detail=detail,
             ))
 
-        # ---------- 2. 断板反包 + 板块涨停溢出（核心产出） ----------
+        # ---------- 2. 断板反包（核心产出） ----------
+        # v2.3：移除"板块涨停热度溢出"以消除与 sector 维度的多重共线性。
         # 候选股集合：所有 A 股，扣除「今日已经在 #1 打分的涨停股」
         all_stocks = session.execute(select(StockBasic.ts_code)).scalars().all()
         rebound_count = 0
-        sector_heat_count = 0
 
         for ts_code in all_stocks:
             if ts_code in today_limit_codes:
@@ -147,7 +143,7 @@ class LimitFilter(FilterBase):
             score = 0.0
             detail = {}
 
-            # 2a. 断板反包：昨涨停今没涨停但保持涨势
+            # 断板反包：昨涨停今没涨停但保持涨势
             today_pct = kline_pct_map.get(ts_code)
             yesterday_was_limit = ts_code in yesterday_limit_codes
             rebound = _break_board_rebound_bonus(
@@ -160,17 +156,6 @@ class LimitFilter(FilterBase):
                 detail["today_pct_chg"] = round(today_pct or 0, 2)
                 rebound_count += 1
 
-            # 2b. 板块涨停热度溢出
-            l1_code = member_map.get(ts_code)
-            if l1_code:
-                heat_count = sector_heat_map.get(l1_code, 0)
-                heat_bonus = _sector_limit_heat_bonus(heat_count)
-                if heat_bonus > 0:
-                    score += heat_bonus
-                    detail["sector_limit_count"] = heat_count
-                    detail["sector_heat_bonus"] = heat_bonus
-                    sector_heat_count += 1
-
             if score > 0:
                 results.append(ScoreResult(
                     ts_code=ts_code,
@@ -181,8 +166,8 @@ class LimitFilter(FilterBase):
                 ))
 
         logger.info(
-            "LimitFilter: {} 涨停打分 {} 只 + 断板反包 {} 只 + 板块溢出 {} 只",
-            trade_date, len(limit_rows), rebound_count, sector_heat_count,
+            "LimitFilter: {} 涨停打分 {} 只 + 断板反包 {} 只",
+            trade_date, len(limit_rows), rebound_count,
         )
         return results
 
@@ -251,20 +236,3 @@ def _break_board_rebound_bonus(
     if today_pct_chg >= 3.0:
         return 50
     return 30  # 1~3%
-
-
-def _sector_limit_heat_bonus(limit_count: int) -> int:
-    """板块涨停热度溢出加分：同一一级板块今天涨停股数 → 同板块非涨停股加分。
-
-    PLAN.md 指定：「当日涨停股只作为板块信号」—— 涨停的"溢出效应"通过此函数实现。
-    满分 60（板块层面信号，不应该单独占据 limit 维度满分）。
-    """
-    if limit_count <= 0:
-        return 0
-    if limit_count >= 10:
-        return 60
-    if limit_count >= 5:
-        return 40
-    if limit_count >= 3:
-        return 25
-    return 10  # 1~2 只
