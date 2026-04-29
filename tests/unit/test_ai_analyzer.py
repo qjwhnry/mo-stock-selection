@@ -13,8 +13,8 @@ from datetime import date
 
 import pytest
 
-from mo_stock.ai.analyzer import analyze_stock_with_ai
-from mo_stock.storage.models import AiAnalysis, StockBasic
+from mo_stock.ai.analyzer import _build_dynamic_for_stock, analyze_stock_with_ai
+from mo_stock.storage.models import AiAnalysis, DailyKline, StockBasic
 
 
 @pytest.fixture
@@ -167,3 +167,42 @@ class TestAnalyzeStockWithAiFailure:
         )
         assert result is not None
         assert mock_claude_client.analyze.call_count == 1
+
+    def test_client_init_failure_returns_none(
+        self, sqlite_session, monkeypatch, basic_stock,
+    ) -> None:
+        """未配置 API Key 等 client 初始化失败 → 降级返回 None，不中断主流程。"""
+        monkeypatch.setattr(
+            "mo_stock.ai.analyzer._get_claude_client",
+            lambda: (_ for _ in ()).throw(ValueError("ANTHROPIC_API_KEY 未配置")),
+        )
+
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+        )
+
+        assert result is None
+
+
+class TestBuildDynamicForStock:
+    def test_amount_qy_converts_to_yi(self, sqlite_session, basic_stock) -> None:
+        """DailyKline.amount 单位是千元，100000 千元应渲染为 1.0 亿元。"""
+        td = date(2026, 4, 24)
+        sqlite_session.add(DailyKline(
+            ts_code=basic_stock,
+            trade_date=td,
+            open=10.0,
+            high=10.5,
+            low=9.8,
+            close=10.2,
+            pre_close=10.0,
+            pct_chg=2.0,
+            vol=100_000.0,
+            amount=100_000.0,
+        ))
+        sqlite_session.commit()
+
+        prompt = _build_dynamic_for_stock(sqlite_session, basic_stock, td, {})
+
+        assert "<amount_yi>1.0</amount_yi>" in prompt

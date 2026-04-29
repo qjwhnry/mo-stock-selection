@@ -81,7 +81,11 @@ def analyze_stock_with_ai(
         return None
 
     # 2. 调 Claude（失败重试 1 次：第 1 次结果 schema 错时再调一次）
-    client = _get_claude_client()
+    try:
+        client = _get_claude_client()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("AI client 初始化失败，跳过 AI 分析 ts_code={}: {}", ts_code, exc)
+        return None
     last_usage: dict[str, int] = {}
     parsed: StockAiAnalysis | None = None
 
@@ -144,8 +148,8 @@ def _build_dynamic_for_stock(
     kline = session.get(DailyKline, (ts_code, trade_date))
     close = kline.close if kline else None
     pct_chg = kline.pct_chg if kline else None
-    # amount 是元；除以 1e8 转亿元
-    amount_yi = (kline.amount / 1e8) if (kline and kline.amount) else None
+    # daily_kline.amount 单位是千元，转换为亿元：千元 * 1000 / 1e8 = / 1e5
+    amount_yi = (kline.amount / 1e5) if (kline and kline.amount) else None
 
     return build_dynamic_stock_prompt(
         ts_code=ts_code,

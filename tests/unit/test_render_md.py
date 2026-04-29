@@ -103,6 +103,7 @@ class TestTranslateSector:
         # 应该有"排名"或"行业"或具体数字
         assert isinstance(evidences, list)
         assert len(evidences) > 0
+        assert any(token in text for token in ("801080", "排名", "行业", "5.5", "70"))
 
 
 class TestTranslateUnknownDim:

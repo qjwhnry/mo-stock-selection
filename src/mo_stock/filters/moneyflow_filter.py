@@ -66,6 +66,7 @@ class MoneyflowFilter(FilterBase):
         rolling_bonus = cfg.get("rolling_3d_bonus", 15)
         ratio_threshold = cfg.get("big_order_ratio_threshold", 0.4)
         small_up_big_down_penalty = cfg.get("small_up_big_down_penalty", 30)
+        rolling_sum_map = repo.get_moneyflow_rolling_sum_map(session, trade_date, days=3)
 
         for row in today_rows:
             score = 0.0
@@ -100,9 +101,8 @@ class MoneyflowFilter(FilterBase):
                 score += ratio_bonus
                 detail["ratio_bonus"] = round(ratio_bonus, 1)
 
-            # 3. 近 3 日滚动累计
-            series = repo.get_moneyflow_series(session, row.ts_code, trade_date, days=3)
-            rolling_sum = sum((m.net_mf_amount or 0) for m in series)
+            # 3. 近 3 日滚动累计（批量预取，避免逐股 N+1 查询）
+            rolling_sum = rolling_sum_map.get(row.ts_code, 0.0)
             detail["rolling_3d_wan"] = round(rolling_sum, 2)
             if rolling_sum > 0:
                 score += rolling_bonus

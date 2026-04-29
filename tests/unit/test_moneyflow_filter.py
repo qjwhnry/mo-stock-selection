@@ -4,9 +4,12 @@
 """
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
-from mo_stock.filters.moneyflow_filter import _today_bonus_tier
+from mo_stock.filters.moneyflow_filter import MoneyflowFilter, _today_bonus_tier
+from mo_stock.storage.models import DailyKline, Moneyflow, TradeCal
 
 
 class TestTodayBonusTier:
@@ -52,3 +55,66 @@ class TestTodayBonusTier:
         assert _today_bonus_tier(1000.0, None) == 0
         assert _today_bonus_tier(1000.0, 0.0) == 0
         assert _today_bonus_tier(None, 1000.0) == 0
+
+
+class TestMoneyflowFilterScoring:
+    def test_rolling_sum_uses_batch_query_result(self, sqlite_session) -> None:
+        """近 3 日累计净流入来自批量聚合结果，正值触发 rolling_bonus。"""
+        d1 = date(2026, 4, 22)
+        d2 = date(2026, 4, 23)
+        d3 = date(2026, 4, 24)
+        ts_code = "000001.SZ"
+
+        sqlite_session.add_all([
+            TradeCal(cal_date=d1, is_open=True, pretrade_date=date(2026, 4, 21)),
+            TradeCal(cal_date=d2, is_open=True, pretrade_date=d1),
+            TradeCal(cal_date=d3, is_open=True, pretrade_date=d2),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d3,
+                open=10.0,
+                high=10.5,
+                low=9.8,
+                close=10.2,
+                pre_close=10.0,
+                pct_chg=2.0,
+                vol=100_000.0,
+                amount=1_000_000.0,
+            ),
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d1,
+                net_mf_amount=-100.0,
+                buy_sm_amount=0.0,
+                sell_sm_amount=0.0,
+                buy_md_amount=0.0,
+                sell_md_amount=0.0,
+                buy_lg_amount=0.0,
+                sell_lg_amount=0.0,
+                buy_elg_amount=0.0,
+                sell_elg_amount=0.0,
+            ),
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d3,
+                net_mf_amount=1_000.0,
+                buy_sm_amount=0.0,
+                sell_sm_amount=0.0,
+                buy_md_amount=0.0,
+                sell_md_amount=0.0,
+                buy_lg_amount=0.0,
+                sell_lg_amount=0.0,
+                buy_elg_amount=0.0,
+                sell_elg_amount=0.0,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={"rolling_3d_bonus": 20}).score_all(
+            sqlite_session, d3,
+        )
+
+        assert len(results) == 1
+        assert results[0].score == 55
+        assert results[0].detail["rolling_3d_wan"] == 900.0
+        assert results[0].detail["rolling_bonus"] == 20

@@ -270,11 +270,20 @@ def combine_scores(
             "rule_score": rule_score,
             "ai_score": ai_score,
             "final_score": round(final_score, 2),
+            "active_dim_count": len(dim_scores_map.get(ts_code, {})),
             "reject_reason": reject_map.get(ts_code),
         })
 
-    # **关键修正**：按 final_score 重排，而不是沿用 rule_score 排名
-    scored.sort(key=lambda x: x["final_score"], reverse=True)
+    # **关键修正**：按 final_score 重排，而不是沿用 rule_score 排名。
+    # 同分时显式 tiebreaker，避免继承数据库返回顺序导致排名不可解释。
+    scored.sort(
+        key=lambda x: (
+            -x["final_score"],
+            -x["rule_score"],
+            -x["active_dim_count"],
+            x["ts_code"],
+        )
+    )
 
     # ---------- 6. 板块多样化 cap（v2.3）----------
     # 板块映射直接走 index_member（不依赖 dim_scores_map["sector"]——非热点板块股

@@ -20,18 +20,17 @@
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mo_stock.data_sources.calendar import previous_trading_day
 from mo_stock.filters.base import FilterBase, ScoreResult, clamp
 from mo_stock.storage import repo
 from mo_stock.storage.models import DailyKline, StockBasic
-
-_ONE_DAY = timedelta(days=1)
 
 
 class LimitFilter(FilterBase):
@@ -46,9 +45,14 @@ class LimitFilter(FilterBase):
         # ---------- 准备数据 ----------
         # 1) 当日涨停股
         today_limit_codes = repo.get_limit_up_codes(session, trade_date)
-        # 2) 昨日涨停股（断板反包候选源）
-        yesterday = trade_date - _ONE_DAY
-        yesterday_limit_codes = repo.get_limit_up_codes(session, yesterday)
+        # 2) 上一交易日涨停股（断板反包候选源）。不能用自然日 -1，
+        # 否则周一 / 长假后会查到非交易日，漏掉真正的断板反包。
+        prev_trade_date = previous_trading_day(session, trade_date)
+        if prev_trade_date is None:
+            logger.warning("LimitFilter: {} 找不到上一交易日，跳过断板反包", trade_date)
+            yesterday_limit_codes: set[str] = set()
+        else:
+            yesterday_limit_codes = repo.get_limit_up_codes(session, prev_trade_date)
         # 3) 当日 K 线（断板反包要看 pct_chg）
         kline_pct_rows = session.execute(
             select(DailyKline.ts_code, DailyKline.pct_chg)

@@ -49,7 +49,6 @@ hard_reject:
 limit_filter:
   first_board_bonus: 20    # 首板加分
   second_board_bonus: 30   # 连板首日（2 连板）
-  broken_board_rebound_bonus: 10  # 断板反包
   open_times_penalty: 10   # 每次开板扣分
   seal_amount_tier:        # 封单额分档加分（亿元）
     - threshold: 1.0

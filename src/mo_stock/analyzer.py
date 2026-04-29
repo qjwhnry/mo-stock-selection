@@ -23,6 +23,7 @@ from mo_stock.filters.lhb_filter import LhbFilter
 from mo_stock.filters.limit_filter import LimitFilter
 from mo_stock.filters.moneyflow_filter import MoneyflowFilter
 from mo_stock.filters.sector_filter import SectorFilter
+from mo_stock.filters.theme_filter import ThemeFilter
 from mo_stock.scorer.combine import _build_hard_reject_map, _weighted_combine
 from mo_stock.storage import repo
 from mo_stock.storage.models import DailyBasic, DailyKline
@@ -89,12 +90,14 @@ def analyze_stock(
     mf_filter = MoneyflowFilter(weights=cfg.get("moneyflow_filter", {}))
     lhb_filter = LhbFilter(weights=cfg.get("lhb_filter", {}))
     sector_filter = SectorFilter(weights=cfg.get("sector_filter", {}))
+    theme_filter = ThemeFilter(weights=cfg.get("theme_filter", {}))
 
     all_results = [
         *limit_filter.score_all(session, trade_date),
         *mf_filter.score_all(session, trade_date),
         *lhb_filter.score_all(session, trade_date),
         *sector_filter.score_all(session, trade_date),
+        *theme_filter.score_all(session, trade_date),
     ]
 
     dim_out: dict[str, dict[str, Any]] = {}
@@ -169,5 +172,4 @@ def _daily_basic_dict(b: DailyBasic | None) -> dict[str, Any] | None:
         "total_mv": b.total_mv,
         "circ_mv": b.circ_mv,
     }
-
 

@@ -110,6 +110,37 @@ def get_moneyflow_series(
     return session.execute(stmt).scalars().all()
 
 
+def get_moneyflow_rolling_sum_map(
+    session: Session,
+    end_date: date,
+    days: int = 3,
+) -> dict[str, float]:
+    """批量获取截至 end_date 最近 N 个交易日的主力净流入合计。
+
+    返回 {ts_code: sum(net_mf_amount)}。用于 MoneyflowFilter 避免逐股查询近 3 日
+    资金流造成 N+1 查询。
+    """
+    trade_dates = get_recent_trade_dates(session, end_date, days)
+    if not trade_dates:
+        trade_dates = list(session.execute(
+            select(Moneyflow.trade_date)
+            .where(Moneyflow.trade_date <= end_date)
+            .group_by(Moneyflow.trade_date)
+            .order_by(Moneyflow.trade_date.desc())
+            .limit(days)
+        ).scalars().all())
+    if not trade_dates:
+        return {}
+
+    stmt = select(Moneyflow.ts_code, Moneyflow.net_mf_amount).where(
+        Moneyflow.trade_date.in_(trade_dates)
+    )
+    rolling: dict[str, float] = {}
+    for ts_code, net_mf_amount in session.execute(stmt).all():
+        rolling[ts_code] = rolling.get(ts_code, 0.0) + (net_mf_amount or 0.0)
+    return rolling
+
+
 def get_kline_range(
     session: Session,
     ts_code: str,

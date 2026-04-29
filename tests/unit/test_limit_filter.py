@@ -4,12 +4,15 @@
 """
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from mo_stock.filters.limit_filter import (
     LimitFilter,
     _break_board_rebound_bonus,
 )
+from mo_stock.storage.models import DailyKline, LimitList, StockBasic, TradeCal
 
 
 class TestParseLimitTimes:
@@ -92,3 +95,56 @@ class TestBreakBoardReboundBonus:
 
 # v2.3 起移除 sector_heat_bonus（与 sector 维度共线性 → 板块全员霸榜）。
 # 见 docs/audit-sector-concentration-2026-04-28.md。
+
+
+class TestLimitFilterTradingDay:
+    """断板反包必须使用上一交易日，而不是自然日前一天。"""
+
+    def test_monday_uses_friday_limit_up_for_rebound(self, sqlite_session) -> None:
+        friday = date(2026, 4, 24)
+        monday = date(2026, 4, 27)
+        ts_code = "000001.SZ"
+
+        sqlite_session.add_all([
+            TradeCal(cal_date=friday, is_open=True, pretrade_date=date(2026, 4, 23)),
+            TradeCal(cal_date=monday, is_open=True, pretrade_date=friday),
+            StockBasic(
+                ts_code=ts_code,
+                symbol="000001",
+                name="平安银行",
+                industry="银行",
+                sw_l1="银行",
+                list_date=date(1991, 4, 3),
+                is_st=False,
+            ),
+            LimitList(
+                ts_code=ts_code,
+                trade_date=friday,
+                limit_type="U",
+                fd_amount=100_000_000.0,
+                first_time="09:45:00",
+                last_time="14:55:00",
+                open_times=0,
+                up_stat="1/1",
+                limit_times=1,
+            ),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=monday,
+                open=10.0,
+                high=10.8,
+                low=10.0,
+                close=10.7,
+                pre_close=10.0,
+                pct_chg=7.0,
+                vol=100_000.0,
+                amount=100_000.0,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = LimitFilter(weights={}).score_all(sqlite_session, monday)
+
+        rebound = next(r for r in results if r.ts_code == ts_code and r.score > 0)
+        assert rebound.score == 70
+        assert rebound.detail["yesterday_limit_up"] is True

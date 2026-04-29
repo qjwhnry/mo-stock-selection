@@ -90,6 +90,11 @@ def render_daily_report(
         "",
         f"> 产出时间：{trade_date} 15:30 收盘后",
         f"> TOP {len(selections)}，按 `final_score` 排序",
+        *(
+            ["> 注：当前规则层仅 5 个维度有效（sentiment 待接入），理论满分为 90。"]
+            if not any("sentiment" in scores for scores in scores_by_stock.values())
+            else []
+        ),
         "",
         "## 候选股清单",
         "",
