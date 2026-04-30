@@ -48,7 +48,11 @@ from mo_stock.storage.models import (
 _ST_NAME_RE = re.compile(r"\*?ST", re.IGNORECASE)
 
 
-def persist_filter_scores(session: Session, results: list[ScoreResult]) -> int:
+def persist_filter_scores(
+    session: Session,
+    results: list[ScoreResult],
+    strategy: str = "short",
+) -> int:
     """把每个维度的打分批量 upsert 入 filter_score_daily。
 
     **注意**：仅 upsert，**不会清掉旧维度行**——若某只股本轮没产出该维度，
@@ -57,6 +61,7 @@ def persist_filter_scores(session: Session, results: list[ScoreResult]) -> int:
     rows: list[dict[str, Any]] = [
         {
             "trade_date": r.trade_date,
+            "strategy": strategy,
             "ts_code": r.ts_code,
             "dim": r.dim,
             "score": r.score,
@@ -72,7 +77,7 @@ def persist_filter_scores(session: Session, results: list[ScoreResult]) -> int:
         session,
         FilterScoreDaily,
         rows,
-        conflict_cols=["trade_date", "ts_code", "dim"],
+        conflict_cols=["trade_date", "strategy", "ts_code", "dim"],
         update_cols=["score", "detail"],
     )
 
@@ -82,6 +87,7 @@ def replace_filter_scores(
     trade_date: date,
     dims: Iterable[str],
     results: list[ScoreResult],
+    strategy: str = "short",
 ) -> int:
     """先按 (trade_date, dim) 删除旧分数，再 upsert 本轮结果。
 
@@ -100,11 +106,12 @@ def replace_filter_scores(
         session.execute(
             delete(FilterScoreDaily)
             .where(FilterScoreDaily.trade_date == trade_date)
+            .where(FilterScoreDaily.strategy == strategy)
             .where(FilterScoreDaily.dim.in_(dims_set))
         )
     # 防御：只持久化 dims_set 内的结果，避免误传其它维度
     filtered = [r for r in results if r.dim in dims_set]
-    return persist_filter_scores(session, filtered)
+    return persist_filter_scores(session, filtered, strategy=strategy)
 
 
 def _weighted_combine(
@@ -164,6 +171,8 @@ def combine_scores(
     enable_ai: bool = True,
     ai_top_n: int | None = None,
     combine_cfg: dict[str, Any] | None = None,
+    strategy: str = "short",
+    regime_score: float | None = None,
 ) -> int:
     """读当日所有维度的 filter_score_daily，做加权融合 + AI 分析 → 应用硬规则 → 取 TOP N。
 
@@ -200,7 +209,11 @@ def combine_scores(
     )
 
     # ---------- 1. 读当日全部维度得分，按 ts_code 聚合 ----------
-    stmt = select(FilterScoreDaily).where(FilterScoreDaily.trade_date == trade_date)
+    stmt = (
+        select(FilterScoreDaily)
+        .where(FilterScoreDaily.trade_date == trade_date)
+        .where(FilterScoreDaily.strategy == strategy)
+    )
     score_rows = session.execute(stmt).scalars().all()
 
     if not score_rows:
@@ -251,6 +264,7 @@ def combine_scores(
             ai_obj = analyze_stock_with_ai(
                 session, ts_code, trade_date,
                 rule_dim_scores=dim_scores_map.get(ts_code, {}),
+                strategy=strategy,
             )
             if ai_obj is not None:
                 ai_results[ts_code] = ai_obj.score
@@ -285,10 +299,26 @@ def combine_scores(
         )
     )
 
+    cfg = combine_cfg or {}
+    market_control = cfg.get("market_regime_control", {})
+    position_scale: float | None = None
+    effective_top_n = top_n
+    if regime_score is not None and market_control:
+        tier = _pick_market_regime_tier(regime_score, market_control.get("tiers", []))
+        if tier:
+            effective_top_n = min(top_n, int(tier.get("top_n", top_n)))
+            position_scale = float(tier.get("position_scale", 1.0))
+        min_final_score = market_control.get("min_final_score")
+        if min_final_score is not None:
+            scored = [s for s in scored if s["final_score"] >= float(min_final_score)]
+        logger.info(
+            "combine_scores {} strategy={} regime_score={} effective_top_n={} position_scale={}",
+            trade_date, strategy, regime_score, effective_top_n, position_scale,
+        )
+
     # ---------- 6. 板块多样化 cap（v2.3）----------
     # 板块映射直接走 index_member（不依赖 dim_scores_map["sector"]——非热点板块股
     # score=0 不会写入 FilterScoreDaily）。max_stocks_per_sector <= 0 时禁用 cap。
-    cfg = combine_cfg or {}
     max_per_sector = int(cfg.get("max_stocks_per_sector", 4))
     # max_unknown_sector_stocks：无行业映射的股票最多入选数（兜底；index_member
     # 同步异常导致全市场都是 unknown 时，cap 不会静默失效）。0 = 不限。
@@ -321,7 +351,7 @@ def combine_scores(
         picked = (
             reject_reason is None
             and not over_sector_cap
-            and picked_rank < top_n
+            and picked_rank < effective_top_n
         )
         if picked:
             picked_rank += 1
@@ -345,6 +375,7 @@ def combine_scores(
                 )
             rows.append({
                 "trade_date": trade_date,
+                "strategy": strategy,
                 "ts_code": item["ts_code"],
                 "rank": rank,
                 "rule_score": item["rule_score"],
@@ -359,7 +390,9 @@ def combine_scores(
     # 被删除后），它不会出现在本轮 rows 里 → 旧 picked=True 残留 → 报告污染。
     # 改为 DELETE 当日全部 rows 后 INSERT 本轮结果，符合"每日一份完整快照"语义。
     session.execute(
-        delete(SelectionResult).where(SelectionResult.trade_date == trade_date)
+        delete(SelectionResult)
+        .where(SelectionResult.trade_date == trade_date)
+        .where(SelectionResult.strategy == strategy)
     )
     if rows:
         session.execute(insert(SelectionResult).values(rows))
@@ -484,6 +517,17 @@ def _build_hard_reject_map(
                 reject[ts_code] = f"负面公告：{title[:30]}"
 
     return reject
+
+
+def _pick_market_regime_tier(
+    regime_score: float,
+    tiers: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """按 min_score 从高到低选择 market regime 档位。"""
+    for tier in sorted(tiers, key=lambda t: float(t.get("min_score", 0)), reverse=True):
+        if regime_score >= float(tier.get("min_score", 0)):
+            return tier
+    return None
 
 
 def _name_is_st(name: str | None) -> bool:

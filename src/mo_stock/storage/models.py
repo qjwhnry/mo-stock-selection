@@ -482,6 +482,12 @@ class FilterScoreDaily(Base):
         Integer, primary_key=True, autoincrement=True, comment="自增主键",
     )
     trade_date: Mapped[date] = mapped_column(Date, index=True, comment="评分对应的交易日")
+    strategy: Mapped[str] = mapped_column(
+        String(20),
+        default="short",
+        index=True,
+        comment="策略标识：short / swing",
+    )
     ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
     dim: Mapped[str] = mapped_column(
         String(20), index=True,
@@ -493,9 +499,12 @@ class FilterScoreDaily(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("trade_date", "ts_code", "dim", name="uq_filter_score_key"),
-        Index("ix_filter_score_date_dim", "trade_date", "dim"),
-        {"comment": "规则层 5 维度逐行打分表（永久保留，供回测）"},
+        UniqueConstraint(
+            "trade_date", "strategy", "ts_code", "dim",
+            name="uq_filter_score_key",
+        ),
+        Index("ix_filter_score_date_strategy_dim", "trade_date", "strategy", "dim"),
+        {"comment": "规则层维度逐行打分表（按 strategy 隔离，永久保留供回测）"},
     )
 
 
@@ -508,6 +517,12 @@ class AiAnalysis(Base):
         Integer, primary_key=True, autoincrement=True, comment="自增主键",
     )
     trade_date: Mapped[date] = mapped_column(Date, index=True, comment="分析对应的交易日")
+    strategy: Mapped[str] = mapped_column(
+        String(20),
+        default="short",
+        index=True,
+        comment="策略标识：short / swing",
+    )
     ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
     ai_score: Mapped[int] = mapped_column(Integer, comment="AI 给出的 0-100 综合分")
     thesis: Mapped[str] = mapped_column(Text, comment="AI 的投资逻辑核心陈述")
@@ -539,8 +554,9 @@ class AiAnalysis(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("trade_date", "ts_code", name="uq_ai_analysis_key"),
-        {"comment": "Claude AI 分析结果（Phase 3 启用），永久保留"},
+        UniqueConstraint("trade_date", "strategy", "ts_code", name="uq_ai_analysis_key"),
+        Index("ix_ai_analysis_date_strategy", "trade_date", "strategy"),
+        {"comment": "Claude AI 分析结果（按 strategy 隔离），永久保留"},
     )
 
 
@@ -553,6 +569,12 @@ class SelectionResult(Base):
         Integer, primary_key=True, autoincrement=True, comment="自增主键",
     )
     trade_date: Mapped[date] = mapped_column(Date, index=True, comment="选股目标交易日")
+    strategy: Mapped[str] = mapped_column(
+        String(20),
+        default="short",
+        index=True,
+        comment="策略标识：short / swing",
+    )
     ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
     rank: Mapped[int] = mapped_column(
         Integer, comment="TOP N 排名（1 最强）；未入选填 0",
@@ -578,9 +600,49 @@ class SelectionResult(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("trade_date", "ts_code", name="uq_selection_key"),
-        Index("ix_selection_date_rank", "trade_date", "rank"),
-        {"comment": "最终选股 TOP N 结果（永久保留，作为每日报告与回测的主数据源）"},
+        UniqueConstraint("trade_date", "strategy", "ts_code", name="uq_selection_key"),
+        Index("ix_selection_date_strategy_rank", "trade_date", "strategy", "rank"),
+        {"comment": "最终选股 TOP N 结果（按 strategy 隔离，作为报告与回测主数据源）"},
+    )
+
+
+class SwingPosition(Base):
+    """波段策略持仓状态跟踪（回测 + 实盘共用，通过 mode 隔离）。"""
+
+    __tablename__ = "swing_position"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="自增主键",
+    )
+    mode: Mapped[str] = mapped_column(
+        String(20), index=True, comment="运行模式：backtest / live",
+    )
+    backtest_run_id: Mapped[str | None] = mapped_column(
+        String(36), index=True,
+        comment="回测批次 ID（mode=backtest 时填写，如 UUID）；live 时为 NULL",
+    )
+    trade_date: Mapped[date] = mapped_column(Date, index=True, comment="记录日期")
+    ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
+    status: Mapped[str] = mapped_column(
+        String(20), comment="持仓状态：watching / holding / stopped / exited",
+    )
+    entry_price: Mapped[float | None] = mapped_column(Float, comment="入场价")
+    entry_date: Mapped[date | None] = mapped_column(Date, comment="入场日期")
+    stop_loss_price: Mapped[float | None] = mapped_column(
+        Float, comment="当前止损价；watching 状态可为空",
+    )
+    target_price: Mapped[float | None] = mapped_column(Float, comment="目标价")
+    atr_at_entry: Mapped[float | None] = mapped_column(Float, comment="入场时 ATR(20)")
+    max_price: Mapped[float | None] = mapped_column(Float, comment="持仓期最高价（移动止盈用）")
+    pnl_pct: Mapped[float | None] = mapped_column(Float, comment="当前浮动盈亏 %")
+    exit_reason: Mapped[str | None] = mapped_column(String(50), comment="退出原因")
+    holding_days: Mapped[int | None] = mapped_column(Integer, comment="持仓交易日数")
+    detail: Mapped[dict | None] = mapped_column(JSONB, comment="补充信息")
+
+    __table_args__ = (
+        Index("ix_swing_pos_mode_date", "mode", "trade_date"),
+        Index("ix_swing_pos_run_id", "backtest_run_id"),
+        {"comment": "波段持仓跟踪（回测/实盘通过 mode 隔离，回测用 backtest_run_id 批次管理）"},
     )
 
 

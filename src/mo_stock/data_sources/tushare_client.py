@@ -186,6 +186,23 @@ class TushareClient:
             fields="ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol,amount",
         )
 
+    def index_daily(
+        self,
+        ts_code: str | None = None,
+        trade_date: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> pd.DataFrame:
+        """指数日线行情（Tushare index_daily, doc_id=95）。"""
+        return self._call(
+            "index_daily",
+            ts_code=ts_code,
+            trade_date=trade_date,
+            start_date=start_date,
+            end_date=end_date,
+            fields="ts_code,trade_date,open,high,low,close,pre_close,pct_chg,vol,amount",
+        )
+
     def daily_basic(
         self,
         trade_date: str | None = None,

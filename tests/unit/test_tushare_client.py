@@ -72,6 +72,15 @@ def _patched_client(monkeypatch) -> tuple[TushareClient, list]:
 
 
 class TestNewClientMethods:
+    def test_index_daily_calls_tushare_api(self, monkeypatch) -> None:
+        client, calls = _patched_client(monkeypatch)
+        client.index_daily(ts_code="000300.SH", trade_date="20260424")
+        assert calls[0][0] == "index_daily"
+        assert calls[0][1]["ts_code"] == "000300.SH"
+        assert calls[0][1]["trade_date"] == "20260424"
+        assert "pct_chg" in calls[0][1]["fields"]
+        assert "amount" in calls[0][1]["fields"]
+
     def test_ths_daily_calls_tushare_api(self, monkeypatch) -> None:
         client, calls = _patched_client(monkeypatch)
         client.ths_daily(trade_date="20260424")

@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from mo_stock.scheduler.daily_job import CN_TZ, _assert_lhb_data_available
+from mo_stock.scheduler.daily_job import CN_TZ, _assert_lhb_data_available, _build_filters
 
 
 class TestAssertLhbDataAvailable:
@@ -41,3 +41,13 @@ class TestAssertLhbDataAvailable:
         # 即便用"今天 10:00"作为 now，trade_date 是昨天 → 不校验时点
         now = datetime.now(CN_TZ).replace(hour=10, minute=0, second=0, microsecond=0)
         _assert_lhb_data_available(yesterday, now=now)  # 不抛
+
+
+def test_scheduler_builds_swing_filters_and_dims() -> None:
+    filters, dims = _build_filters("swing", {})
+
+    assert dims == [
+        "trend", "pullback", "moneyflow_swing", "sector_swing",
+        "theme_swing", "catalyst", "risk_liquidity",
+    ]
+    assert [f.dim for f in filters] == dims

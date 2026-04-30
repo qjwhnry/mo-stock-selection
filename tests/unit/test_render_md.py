@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from mo_stock.report.render_md import _translate_dim_detail
+from mo_stock.report.render_md import _ordered_dims, _translate_dim_detail
 
 
 class TestTranslateLhb:
@@ -104,6 +104,34 @@ class TestTranslateSector:
         assert isinstance(evidences, list)
         assert len(evidences) > 0
         assert any(token in text for token in ("801080", "排名", "行业", "5.5", "70"))
+
+
+class TestTranslateSwingDims:
+    def test_swing_dim_translators_return_evidence(self) -> None:
+        cases = {
+            "trend": {"above_ma20": True, "ma_bullish": True, "pct_20d": 12.3},
+            "pullback": {"healthy_pullback": True, "drawdown_5d_pct": 6.2},
+            "moneyflow_swing": {"net_mf_5d_wan": 23000, "positive_days_5d": 4},
+            "sector_swing": {"sector_5d_rank": 1, "sector_5d_pct_sum": 8.5},
+            "theme_swing": {"best_concept": "885806.TI", "theme_5d_rank": 2},
+            "catalyst": {"break_board_rebound": 70, "institution_net_buy": 12_000_000},
+            "risk_liquidity": {"avg_amount_20d_yi": 3.2, "distance_ma20_pct": 4.1},
+        }
+
+        for dim, detail in cases.items():
+            evidences = _translate_dim_detail(dim, detail)
+            assert evidences, dim
+
+
+class TestDimOrder:
+    def test_swing_dims_are_rendered_in_strategy_order(self) -> None:
+        dim_scores = {
+            "risk_liquidity": object(),
+            "trend": object(),
+            "catalyst": object(),
+        }
+
+        assert _ordered_dims(dim_scores) == ["trend", "catalyst", "risk_liquidity"]
 
 
 class TestTranslateUnknownDim:

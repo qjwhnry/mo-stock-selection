@@ -427,14 +427,14 @@ def upsert_lhb_seat_detail(session: Session, rows: Iterable[dict[str, Any]]) -> 
 
 
 def upsert_ai_analysis(session: Session, rows: Iterable[dict[str, Any]]) -> int:
-    """v2.2 plan Task 3：AiAnalysis 用业务唯一约束 (trade_date, ts_code) upsert。
+    """AiAnalysis 用业务唯一约束 (trade_date, strategy, ts_code) upsert。
 
-    自增 PK id 不能做 conflict 键；走 UniqueConstraint("trade_date","ts_code")。
+    自增 PK id 不能做 conflict 键；走 strategy 维度隔离的业务唯一约束。
     upsert_rows 已支持 UniqueConstraint 路径（v2.1 hot fix）。
     """
     return upsert_rows(
         session, AiAnalysis, rows,
-        conflict_cols=["trade_date", "ts_code"],
+        conflict_cols=["trade_date", "strategy", "ts_code"],
     )
 
 

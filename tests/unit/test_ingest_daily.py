@@ -6,6 +6,7 @@ from datetime import date
 import pandas as pd
 
 from mo_stock.ingest.ingest_daily import (
+    _daily_kline_rows_from_df,
     _dedupe_keep_latest_in_date,
     _index_member_rows_from_df,
     _is_st,
@@ -81,6 +82,75 @@ class TestStringCleanup:
 
     def test_str_or_none_nan(self) -> None:
         assert _str_or_none(float("nan")) is None
+
+
+class TestDailyKlineRowsFromDf:
+    def test_maps_stock_daily_fields(self) -> None:
+        df = pd.DataFrame([{
+            "ts_code": "600519.SH",
+            "trade_date": "20260422",
+            "open": 1600.0,
+            "high": 1680.0,
+            "low": 1590.0,
+            "close": 1660.0,
+            "pre_close": 1580.0,
+            "pct_chg": 5.06,
+            "vol": 100000.0,
+            "amount": 1660000.0,
+        }])
+
+        rows = _daily_kline_rows_from_df(df)
+
+        assert rows == [{
+            "ts_code": "600519.SH",
+            "trade_date": date(2026, 4, 22),
+            "open": 1600.0,
+            "high": 1680.0,
+            "low": 1590.0,
+            "close": 1660.0,
+            "pre_close": 1580.0,
+            "pct_chg": 5.06,
+            "vol": 100000.0,
+            "amount": 1660000.0,
+        }]
+
+    def test_ignores_extra_index_daily_fields(self) -> None:
+        df = pd.DataFrame([{
+            "ts_code": "000300.SH",
+            "trade_date": "20260422",
+            "open": 4100.0,
+            "high": 4200.0,
+            "low": 4090.0,
+            "close": 4180.0,
+            "pre_close": 4100.0,
+            "pct_chg": 1.95,
+            "vol": 100000000.0,
+            "amount": 250000000.0,
+            "change": 80.0,
+        }])
+
+        rows = _daily_kline_rows_from_df(df)
+
+        assert rows[0]["ts_code"] == "000300.SH"
+        assert rows[0]["trade_date"] == date(2026, 4, 22)
+        assert "change" not in rows[0]
+
+    def test_index_daily_missing_pre_close_maps_none(self) -> None:
+        df = pd.DataFrame([{
+            "ts_code": "000300.SH",
+            "trade_date": "20260422",
+            "open": 4100.0,
+            "high": 4200.0,
+            "low": 4090.0,
+            "close": 4180.0,
+            "pct_chg": 1.95,
+            "vol": 100000000.0,
+            "amount": 250000000.0,
+        }])
+
+        rows = _daily_kline_rows_from_df(df)
+
+        assert rows[0]["pre_close"] is None
 
 
 class TestIsSt:

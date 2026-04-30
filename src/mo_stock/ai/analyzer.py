@@ -55,6 +55,7 @@ def analyze_stock_with_ai(
     ts_code: str,
     trade_date: date,
     rule_dim_scores: dict[str, ScoreResult],
+    strategy: str = "short",
 ) -> StockAiAnalysis | None:
     """对单股调 Claude 做深度分析。
 
@@ -108,7 +109,7 @@ def analyze_stock_with_ai(
 
     # 3. 落库 ai_analysis（按 §2.1 映射）
     try:
-        _upsert_ai_analysis(session, parsed, trade_date, last_usage)
+        _upsert_ai_analysis(session, parsed, trade_date, last_usage, strategy=strategy)
     except Exception as exc:  # noqa: BLE001
         logger.exception("AI 分析落库失败 ts_code={}: {}", ts_code, exc)
         # 落库失败不影响 AI 分本身能用——返回 parsed 让 combine 用 ai_score
@@ -194,6 +195,7 @@ def _upsert_ai_analysis(
     parsed: StockAiAnalysis,
     trade_date: date,
     usage: dict[str, int],
+    strategy: str = "short",
 ) -> None:
     """把 StockAiAnalysis pydantic 模型 + token usage 写入 ai_analysis 表。
 
@@ -201,6 +203,7 @@ def _upsert_ai_analysis(
     """
     row: dict[str, Any] = {
         "trade_date": trade_date,
+        "strategy": strategy,
         "ts_code": parsed.ts_code,
         "ai_score": int(round(parsed.score)),  # float → Integer
         "thesis": parsed.thesis,

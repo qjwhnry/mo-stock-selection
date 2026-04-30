@@ -32,18 +32,22 @@ def render_daily_report(
     trade_date: date,
     output_dir: Path,
     phase: str = "v2.2（5 维规则 + Claude AI 融合）",
+    strategy: str = "short",
 ) -> tuple[Path, Path]:
     """渲染指定交易日的报告，返回 (md_path, json_path)。"""
     selections = session.execute(
         select(SelectionResult)
         .where(SelectionResult.trade_date == trade_date)
+        .where(SelectionResult.strategy == strategy)
         .where(SelectionResult.picked.is_(True))
         .order_by(SelectionResult.rank)
     ).scalars().all()
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    md_path = output_dir / f"{trade_date.isoformat()}.md"
-    json_path = output_dir / f"{trade_date.isoformat()}.json"
+    report_dir = output_dir if strategy == "short" else output_dir / strategy
+    report_dir.mkdir(parents=True, exist_ok=True)
+    md_path = report_dir / f"{trade_date.isoformat()}.md"
+    json_path = report_dir / f"{trade_date.isoformat()}.json"
 
     if not selections:
         md_path.write_text(
@@ -73,6 +77,7 @@ def render_daily_report(
         select(FilterScoreDaily)
         .where(FilterScoreDaily.ts_code.in_(ts_codes))
         .where(FilterScoreDaily.trade_date == trade_date)
+        .where(FilterScoreDaily.strategy == strategy)
     ).scalars():
         scores_by_stock.setdefault(row.ts_code, {})[row.dim] = row
 
@@ -81,12 +86,13 @@ def render_daily_report(
             select(AiAnalysis)
             .where(AiAnalysis.ts_code.in_(ts_codes))
             .where(AiAnalysis.trade_date == trade_date)
+            .where(AiAnalysis.strategy == strategy)
         ).scalars()
     }
 
     # ---------- 渲染 Markdown ----------
     md_lines: list[str] = [
-        f"# {trade_date} A 股选股日报（{phase}）",
+        f"# {trade_date} A 股选股日报（{strategy} / {phase}）",
         "",
         f"> 产出时间：{trade_date} 15:30 收盘后",
         f"> TOP {len(selections)}，按 `final_score` 排序",
@@ -195,12 +201,12 @@ def _render_one_stock_section(
     lines.append("")
     lines.append("| 维度 | 得分 | 命中证据 |")
     lines.append("|------|------|---------|")
-    for dim in ("limit", "moneyflow", "lhb", "sector", "theme", "sentiment"):
+    for dim in _ordered_dims(dim_scores):
         if dim in dim_scores:
             r = dim_scores[dim]
             evidences = _translate_dim_detail(dim, r.detail or {})
             evidence_str = "；".join(evidences) if evidences else "—"
-            lines.append(f"| {dim} | {r.score:.1f} | {evidence_str} |")
+            lines.append(f"| {_DIM_LABELS.get(dim, dim)} | {r.score:.1f} | {evidence_str} |")
         # 未命中维度不渲染（避免噪音；6 维都全保留就是表过长）
     lines.append("")
 
@@ -324,6 +330,178 @@ def _translate_sector(detail: dict[str, Any]) -> list[str]:
     return e
 
 
+def _translate_trend(detail: dict[str, Any]) -> list[str]:
+    """TrendFilter detail → 人友好证据。"""
+    e: list[str] = []
+    if detail.get("above_ma20"):
+        e.append("收盘站上 MA20")
+    if detail.get("ma_bullish"):
+        e.append("MA5 > MA10 > MA20 多头排列")
+    if detail.get("ma20_slope_positive"):
+        e.append("MA20 近 5 日抬升")
+    if detail.get("above_ma60_or_cross"):
+        e.append("站上 MA60 或 MA20 上穿 MA60")
+    if "pct_20d" in detail:
+        e.append(f"近 20 日涨幅 {detail['pct_20d']}%")
+    if detail.get("volume_trend_up"):
+        e.append("近 5 日量能抬升")
+    if detail.get("breakout_volume_bonus"):
+        e.append("突破放量确认")
+    if detail.get("pullback_volume_shrink_bonus"):
+        e.append("回踩缩量")
+    if detail.get("volume_stall_penalty"):
+        e.append(f"⚠️ 放量滞涨（扣 {abs(detail['volume_stall_penalty'])} 分）")
+    if detail.get("overheated_penalty"):
+        e.append(f"⚠️ 近 20 日涨幅过热（扣 {abs(detail['overheated_penalty'])} 分）")
+    return e
+
+
+def _translate_pullback(detail: dict[str, Any]) -> list[str]:
+    """PullbackFilter detail → 人友好证据。"""
+    e: list[str] = []
+    if "drawdown_5d_pct" in detail:
+        e.append(f"近 5 日回撤 {detail['drawdown_5d_pct']}%")
+    if detail.get("healthy_pullback"):
+        e.append("趋势内健康回踩")
+    if detail.get("near_ma10_or_ma20"):
+        e.append("贴近 MA10/MA20 承接")
+    if detail.get("pullback_volume_shrunk"):
+        e.append("回踩阶段缩量")
+    if detail.get("recovered_ma5_or_ma10"):
+        e.append("重新收复 MA5/MA10")
+    if detail.get("long_upper_shadow_penalty"):
+        e.append(f"⚠️ 放量长上影（扣 {abs(detail['long_upper_shadow_penalty'])} 分）")
+    return e
+
+
+def _translate_moneyflow_swing(detail: dict[str, Any]) -> list[str]:
+    """MoneyflowSwingFilter detail → 人友好证据。"""
+    e: list[str] = []
+    net5 = detail.get("net_mf_5d_wan")
+    net10 = detail.get("net_mf_10d_wan")
+    if net5 is not None:
+        unit = f"{net5 / 10000:.2f} 亿" if abs(net5) >= 10000 else f"{net5:.0f} 万"
+        e.append(f"近 5 日主力净流入 {unit}")
+    if net10 is not None:
+        unit = f"{net10 / 10000:.2f} 亿" if abs(net10) >= 10000 else f"{net10:.0f} 万"
+        e.append(f"近 10 日主力净流入 {unit}")
+    if detail.get("positive_days_5d") is not None:
+        e.append(f"近 5 日资金净流入 {detail['positive_days_5d']} 天")
+    if detail.get("big_order_positive_days"):
+        e.append(f"大单净流入 {detail['big_order_positive_days']} 天")
+    if detail.get("small_up_big_down_penalty"):
+        e.append(f"⚠️ 小单买大单卖（扣 {abs(detail['small_up_big_down_penalty'])} 分）")
+    return e
+
+
+def _translate_sector_swing(detail: dict[str, Any]) -> list[str]:
+    """SectorSwingFilter detail → 人友好证据。"""
+    e: list[str] = []
+    if detail.get("sector_5d_rank"):
+        e.append(
+            f"行业 5 日强度 TOP {detail['sector_5d_rank']}，"
+            f"累计涨幅 {detail.get('sector_5d_pct_sum', 0)}%"
+        )
+    if detail.get("sector_10d_rank"):
+        e.append(
+            f"行业 10 日强度 TOP {detail['sector_10d_rank']}，"
+            f"累计涨幅 {detail.get('sector_10d_pct_sum', 0)}%"
+        )
+    if detail.get("sector_pullback_stable"):
+        e.append("行业回踩稳定")
+    if detail.get("sector_moneyflow_5d_wan") is not None:
+        v = detail["sector_moneyflow_5d_wan"]
+        unit = f"{v / 10000:.2f} 亿" if abs(v) >= 10000 else f"{v:.0f} 万"
+        e.append(f"行业近 5 日资金净流入 {unit}")
+    if detail.get("l1_code"):
+        e.append(f"行业代码 {detail['l1_code']}")
+    return e
+
+
+def _translate_theme_swing(detail: dict[str, Any]) -> list[str]:
+    """ThemeSwingFilter detail → 人友好证据。"""
+    e: list[str] = []
+    if detail.get("best_concept"):
+        e.append(f"命中题材 {detail['best_concept']}")
+    if detail.get("theme_5d_rank"):
+        e.append(f"题材 5 日持续性 TOP {detail['theme_5d_rank']}")
+    if detail.get("theme_rank_points"):
+        e.append(f"题材排名积分 {detail['theme_rank_points']}")
+    if detail.get("theme_moneyflow_positive"):
+        e.append(f"题材资金净流入 {detail.get('theme_net_amount_yi', 0)} 亿")
+    if detail.get("theme_rank_improving"):
+        e.append("题材排名改善")
+    if detail.get("theme_avg_pct_5d") is not None:
+        e.append(f"题材近 5 日均涨 {detail['theme_avg_pct_5d']}%")
+    return e
+
+
+def _translate_catalyst(detail: dict[str, Any]) -> list[str]:
+    """CatalystFilter detail → 人友好证据。"""
+    e: list[str] = []
+    if detail.get("break_board_rebound"):
+        e.append(f"断板反包（+{detail['break_board_rebound']} 分）")
+    if "institution_net_buy" in detail:
+        e.append(f"机构净买 {detail['institution_net_buy'] / 1e4:.0f} 万")
+    if "hot_money_net_buy" in detail:
+        e.append(f"知名游资净买 {detail['hot_money_net_buy'] / 1e4:.0f} 万")
+    return e
+
+
+def _translate_risk_liquidity(detail: dict[str, Any]) -> list[str]:
+    """RiskLiquidityFilter detail → 人友好证据。"""
+    e: list[str] = []
+    if detail.get("avg_amount_20d_yi") is not None:
+        e.append(f"20 日均成交额 {detail['avg_amount_20d_yi']} 亿")
+    if detail.get("amplitude_20d_pct") is not None:
+        e.append(f"20 日振幅 {detail['amplitude_20d_pct']}%")
+    if detail.get("distance_ma20_pct") is not None:
+        e.append(f"距 MA20 {detail['distance_ma20_pct']}%")
+    if detail.get("pct_3d") is not None:
+        e.append(f"近 3 日涨幅 {detail['pct_3d']}%")
+    if detail.get("turnover_rate") is not None:
+        e.append(f"换手率 {detail['turnover_rate']}%")
+    for key, label in (
+        ("low_liquidity_penalty", "流动性不足"),
+        ("high_volatility_penalty", "波动过大"),
+        ("short_term_overheat_penalty", "短期过热"),
+        ("far_above_ma20_penalty", "偏离 MA20 过远"),
+    ):
+        if detail.get(key):
+            e.append(f"⚠️ {label}（扣 {abs(detail[key])} 分）")
+    return e
+
+
+_DIM_ORDER = [
+    "limit", "moneyflow", "lhb", "sector", "theme", "sentiment",
+    "trend", "pullback", "moneyflow_swing", "sector_swing",
+    "theme_swing", "catalyst", "risk_liquidity",
+]
+
+_DIM_LABELS = {
+    "limit": "涨停异动",
+    "moneyflow": "主力资金",
+    "lhb": "龙虎榜",
+    "sector": "行业强度",
+    "theme": "题材强度",
+    "sentiment": "情绪",
+    "trend": "趋势结构",
+    "pullback": "回踩承接",
+    "moneyflow_swing": "资金持续性",
+    "sector_swing": "行业持续性",
+    "theme_swing": "题材持续性",
+    "catalyst": "催化信号",
+    "risk_liquidity": "风险流动性",
+}
+
+
+def _ordered_dims(dim_scores: dict[str, FilterScoreDaily]) -> list[str]:
+    """按策略维度的固定顺序输出，未知维度排在末尾。"""
+    known = [dim for dim in _DIM_ORDER if dim in dim_scores]
+    unknown = sorted(dim for dim in dim_scores if dim not in _DIM_ORDER)
+    return known + unknown
+
+
 # 维度 → 翻译器映射
 _DIM_TRANSLATORS = {
     "limit": _translate_limit,
@@ -331,6 +509,13 @@ _DIM_TRANSLATORS = {
     "lhb": _translate_lhb,
     "sector": _translate_sector,
     "theme": _translate_theme,
+    "trend": _translate_trend,
+    "pullback": _translate_pullback,
+    "moneyflow_swing": _translate_moneyflow_swing,
+    "sector_swing": _translate_sector_swing,
+    "theme_swing": _translate_theme_swing,
+    "catalyst": _translate_catalyst,
+    "risk_liquidity": _translate_risk_liquidity,
 }
 
 
@@ -359,6 +544,7 @@ def _build_json_entry(
     """构造单只股的 JSON entry，含结构化 `rationale`。"""
     return {
         "rank": sel.rank,
+        "strategy": sel.strategy,
         "ts_code": sel.ts_code,
         "name": basic.name if basic else None,
         "rule_score": float(sel.rule_score),

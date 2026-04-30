@@ -1,0 +1,61 @@
+# ==============================================================
+# 波段策略权重配置（Phase 0 占位，Phase 1 接入规则层）
+# ==============================================================
+
+strategy:
+  name: swing
+  holding_days: [5, 20]
+
+dimension_weights:
+  trend: 0.27
+  pullback: 0.13
+  moneyflow_swing: 0.20
+  sector_swing: 0.13
+  theme_swing: 0.09
+  catalyst: 0.08
+  risk_liquidity: 0.10
+
+combine:
+  rule_weight: 0.6
+  ai_weight: 0.4
+  max_stocks_per_sector: 4
+  max_unknown_sector_stocks: 0
+
+hard_reject:
+  negative_announcement_keywords:
+    - "立案调查"
+    - "实际控制人变更"
+    - "商誉减值"
+    - "财务造假"
+    - "暂停上市"
+    - "退市风险警示"
+  exclude_today_limit_up: true
+  exclude_today_limit_down: true
+  exclude_suspended: true
+  min_list_days: 60
+  exclude_st: true
+
+market_regime_control:
+  tiers:
+    - min_score: 70
+      top_n: 20
+      position_scale: 1.0
+    - min_score: 50
+      top_n: 15
+      position_scale: 0.7
+    - min_score: 30
+      top_n: 8
+      position_scale: 0.4
+    - min_score: 0
+      top_n: 3
+      position_scale: 0.2
+  min_final_score: 30.0
+
+stop_loss:
+  atr_period: 20
+  atr_multiplier: 1.5
+  min_stop_pct: 0.04
+  max_stop_pct: 0.10
+
+max_positions: 8
+position_per_stock_pct: 0.15

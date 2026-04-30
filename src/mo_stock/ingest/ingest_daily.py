@@ -4,6 +4,7 @@
 - stock_basic（基础，周度刷新）
 - trade_cal（交易日历，月度刷新）
 - daily_kline（日线 OHLCV）
+- index_daily（指数日线，写入 daily_kline）
 - daily_basic（换手 / PE / PB / 市值）
 - limit_list（涨停列表）
 - moneyflow（主力资金流向）
@@ -32,6 +33,8 @@ from mo_stock.data_sources.tushare_client import TushareClient, date_to_tushare
 from mo_stock.storage import repo
 from mo_stock.storage.db import get_session
 from mo_stock.storage.models import HotMoneyList, ThsIndex
+
+INDEX_CODES = ("000300.SH", "000001.SH")  # 沪深 300 + 上证指数
 
 
 class DailyIngestor:
@@ -186,25 +189,31 @@ class DailyIngestor:
             logger.warning("daily 返回空 ({})", trade_date)
             return 0
 
-        rows = [
-            {
-                "ts_code": r["ts_code"],
-                "trade_date": _parse_date(r["trade_date"]),
-                "open": _nf(r.get("open")),
-                "high": _nf(r.get("high")),
-                "low": _nf(r.get("low")),
-                "close": _nf(r.get("close")),
-                "pre_close": _nf(r.get("pre_close")),
-                "pct_chg": _nf(r.get("pct_chg")),
-                "vol": _nf(r.get("vol")),
-                "amount": _nf(r.get("amount")),
-            }
-            for _, r in df.iterrows()
-        ]
+        rows = _daily_kline_rows_from_df(df)
 
         with get_session() as s:
             n = repo.upsert_daily_kline(s, rows)
         logger.info("daily_kline {} upserted {} rows", trade_date, n)
+        return n
+
+    def ingest_index_daily(self, trade_date: date) -> int:
+        """拉指数日线，写入 daily_kline 供 market_regime 使用。"""
+        rows: list[dict[str, Any]] = []
+        tushare_date = date_to_tushare(trade_date)
+        for ts_code in INDEX_CODES:
+            df = self.client.index_daily(ts_code=ts_code, trade_date=tushare_date)
+            if df.empty:
+                logger.warning("index_daily {} 返回空 ({})", ts_code, trade_date)
+                continue
+            rows.extend(_daily_kline_rows_from_df(df))
+
+        if not rows:
+            logger.warning("index_daily 全部返回空 ({})", trade_date)
+            return 0
+
+        with get_session() as s:
+            n = repo.upsert_daily_kline(s, rows)
+        logger.info("index_daily {} upserted {} rows", trade_date, n)
         return n
 
     def ingest_daily_basic(self, trade_date: date) -> int:
@@ -409,8 +418,8 @@ class DailyIngestor:
     ) -> dict[str, int]:
         """拉取指定交易日的全部数据。
 
-        - **CORE 6 步**（必跑）：daily_kline / daily_basic / limit_list / moneyflow
-          / lhb / sw_daily
+        - **CORE 7 步**（必跑）：daily_kline / index_daily / daily_basic
+          / limit_list / moneyflow / lhb / sw_daily
         - **ENHANCED 5 步**（v2.1 新增，可 skip）：ths_daily / limit_concept /
           concept_moneyflow / top_inst / hm_detail
 
@@ -419,7 +428,7 @@ class DailyIngestor:
 
         Args:
             trade_date: 目标交易日
-            skip_enhanced: True 时只跑 6 个 CORE 步骤（调试或 Tushare 限速时）
+            skip_enhanced: True 时只跑 CORE 步骤（调试或 Tushare 限速时）
         """
         logger.info(
             "=== ingest_one_day {} (skip_enhanced={}) ===",
@@ -428,6 +437,7 @@ class DailyIngestor:
 
         core_steps: list[tuple[str, Callable[[date], int]]] = [
             ("daily_kline", self.ingest_daily_kline),
+            ("index_daily", self.ingest_index_daily),
             ("daily_basic", self.ingest_daily_basic),
             ("limit_list", self.ingest_limit_list),
             ("moneyflow", self.ingest_moneyflow),
@@ -535,6 +545,25 @@ def _str_or_none(v: Any) -> str | None:
         return None
     s = str(v).strip()
     return s or None
+
+
+def _daily_kline_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
+    """Tushare daily / index_daily → DailyKline row dict 列表。"""
+    return [
+        {
+            "ts_code": r["ts_code"],
+            "trade_date": _parse_date(r["trade_date"]),
+            "open": _nf(r.get("open")),
+            "high": _nf(r.get("high")),
+            "low": _nf(r.get("low")),
+            "close": _nf(r.get("close")),
+            "pre_close": _nf(r.get("pre_close")),
+            "pct_chg": _nf(r.get("pct_chg")),
+            "vol": _nf(r.get("vol")),
+            "amount": _nf(r.get("amount")),
+        }
+        for _, r in df.iterrows()
+    ]
 
 
 def _is_st(name: str) -> bool:

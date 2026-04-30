@@ -32,12 +32,21 @@ from loguru import logger
 
 from config.settings import settings
 from mo_stock.analyzer import analyze_stock
+from mo_stock.backtest import run_swing_backtest
 from mo_stock.filters.base import load_weights_yaml
+from mo_stock.filters.catalyst_filter import CatalystFilter
 from mo_stock.filters.lhb_filter import LhbFilter
 from mo_stock.filters.limit_filter import LimitFilter
+from mo_stock.filters.market_regime_filter import MarketRegimeFilter
 from mo_stock.filters.moneyflow_filter import MoneyflowFilter
+from mo_stock.filters.moneyflow_swing_filter import MoneyflowSwingFilter
+from mo_stock.filters.pullback_filter import PullbackFilter
+from mo_stock.filters.risk_liquidity_filter import RiskLiquidityFilter
 from mo_stock.filters.sector_filter import SectorFilter
+from mo_stock.filters.sector_swing_filter import SectorSwingFilter
 from mo_stock.filters.theme_filter import ThemeFilter
+from mo_stock.filters.theme_swing_filter import ThemeSwingFilter
+from mo_stock.filters.trend_filter import TrendFilter
 from mo_stock.ingest.ingest_daily import DailyIngestor
 from mo_stock.report.render_md import render_daily_report
 from mo_stock.scorer.combine import combine_scores, replace_filter_scores
@@ -93,6 +102,20 @@ def _ensure_trade_date(d: date, *, force: bool, kind: str = "选股") -> None:
         click.echo(f"[警告] {msg}，--force 已指定，继续运行 {kind} 流程", err=True)
         return
     raise click.UsageError(f"{msg}；如确需运行，加 --force")
+
+
+def _validate_strategy(strategy: str) -> str:
+    """校验策略标识。"""
+    normalized = strategy.strip().lower()
+    if normalized not in {"short", "swing"}:
+        raise click.BadParameter("strategy 仅支持 short / swing")
+    return normalized
+
+
+def _weights_path_for_strategy(strategy: str) -> Path:
+    root = Path(__file__).resolve().parent.parent.parent
+    filename = "weights.yaml" if strategy == "short" else "weights_swing.yaml"
+    return root / "config" / filename
 
 
 # ------------------------------------------------------------------
@@ -176,6 +199,30 @@ def refresh_cal(start: str, end: str | None) -> None:
     DailyIngestor().refresh_trade_cal(start_d, end_d)
 
 
+@cli.command("refresh-index")
+@click.option("--days", default=180, show_default=True, type=int, help="补齐最近多少天指数日线")
+@click.option("--end", default=None, help="补齐截止日 YYYY-MM-DD，默认今日")
+def refresh_index(days: int, end: str | None) -> None:
+    """补齐指数日线（沪深 300 / 上证指数），不重跑个股日频接口。"""
+    from mo_stock.storage import repo
+
+    end_d = _parse_date(end) if end else date.today()
+    start_d = end_d - timedelta(days=days)
+    ingestor = DailyIngestor()
+    ingestor.refresh_trade_cal(start_d, end_d + timedelta(days=30))
+
+    total = 0
+    current = start_d
+    while current <= end_d:
+        with get_session() as session:
+            is_open = repo.is_trade_date(session, current)
+        if is_open:
+            total += ingestor.ingest_index_daily(current)
+        current += timedelta(days=1)
+    logger.info("refresh-index 完成 {} → {}，upsert {} 行", start_d, end_d, total)
+    click.echo(f"[OK] refresh-index 完成：{start_d} → {end_d}，upsert {total} 行")
+
+
 @cli.command("backfill")
 @click.option("--days", default=180, show_default=True, type=int, help="回填多少天")
 @click.option("--end", default=None, help="回填截止日 YYYY-MM-DD，默认今日")
@@ -198,50 +245,76 @@ def backfill(days: int, end: str | None) -> None:
 @cli.command("run-once")
 @click.option("--date", "date_str", default=None, help="选股日 YYYY-MM-DD，默认今日")
 @click.option("--skip-ingest", is_flag=True, help="跳过数据拉取步骤（用于已经有数据时的重算）")
-@click.option("--skip-enhanced", is_flag=True, help="只跑 6 个 CORE ingest，跳过题材/席位增强（5 步）")
+@click.option("--skip-enhanced", is_flag=True, help="只跑 CORE ingest，跳过题材/席位增强（5 步）")
 @click.option("--skip-ai", is_flag=True, help="跳过 AI 分析（v2.2）；行为等同 v2.1 纯规则模式")
+@click.option("--strategy", default="short", show_default=True, help="策略：short / swing")
 @click.option("--force", is_flag=True, help="允许在非交易日运行（默认会拒绝）")
 def run_once(
     date_str: str | None, skip_ingest: bool, skip_enhanced: bool,
-    skip_ai: bool, force: bool,
+    skip_ai: bool, strategy: str, force: bool,
 ) -> None:
     """对指定交易日跑一次端到端选股流程：ingest → filter → combine [+ AI] → report。"""
+    strategy = _validate_strategy(strategy)
+    if strategy == "swing" and not skip_ai:
+        logger.warning("swing AI prompt 尚未接入（Phase 4），本次自动跳过 AI")
+        skip_ai = True
     trade_date = _parse_date(date_str) if date_str else date.today()
     _ensure_trade_date(trade_date, force=force, kind="run-once")
-    logger.info("=== run-once {} (skip_ai={}) ===", trade_date, skip_ai)
+    logger.info("=== run-once {} strategy={} (skip_ai={}) ===", trade_date, strategy, skip_ai)
 
     # ---------- 1. 数据拉取 ----------
     if not skip_ingest:
         DailyIngestor().ingest_one_day(trade_date, skip_enhanced=skip_enhanced)
 
     # ---------- 2. 加载权重配置 ----------
-    weights_path = Path(__file__).resolve().parent.parent.parent / "config" / "weights.yaml"
+    weights_path = _weights_path_for_strategy(strategy)
     cfg = load_weights_yaml(weights_path)
+    base_cfg = load_weights_yaml(_weights_path_for_strategy("short"))
     dim_weights: dict[str, float] = cfg.get("dimension_weights", {})
-    hard_reject: dict = cfg.get("hard_reject", {})
-    combine_cfg: dict = cfg.get("combine", {})
+    hard_reject: dict = cfg.get("hard_reject", base_cfg.get("hard_reject", {}))
+    combine_cfg: dict = {**base_cfg.get("combine", {}), **cfg.get("combine", {})}
+    if "market_regime_control" in cfg:
+        combine_cfg["market_regime_control"] = cfg["market_regime_control"]
 
-    # ---------- 3. 规则层打分（5 维度：limit + moneyflow + lhb + sector + theme）----------
-    limit_filter = LimitFilter(weights=cfg.get("limit_filter", {}))
-    mf_filter = MoneyflowFilter(weights=cfg.get("moneyflow_filter", {}))
-    lhb_filter = LhbFilter(weights=cfg.get("lhb_filter", {}))
-    sector_filter = SectorFilter(weights=cfg.get("sector_filter", {}))
-    theme_filter = ThemeFilter(weights=cfg.get("theme_filter", {}))
+    if strategy == "short":
+        filters = [
+            LimitFilter(weights=cfg.get("limit_filter", {})),
+            MoneyflowFilter(weights=cfg.get("moneyflow_filter", {})),
+            LhbFilter(weights=cfg.get("lhb_filter", {})),
+            SectorFilter(weights=cfg.get("sector_filter", {})),
+            ThemeFilter(weights=cfg.get("theme_filter", {})),
+        ]
+        dims = ["limit", "moneyflow", "lhb", "sector", "theme"]
+        regime_score = None
+    else:
+        filters = [
+            TrendFilter(weights=cfg.get("trend_filter", {})),
+            PullbackFilter(weights=cfg.get("pullback_filter", {})),
+            MoneyflowSwingFilter(weights=cfg.get("moneyflow_swing_filter", {})),
+            SectorSwingFilter(weights=cfg.get("sector_swing_filter", {})),
+            ThemeSwingFilter(weights=cfg.get("theme_swing_filter", {})),
+            CatalystFilter(weights=cfg.get("catalyst_filter", {})),
+            RiskLiquidityFilter(weights=cfg.get("risk_liquidity_filter", {})),
+        ]
+        dims = [
+            "trend", "pullback", "moneyflow_swing", "sector_swing",
+            "theme_swing", "catalyst", "risk_liquidity",
+        ]
+        regime_score = None
 
     with get_session() as session:
-        all_scores = [
-            *limit_filter.score_all(session, trade_date),
-            *mf_filter.score_all(session, trade_date),
-            *lhb_filter.score_all(session, trade_date),
-            *sector_filter.score_all(session, trade_date),
-            *theme_filter.score_all(session, trade_date),
-        ]
+        all_scores = []
+        for filter_obj in filters:
+            all_scores.extend(filter_obj.score_all(session, trade_date))
+        if strategy == "swing":
+            regime_score = MarketRegimeFilter().score_market(session, trade_date)
 
         # v2.3：用 replace 而非 upsert，清掉旧维度脏分数（如旧版 sector_heat_bonus）
         replace_filter_scores(
             session, trade_date,
-            dims=["limit", "moneyflow", "lhb", "sector", "theme"],
+            dims=dims,
             results=all_scores,
+            strategy=strategy,
         )
 
         # ---------- 4. 综合打分 + AI（可选）+ 硬规则 ----------
@@ -253,6 +326,8 @@ def run_once(
             top_n=settings.top_n_final,
             enable_ai=not skip_ai,
             combine_cfg=combine_cfg,
+            strategy=strategy,
+            regime_score=regime_score,
         )
 
     # ---------- 5. 生成报告 ----------
@@ -261,6 +336,7 @@ def run_once(
             session,
             trade_date,
             output_dir=settings.report_dir,
+            strategy=strategy,
             # phase 默认值在 render_md.render_daily_report 里集中维护
         )
 
@@ -331,14 +407,44 @@ def analyze(ts_code: str, date_str: str | None, as_json: bool, force: bool) -> N
         click.echo("硬规则：通过")
 
 
+@cli.command("backtest")
+@click.option("--strategy", default="swing", show_default=True, help="策略：当前支持 swing")
+@click.option("--start", required=True, help="开始日期 YYYY-MM-DD")
+@click.option("--end", required=True, help="结束日期 YYYY-MM-DD")
+@click.option("--top-n", default=20, show_default=True, type=int, help="每日候选数量上限")
+def backtest(strategy: str, start: str, end: str, top_n: int) -> None:
+    """运行策略回测。"""
+    strategy = _validate_strategy(strategy)
+    if strategy != "swing":
+        raise click.UsageError("当前 backtest 仅支持 swing")
+    start_d = _parse_date(start)
+    end_d = _parse_date(end)
+    cfg = load_weights_yaml(_weights_path_for_strategy(strategy))
+    base_cfg = load_weights_yaml(_weights_path_for_strategy("short"))
+    cfg["hard_reject"] = cfg.get("hard_reject", base_cfg.get("hard_reject", {}))
+
+    with get_session() as session:
+        result = run_swing_backtest(session, start_d, end_d, cfg, top_n=top_n)
+
+    metrics = result["metrics"]
+    click.echo(f"[OK] swing backtest 完成：run_id={result['backtest_run_id']}")
+    click.echo(
+        "trades={total_trades} win_rate={win_rate:.2f}% "
+        "avg_pnl={avg_pnl_pct:.2f}% payoff={payoff_ratio:.2f} max_loss={max_loss_pct:.2f}%"
+        .format(**metrics)
+    )
+
+
 @cli.command("scheduler")
 @click.option("--skip-enhanced", is_flag=True, help="scheduler 每日任务跳过 ENHANCED ingest（5 步）")
 @click.option("--skip-ai", is_flag=True, help="scheduler 每日任务跳过 AI 分析（行为等同 v2.1）")
-def scheduler(skip_enhanced: bool, skip_ai: bool) -> None:
+@click.option("--strategy", default="short", show_default=True, help="策略：short / swing")
+def scheduler(skip_enhanced: bool, skip_ai: bool, strategy: str) -> None:
     """启动常驻调度：每个交易日 15:30 自动跑 run-once。"""
     from mo_stock.scheduler.daily_job import start_scheduler
 
-    start_scheduler(skip_enhanced=skip_enhanced, skip_ai=skip_ai)
+    strategy = _validate_strategy(strategy)
+    start_scheduler(skip_enhanced=skip_enhanced, skip_ai=skip_ai, strategy=strategy)
 
 
 def main() -> None:
