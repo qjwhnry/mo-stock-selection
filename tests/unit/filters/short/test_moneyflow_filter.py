@@ -167,3 +167,50 @@ class TestMoneyflowFilterScoring:
             sqlite_session, d3,
         )
         assert len(results) == 0
+
+    def test_weak_inflow_with_rolling_enters(self, sqlite_session) -> None:
+        """净流入 < 0.3% 但 rolling 正 → 应入榜，靠 rolling_bonus 贡献正分。"""
+        d1 = date(2026, 4, 22)
+        d2 = date(2026, 4, 23)
+        d3 = date(2026, 4, 24)
+        ts_code = "000003.SZ"
+
+        sqlite_session.add_all([
+            TradeCal(cal_date=d1, is_open=True, pretrade_date=date(2026, 4, 21)),
+            TradeCal(cal_date=d2, is_open=True, pretrade_date=d1),
+            TradeCal(cal_date=d3, is_open=True, pretrade_date=d2),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d3,
+                open=10.0, high=10.5, low=9.8, close=10.2,
+                pre_close=10.0, pct_chg=0.5, vol=100_000.0, amount=1_000_000.0,
+            ),
+            # d1 大额净流入 → rolling_sum = 800 + 10 = 810 > 0
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d1,
+                net_mf_amount=800.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=0.0, sell_lg_amount=0.0,
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+            # d3 微正净流入：10 万 / 1M 千元 = 0.01% < 0.3%（today_bonus=0）
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d3,
+                net_mf_amount=10.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=0.0, sell_lg_amount=0.0,
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={"rolling_3d_bonus": 20}).score_all(
+            sqlite_session, d3,
+        )
+        assert len(results) == 1
+        assert results[0].score == 20.0  # rolling_bonus only
+        assert "today_bonus" not in results[0].detail

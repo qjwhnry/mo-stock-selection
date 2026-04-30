@@ -92,9 +92,9 @@ lhb_filter:
     min_net_buy_yuan: 30000000
     bonus: 8
 
-# 板块维度细则（申万一级，v2.1 后保持不变）
+# 板块维度细则（申万一级，v2.4 降档）
 sector_filter:
-  top_n_sectors: 5    # 当日涨幅 TOP N 板块加分（默认 5，命中第 1 +50、第 5 +22）
+  top_n_sectors: 5    # 当日涨幅 TOP N 板块加分（默认 5，v2.4 降档表见 docs/scoring.md）
 
 # 题材维度细则（v2.1 新增，独立维度 dim=theme）
 theme_filter:

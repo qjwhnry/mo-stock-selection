@@ -78,7 +78,7 @@ class MoneyflowFilter(FilterBase):
             # 1. 主力净流入占当日成交比例 → 占比分档。净流出/缺失视为该维度信号缺失。
             kline_amt_qy = kline_amount_map.get(row.ts_code)  # 千元
             today_bonus = _today_bonus_tier(net_mf_wan, kline_amt_qy)
-            if not net_mf_wan or net_mf_wan <= 0:
+            if net_mf_wan <= 0:
                 # 净流出或缺失 → 无资金流信号，不入 results
                 continue
             score += today_bonus
