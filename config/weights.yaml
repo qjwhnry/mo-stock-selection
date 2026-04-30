@@ -71,7 +71,7 @@ moneyflow_filter:
   rolling_3d_bonus: 20            # 近 3 日累计为正再加（上限 0-20）
   big_order_ratio_threshold: 0.4  # 大单+超大单净流入占比阈值（上限 0-30）
   small_up_big_down_penalty: 30   # 小单流入大单流出惩罚
-  # today_bonus 阈值在 _today_bonus_tier 代码中：≥5%→50, ≥1%→35, ≥0.3%→20, 弱→5
+  # today_bonus 连续公式在 _today_bonus_tier 代码中：ratio<0.3%→0, 0.3%~5%→线性5~50, ≥5%→50
 
 # 龙虎榜维度细则（v2.1 重排：base 60 + seat 40）
 lhb_filter:
@@ -94,7 +94,7 @@ lhb_filter:
 
 # 板块维度细则（申万一级，v2.1 后保持不变）
 sector_filter:
-  top_n_sectors: 5    # 当日涨幅 TOP N 板块加分（默认 5，命中第 1 +50、第 5 +30）
+  top_n_sectors: 5    # 当日涨幅 TOP N 板块加分（默认 5，命中第 1 +50、第 5 +22）
 
 # 题材维度细则（v2.1 新增，独立维度 dim=theme）
 theme_filter:

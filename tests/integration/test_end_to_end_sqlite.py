@@ -191,10 +191,10 @@ class TestFiltersEndToEnd:
         # 仅净流入的股票会被打分；净流出的 002594 直接跳过（不 append，避免污染综合分）
         assert set(by_code.keys()) == {"600519.SH", "601318.SH"}
 
-        # 600519：当日净入占比 8.12% 触发 today_bonus=50（≥5% 极强档）
+        # 600519：当日净入占比 8.12% ≥5% → today_bonus=50（封顶）
         # + 大单占比 0.596 > 0.4 → ratio_bonus=30 + 3 日正 → +15。score = 95
         assert by_code["600519.SH"].score >= 50.0
 
-        # 601318：当日净入占比 1.67% 触发 today_bonus=35（[1%, 5%) 强档）
-        # 小单净入 + 大单净出 → -30 惩罚；3 日正 +15。最终 35 + 15 - 30 = 20
-        assert by_code["601318.SH"].score == 20.0
+        # 601318：当日净入占比 1.67% → 连续 today_bonus ≈ 16.6
+        # 小单净入 + 大单净出 → -30 惩罚；3 日正 +15。最终 ≈ 1.6
+        assert by_code["601318.SH"].score == pytest.approx(1.63, abs=0.5)

@@ -78,11 +78,12 @@ class MoneyflowFilter(FilterBase):
             # 1. 主力净流入占当日成交比例 → 占比分档。净流出/缺失视为该维度信号缺失。
             kline_amt_qy = kline_amount_map.get(row.ts_code)  # 千元
             today_bonus = _today_bonus_tier(net_mf_wan, kline_amt_qy)
-            if today_bonus == 0:
-                # 占比为 0（净流出 / 数据缺失 / 占比 < 0.3% 太弱）→ 不入 results
+            if not net_mf_wan or net_mf_wan <= 0:
+                # 净流出或缺失 → 无资金流信号，不入 results
                 continue
             score += today_bonus
-            detail["today_bonus"] = today_bonus
+            if today_bonus > 0:
+                detail["today_bonus"] = round(today_bonus, 2)
             if kline_amt_qy:
                 ratio_pct = 1000.0 * net_mf_wan / kline_amt_qy
                 detail["net_mf_ratio_pct"] = round(ratio_pct, 3)
@@ -116,11 +117,14 @@ class MoneyflowFilter(FilterBase):
                 score -= small_up_big_down_penalty
                 detail["small_up_big_down_penalty"] = -small_up_big_down_penalty
 
+            final_score = clamp(score)
+            if final_score <= 0:
+                continue
             results.append(ScoreResult(
                 ts_code=row.ts_code,
                 trade_date=trade_date,
                 dim=self.dim,
-                score=clamp(score),
+                score=final_score,
                 detail=detail,
             ))
 
@@ -137,24 +141,24 @@ class MoneyflowFilter(FilterBase):
 
 def _today_bonus_tier(
     net_mf_wan: float | None, daily_amount_qy: float | None,
-) -> int:
-    """主力净流入占当日成交额比例（%）→ 加分。
+) -> float:
+    """主力净流入占当日成交额比例（%）→ 连续加分。
 
     单位换算：moneyflow.net_mf_amount 是万元，daily_kline.amount 是千元。
         ratio (%) = 1000 × net_mf_wan / amount_qy
 
-    分档：≥5% 极强 / 1~5% 强 / 0.3~1% 中 / 0~0.3% 弱（赤天化 0.157%）。
-    上限 50（占维度满分 100 的一半，与 ratio_bonus 30 + rolling 20 共凑 100）。
+    v2.4 连续化：线性插值替代离散分档，提升同板块内个股区分度。
+    ratio < 0.3% → 0（信号太弱）
+    0.3% ≤ r < 5% → 5 + (r - 0.3) / 4.7 * 40（线性，≈每 1% 多 8.5 分）
+    r ≥ 5%        → 50（封顶）
     """
     if not net_mf_wan or net_mf_wan <= 0:
         return 0
     if not daily_amount_qy or daily_amount_qy <= 0:
         return 0
     ratio_pct = 1000.0 * net_mf_wan / daily_amount_qy
+    if ratio_pct < 0.3:
+        return 0
     if ratio_pct >= 5.0:
-        return 50
-    if ratio_pct >= 1.0:
-        return 35
-    if ratio_pct >= 0.3:
-        return 20
-    return 5
+        return 50.0
+    return 5.0 + (ratio_pct - 0.3) / 4.7 * 40.0

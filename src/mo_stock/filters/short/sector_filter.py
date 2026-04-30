@@ -2,7 +2,7 @@
 
 **思路**（见 plan §4 sector 维度）：
 - 找当日**强势板块** TOP 5（按申万一级 sw_daily.pct_change 排名）
-- 给所属股票加分：第 1 名板块 +50，第 5 名 +30
+- 给所属股票加分：第 1 名板块 +50，第 5 名 +22
 - 板块**近 3 日均涨幅** > 2% 加 10，> 5% 加 20（趋势加成）
 - 题材增强（ths_member 命中热点概念）放在 P1，当前不实现
 
@@ -10,7 +10,7 @@
 - sw_daily（板块当日 + 近 3 日涨幅）
 - index_member（股票 → 申万一级板块映射）
 
-得分输出：0-100。
+得分输出：0-100。v2.4 降档后实际上限 70（rank 50 + trend 20）。
 
 性能注意：
 - index_member 是慢变量（月度刷新），map 一次拉全（5700 行）放进内存
@@ -127,15 +127,15 @@ def _top_n_l1_codes(
 
 def _rank_to_bonus(rank: int) -> int:
     """板块涨幅排名 → 加分。TOP 5 加分，之外 0。
-    上限 70（占维度满分 100 的 70%，与 trend 0-30 共凑 100）。"""
-    rank_table = {1: 70, 2: 60, 3: 50, 4: 40, 5: 30}
+    v2.4 降档：降低板块级加分幅度，缓解 Top N 板块集中。"""
+    rank_table = {1: 50, 2: 40, 3: 35, 4: 28, 5: 22}
     return rank_table.get(rank, 0)
 
 
 def _three_day_avg_bonus(avg_pct: float) -> int:
-    """板块近 3 日均涨幅（%）→ 加分。趋势加成。上限 30。"""
+    """板块近 3 日均涨幅（%）→ 加分。趋势加成。v2.4 降档。"""
     if avg_pct >= 5.0:
-        return 30
+        return 20
     if avg_pct >= 2.0:
-        return 15
+        return 10
     return 0
