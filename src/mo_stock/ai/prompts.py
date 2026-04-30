@@ -51,12 +51,16 @@ def build_system_prompt() -> str:
 
 
 def build_methodology_prompt() -> str:
-    """段 2：评分方法学。当前规则层 5 维度的含义。
+    """段 2：评分方法学。当前 short AI 使用的 5 个已实现规则维度。
 
-    注意：sentiment 是预留维度，**未接通**，不要在评分中假设它存在。
+    注意：
+    - `config/weights.yaml` 里仍保留 sentiment=0.10，但 SentimentFilter 尚未接入；
+      prompt 不能编造新闻/公告情绪结论。
+    - swing 策略当前在 CLI / scheduler 中会自动跳过 AI，本 prompt 仍按 short 1-3
+      交易日语境设计，不要复用为波段 5-20 交易日分析。
     """
     return """\
-# 规则层 5 维度（v2.1 后接通）
+# short 规则层：5 个已实现维度
 
 | 维度 | 权重 | 数据源 | 含义 |
 |------|------|--------|------|
@@ -66,7 +70,8 @@ def build_methodology_prompt() -> str:
 | sector | 0.10 | sw_daily + index_member | 申万一级行业涨幅 TOP 5 |
 | theme | 0.10 | ths_daily + limit_concept + cmf | 同花顺概念涨幅 + 涨停最强概念 + 概念资金流 |
 
-未接通维度：sentiment（情绪，0.10 权重保留但永远 0 分）。
+未接通维度：sentiment（情绪，0.10 权重保留但当前没有 SentimentFilter 产出）。
+如果输入里没有 sentiment detail，请视为"无情绪维度证据"，不要推断成利好或利空。
 
 # 评分原则
 
@@ -121,9 +126,10 @@ def build_dynamic_stock_prompt(
     pct_chg: float | None,
     amount_yi: float | None,
 ) -> str:
-    """段 4：当日规则层 5 维度的命中信号 + 行情快照。
+    """段 4：当日规则层命中信号 + 行情快照。
 
-    dim_scores 只含"该股有信号"的维度；缺失维度不渲染（避免误导 AI）。
+    dim_scores 只含"该股有信号"的维度；缺失维度不渲染，避免 AI 把空信号理解成
+    负面证据。当前 short 维度最多来自 limit / moneyflow / lhb / sector / theme。
     """
     # 规则维度块（只渲染有命中的）
     dim_blocks: list[str] = []
@@ -137,7 +143,10 @@ def build_dynamic_stock_prompt(
     if dim_blocks:
         dim_block_str = "\n".join(dim_blocks)
     else:
-        dim_block_str = "  （本股本日 5 维规则均未命中阈值，理论上不应出现在 TOP N 候选；请谨慎）"
+        dim_block_str = (
+            "  （本股本日没有任何已实现规则维度命中阈值，理论上不应出现在 TOP N 候选；"
+            "请谨慎，并不要补充臆测信号）"
+        )
 
     # 行情快照
     quote_lines = [

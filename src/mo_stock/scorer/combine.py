@@ -1,4 +1,4 @@
-"""综合打分：把 5 维度规则分聚合为最终 rule_score，再与 AI 分融合（Phase 3）。
+"""综合打分：把多维规则分聚合为 rule_score，再按配置与 AI 分融合。
 
 **综合分公式（固定分母）**：
     final = Σ(score_i × w_i) / Σ(w_全部维度)
@@ -11,7 +11,8 @@
 保区分度，但 4 维接通后该机制让"单维度极端分"霸榜（违背多因子设计意图），
 2026-04-25 改为固定分母。
 
-**Phase 3 起**：加入 AI 分，按 `combine.rule_weight` / `combine.ai_weight` 融合。
+AI 启用时，按 `combine.rule_weight` / `combine.ai_weight` 融合；
+AI 跳过或调用失败时，final_score 直接回退为 rule_score。
 
 硬规则过滤（plan §weights.yaml.hard_reject）：
 - ST / *ST（可独立开关 `exclude_st`）
@@ -129,11 +130,11 @@ def _final_score_from(rule_score: float, ai_score: float | None,
                        rule_weight: float = 0.6, ai_weight: float = 0.4) -> float:
     """rule + ai 融合公式（P0-2 显式防御）。
 
-    - ai_score 为 None（MVP 阶段 / AI 模块未启用）：直接返回 rule_score，
+    - ai_score 为 None（skip-ai / AI 模块未启用 / 单股 AI 调用失败）：直接返回 rule_score，
       不按权重重缩放，保持 0-100 区间稳定。
     - ai_score 为数值：按 rule_weight / ai_weight 加权平均。
 
-    Phase 3 接入 AI 后只需保证 ai_score 有值，无需改本函数。
+    AI 接入方只需保证 ai_score 有值，无需改本函数。
     """
     if ai_score is None:
         return rule_score

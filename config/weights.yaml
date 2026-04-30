@@ -1,18 +1,26 @@
 # ==============================================================
-# 选股权重配置（可热调，无需改代码）
-# v2.1：6 维度（新增 theme），dimension_weights 总和 = 1.00 固定分母
+# 短线选股权重配置（可热调，无需改代码）
+#
+# 当前执行口径：
+# - run-once 实际运行 5 个已实现短线维度：limit / moneyflow / lhb / sector / theme。
+# - sentiment 是预留维度，SentimentFilter 尚未接入；固定分母会把缺失维度按 0 分处理。
+# - 保留 sentiment=0.10 的目的，是让未来接入新闻/公告情绪后不用重新迁移结果表结构。
+# - 因此当前纯规则 rule_score 的理论上限是 90，而不是 100。
+# dimension_weights 总和保持 1.00，便于 rule_score 与 AI 分处在稳定的 0-100 量纲。
 # ==============================================================
 
-# 6 维度权重（规则层综合分 = Σ score × w / Σ w_全部维度）
+# 6 个权重项；其中前 5 个已实现，sentiment 暂按缺失维度处理。
 dimension_weights:
   limit: 0.25       # 异动涨停
   moneyflow: 0.25   # 主力资金流向
   lhb: 0.20         # 龙虎榜（base 60 + seat 40）
   sector: 0.10      # 申万一级行业（v2.1：从 0.15 拆出 0.05 给 theme）
   theme: 0.10       # 同花顺概念 + 涨停最强 + 资金流（v2.1 新增独立维度）
-  sentiment: 0.10   # 新闻公告 + 研报情绪（Phase 2 待接入）
+  sentiment: 0.10   # 新闻公告 + 研报情绪（预留；当前未接入 SentimentFilter）
 
-# 规则分 vs AI 分 的融合权重（Phase 3 启用）
+# 规则分 vs AI 分 的融合权重。
+# enable_ai=false、swing 自动跳过 AI、或 Claude 调用失败时，final_score 直接等于 rule_score；
+# 只有 ai_score 有值时才按 rule_weight / ai_weight 做加权平均。
 combine:
   rule_weight: 0.6
   ai_weight: 0.4

@@ -1,7 +1,9 @@
-"""scorer.combine._final_score_from 单测（P0-2）。
+"""scorer.combine._final_score_from 单测。
 
-MVP 阶段 ai_score 永远为 None，但 final_score 列必须仍是数值（不能 None）。
-Phase 3 接通 AI 后，传入数值 ai_score 即按权重融合。
+覆盖两条长期行为：
+- ai_score 为 None 时，final_score 必须回退为 rule_score（skip-ai、swing AI 未接入、
+  Claude 调用失败都走这条路径）。
+- ai_score 有值时，按 rule_weight / ai_weight 做加权平均。
 """
 from __future__ import annotations
 
@@ -12,11 +14,11 @@ from mo_stock.scorer.combine import _final_score_from, _name_is_st
 
 class TestFinalScoreFrom:
     def test_ai_none_returns_rule_score(self) -> None:
-        """MVP 阶段：ai_score=None → final = rule（不重缩放）。"""
+        """ai_score=None → final = rule（不重缩放）。"""
         assert _final_score_from(rule_score=42.5, ai_score=None) == 42.5
 
     def test_ai_value_blends_by_default_weights(self) -> None:
-        """Phase 3 默认权重 rule=0.6 / ai=0.4。"""
+        """默认权重 rule=0.6 / ai=0.4。"""
         # rule=50, ai=80 → (50*0.6 + 80*0.4) / 1.0 = 30 + 32 = 62
         assert _final_score_from(rule_score=50.0, ai_score=80.0) == pytest.approx(62.0)
 

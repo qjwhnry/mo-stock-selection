@@ -1,8 +1,10 @@
 """SQLAlchemy 2.x ORM 模型定义。
 
-对应 plan §3 的 12 张表。设计原则：
-- 原始数据表（kline / basic / limit / lhb / moneyflow / sw / news / anns）：180 天滚动
-- 结果表（filter_score_daily / ai_analysis / selection_result）：永久保留供回测
+覆盖行情、基础资料、题材/行业、龙虎榜席位、AI 分析、选股结果和波段持仓等表。
+设计原则：
+- 高频原始数据表按运行任务做滚动保留；结果表和回测/持仓表按策略维度长期保留
+- 短线 / 波段共用结果表，通过 `strategy` 隔离；波段持仓通过 `mode` 和
+  `backtest_run_id` 隔离回测与实盘
 - JSON 字段一律用 PG JSONB
 - 时间字段用 timestamptz
 - **所有字段/表都带 comment**，执行 `create_all()` 或 `mo-stock apply-comments` 后
@@ -470,11 +472,11 @@ class ResearchReport(Base):
 
 
 # ========================================================================
-# 结果表：规则分 / AI 分析 / 最终选股（永久保留）
+# 结果表：规则分 / AI 分析 / 最终选股 / 波段持仓（按策略或模式隔离）
 # ========================================================================
 
 class FilterScoreDaily(Base):
-    """规则层 5 维度各自打分，逐行存储便于回测。"""
+    """规则层各维度逐行打分，按 strategy 隔离，便于报告与回测复盘。"""
 
     __tablename__ = "filter_score_daily"
 
@@ -509,7 +511,7 @@ class FilterScoreDaily(Base):
 
 
 class AiAnalysis(Base):
-    """Claude AI 分析结果（Phase 3 启用）。"""
+    """Claude AI 分析结果，按 strategy 隔离。"""
 
     __tablename__ = "ai_analysis"
 
@@ -581,11 +583,11 @@ class SelectionResult(Base):
     )
     rule_score: Mapped[float] = mapped_column(Numeric(5, 2), comment="规则层综合分 0-100")
     ai_score: Mapped[float | None] = mapped_column(
-        Numeric(5, 2), comment="AI 层综合分 0-100；Phase 3 前为 NULL",
+        Numeric(5, 2), comment="AI 层综合分 0-100；跳过 AI 或调用失败时为 NULL",
     )
     final_score: Mapped[float] = mapped_column(
         Numeric(5, 2),
-        comment="最终分；Phase 1 = rule_score，Phase 3 起 = rule*0.6 + ai*0.4",
+        comment="最终分；AI 缺失时等于 rule_score，否则按综合层权重融合 rule_score 与 ai_score",
     )
     picked: Mapped[bool] = mapped_column(
         Boolean, default=True, comment="是否入选 TOP N（未通过硬规则或超出排名为 False）",
@@ -647,7 +649,7 @@ class SwingPosition(Base):
 
 
 # ========================================================================
-# 题材增强表（v2.1 plan §2.1，Phase 2 接入）
+# 题材增强表：同花顺概念行情 / 涨停概念 / 概念资金流
 # ========================================================================
 
 class ThsDaily(Base):
@@ -724,7 +726,7 @@ class ThsConceptMoneyflow(Base):
 
 
 # ========================================================================
-# 龙虎榜席位明细 + 游资名录（v2.1 plan §2.2）
+# 龙虎榜席位明细 + 游资名录
 # ========================================================================
 
 class HotMoneyList(Base):
@@ -747,9 +749,9 @@ class HotMoneyList(Base):
 class HotMoneyDetail(Base):
     """游资每日交易明细（Tushare hm_detail, doc_id=312）。数据从 2022-08 起。
 
-    PK = (trade_date, ts_code, hm_name, hm_orgs)：Tushare 接口按"游资 × 关联营业部"
-    返回粒度，同游资有多个营业部时会出现多行。把 hm_orgs 纳入 PK 完整保留原始数据。
-    hm_orgs 必须 NOT NULL（PG PK 约束），ingest 时缺失值兜底为空串 ''。
+    当前表按 (trade_date, ts_code, hm_name) 聚合存储；同一游资涉及多个营业部时，
+    ingest 层会把营业部合并到 hm_orgs（用 ; 分隔），金额字段按游资维度聚合。
+    hm_orgs 非主键字段，缺失时用空串 '' 兜底，便于展示和复盘。
     """
 
     __tablename__ = "hot_money_detail"
@@ -759,7 +761,7 @@ class HotMoneyDetail(Base):
     hm_name: Mapped[str] = mapped_column(String(100), comment="游资名称")
     hm_orgs: Mapped[str] = mapped_column(
         String(200), default="",
-        comment="关联营业部（PK 之一；NOT NULL，缺失用空串兜底）",
+        comment="关联营业部（聚合展示字段；缺失用空串兜底）",
     )
     ts_name: Mapped[str | None] = mapped_column(String(50), comment="股票名称")
     buy_amount: Mapped[float | None] = mapped_column(Float, comment="买入金额（元）")
@@ -778,8 +780,9 @@ class HotMoneyDetail(Base):
 class LhbSeatDetail(Base):
     """龙虎榜席位明细（Tushare top_inst）。
 
-    替代 Lhb.seat JSONB（v2.1 plan §2.2），便于 SQL 直接过滤"今天机构净买 > N 的票"。
-    主键用 seat_key（sha1 内容哈希），避免 top_inst 返回顺序变化导致重跑覆盖错行。
+    替代 Lhb.seat JSONB，便于 SQL 直接过滤"今天机构净买 > N 的票"。
+    主键为 (trade_date, ts_code, seat_key)，其中 seat_key 是 sha1 内容哈希，
+    避免 top_inst 返回顺序变化导致重跑覆盖错行。
     """
 
     __tablename__ = "lhb_seat_detail"

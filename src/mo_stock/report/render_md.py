@@ -1,9 +1,11 @@
-"""把 selection_result 渲染成 Markdown 日报 + JSON 产出（v2.2 plan §4）。
+"""把 selection_result 渲染成 Markdown 日报 + JSON 产出。
 
-v2.2 重写：每只入选股展示**完整选出原因**——
-- AI 论点 + key_signals + 操作建议 + risks
-- 5 维度证据表（detail 翻译为中文人话，例如 institution_net_buy → "机构净买 1900 万"）
-- AI 缺失时优雅降级：不渲染 AI 章节，但维度证据仍完整
+报告按 strategy 隔离输出：
+- short 报告默认写到 data/reports/，展示 5 个已实现短线维度；sentiment 尚未接入时会提示
+  当前规则满分为 90。
+- swing 报告写到 data/reports/swing/，展示 7 个波段维度；当前 swing AI 自动跳过，因此
+  AI 章节通常为空，但规则证据仍完整。
+- AI 缺失时优雅降级：不渲染 AI 章节，仍展示维度 detail 翻译后的中文证据。
 
 JSON 同步含结构化 `rationale` 字段。
 """
@@ -31,7 +33,7 @@ def render_daily_report(
     session: Session,
     trade_date: date,
     output_dir: Path,
-    phase: str = "v2.2（5 维规则 + Claude AI 融合）",
+    phase: str = "规则层 + 可选 Claude AI",
     strategy: str = "short",
 ) -> tuple[Path, Path]:
     """渲染指定交易日的报告，返回 (md_path, json_path)。"""
@@ -207,7 +209,9 @@ def _render_one_stock_section(
             evidences = _translate_dim_detail(dim, r.detail or {})
             evidence_str = "；".join(evidences) if evidences else "—"
             lines.append(f"| {_DIM_LABELS.get(dim, dim)} | {r.score:.1f} | {evidence_str} |")
-        # 未命中维度不渲染（避免噪音；6 维都全保留就是表过长）
+        # 未命中维度不渲染，避免报告被空信号淹没：
+        # - short 当前有 5 个已实现维度，sentiment 是预留权重，通常不会出现；
+        # - swing 有 7 个维度，只有该股真正命中的维度才展示证据。
     lines.append("")
 
     # 操作建议（AI 给出 entry/stop_loss 时才渲染）

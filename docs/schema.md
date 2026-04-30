@@ -398,7 +398,9 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 
 ### `filter_score_daily` — 规则层逐维度打分
 
-每天每股最多 **6 行**（v2.1 后：`limit`/`moneyflow`/`lhb`/`sector`/`theme`/`sentiment`）。
+每天每股每个 strategy 最多 1 行/维度。short 当前实际写入
+`limit`/`moneyflow`/`lhb`/`sector`/`theme` 这 5 个已实现维度；`sentiment` 是预留维度，
+SentimentFilter 尚未接入时不会产生行。swing 写入 7 个 `*_swing` / 趋势类维度。
 
 | 字段 | 类型 | NULL | 说明 |
 |------|------|:---:|------|
@@ -406,14 +408,14 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 | `trade_date` | DATE | ✗ | 评分对应的交易日 |
 | `ts_code` | VARCHAR(12) | ✗ | 股票代码 |
 | `strategy` | VARCHAR(20) | ✗ | 策略标识（**v2.4 新增**，server default `'short'`） |
-| `dim` | VARCHAR(20) | ✗ | 维度标识，**6 选 1**（v2.1 新增 theme） |
+| `dim` | VARCHAR(20) | ✗ | 维度标识；short 使用 limit/moneyflow/lhb/sector/theme（sentiment 预留），swing 使用 trend/pullback/moneyflow_swing/sector_swing/theme_swing/catalyst/risk_liquidity |
 | `score` | FLOAT | ✗ | 本维度得分 0-100 |
 | `detail` | JSONB | ✓ | 打分细节 JSON，供报告/复盘 |
 
-**唯一约束**：`(trade_date, ts_code, strategy, dim)` → `uq_filter_score_key`（v2.4 调整：加入 `strategy`）
-**索引**：`(trade_date, dim)`
+**唯一约束**：`(trade_date, strategy, ts_code, dim)` → `uq_filter_score_key`（v2.4 调整：加入 `strategy`）
+**索引**：`(trade_date, strategy, dim)`
 
-### `ai_analysis` — Claude AI 分析结果（Phase 3 启用）
+### `ai_analysis` — Claude AI 分析结果
 
 每天每股至多 1 行。
 
@@ -434,7 +436,7 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 | `cache_creation_tokens` / `cache_read_tokens` | INT | ✓ | prompt cache 写/读 token |
 | `created_at` | TIMESTAMPTZ | ✗ | 入库时间 |
 
-**唯一约束**：`(trade_date, ts_code, strategy)` → `uq_ai_analysis_key`（v2.4 调整：加入 `strategy`）
+**唯一约束**：`(trade_date, strategy, ts_code)` → `uq_ai_analysis_key`（v2.4 调整：加入 `strategy`）
 
 ### `selection_result` — 最终选股结果
 
@@ -448,14 +450,14 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 | `strategy` | VARCHAR(20) | ✗ | 策略标识（**v2.4 新增**，server default `'short'`） |
 | `rank` | INT | ✗ | TOP N 排名（1 最强）；未入选填 `0` |
 | `rule_score` | NUMERIC(5,2) | ✗ | 规则层综合分 0-100 |
-| `ai_score` | NUMERIC(5,2) | ✓ | AI 层综合分 0-100；Phase 3 前 NULL |
-| `final_score` | NUMERIC(5,2) | ✗ | 最终分（Phase 1: = rule；Phase 3: rule*0.6+ai*0.4） |
+| `ai_score` | NUMERIC(5,2) | ✓ | AI 层综合分 0-100；skip-ai、swing AI 未接入或调用失败时为 NULL |
+| `final_score` | NUMERIC(5,2) | ✗ | 最终分；AI 缺失时等于 rule_score，否则按综合层权重融合 rule_score 与 ai_score |
 | `picked` | BOOLEAN | ✗ | 是否入选 TOP N |
 | `reject_reason` | VARCHAR(200) | ✓ | 硬规则淘汰原因；入选时 NULL |
 | `created_at` | TIMESTAMPTZ | ✗ | 入库时间 |
 
-**唯一约束**：`(trade_date, ts_code, strategy)` → `uq_selection_key`（v2.4 调整：加入 `strategy`）
-**索引**：`(trade_date, rank)`
+**唯一约束**：`(trade_date, strategy, ts_code)` → `uq_selection_key`（v2.4 调整：加入 `strategy`）
+**索引**：`(trade_date, strategy, rank)`
 
 ---
 

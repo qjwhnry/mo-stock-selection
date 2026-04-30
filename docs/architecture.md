@@ -1,7 +1,7 @@
 # mo-stock-selection 架构与调用链路
 
 > 当前版本：**v2.4**（2026-04-30 波段策略 Phase 0-2 已实现）
-> 双策略：**short**（6 维短线）+ **swing**（7 维波段 + market_regime 组合层控制）
+> 双策略：**short**（5 个已实现短线维度 + sentiment 预留权重）+ **swing**（7 维波段 + market_regime 组合层控制）
 > 数据库表：**24 张**（+ swing_position；结果三表加 strategy 字段隔离）
 
 ---
@@ -52,7 +52,7 @@
 │                    数据访问层 (storage)                             │
 │   ┌──────────────────┐    ┌────────────────────────────────────┐   │
 │   │  models.py       │    │  repo.py                           │   │
-│   │  23 张表 ORM     │◀───│  upsert_*  /  get_*  helpers       │   │
+│   │  24 张表 ORM     │◀───│  upsert_*  /  get_*  helpers       │   │
 │   │  (v2.1: +6 张)   │    │  conflict_cols 主键对齐校验        │   │
 │   └──────────────────┘    └────────────────────────────────────┘   │
 │   ┌──────────────────────────────────────────────────────────┐    │
@@ -87,13 +87,15 @@ cli.py:run_once()
 │
 ├─ DailyIngestor().ingest_one_day(td, skip_enhanced=False)
 │  │
-│  ├─ CORE 步骤 (6) ─────────────────────────────
+│  ├─ CORE 步骤 (7) ─────────────────────────────
 │  │  ├─ ingest_daily_kline  ──→ TushareClient.daily()       ──→ daily_kline
 │  │  ├─ ingest_daily_basic  ──→ TushareClient.daily_basic() ──→ daily_basic
 │  │  ├─ ingest_limit_list   ──→ TushareClient.limit_list_d()──→ limit_list
 │  │  ├─ ingest_moneyflow    ──→ TushareClient.moneyflow()   ──→ moneyflow
 │  │  ├─ ingest_lhb          ──→ TushareClient.top_list()    ──→ lhb
-│  │  └─ ingest_sw_daily     ──→ TushareClient.sw_daily()    ──→ sw_daily
+│  │  ├─ ingest_sw_daily     ──→ TushareClient.sw_daily()    ──→ sw_daily
+│  │  └─ ingest_index_daily  ──→ TushareClient.index_daily() ──→ daily_kline
+│  │                                      （沪深 300 + 上证指数，供 swing regime 使用）
 │  │
 │  └─ ENHANCED 步骤 (5, v2.1 新) ────────────────
 │     ├─ ingest_ths_daily        ──→ ths_daily()        ──→ ths_daily
@@ -140,7 +142,7 @@ cli.py:run_once()
 
 | 命令 | 入口 | 核心调用 |
 |------|------|---------|
-| `init-db` | cli.init_db | `Base.metadata.create_all(engine)` 一键建 23 张表 |
+| `init-db` | cli.init_db | `Base.metadata.create_all(engine)` 一键建 24 张表 |
 | `refresh-basics [--with-ths] [--with-hm-list]` | cli.refresh_basics | refresh_stock_basic / refresh_index_member / refresh_ths_concept / refresh_hot_money_list |
 | `refresh-cal --start ...` | cli.refresh_cal | refresh_trade_cal（年度刷一次） |
 | `backfill --days 180` | cli.backfill | DailyIngestor.backfill 按日循环跑 ingest_one_day |
@@ -171,7 +173,7 @@ cli.py:run_once()
 
 ## 4. 权重融合（核心评分公式）
 
-### short 策略（6 维度，`config/weights.yaml`）
+### short 策略（5 个已实现维度 + sentiment 预留权重，`config/weights.yaml`）
 
 ```
 final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
@@ -185,6 +187,9 @@ final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
 | `sector` 申万行业 | 0.10 | sw_daily + index_member | 0-100 |
 | `theme` 题材 | 0.10 | ths_daily + limit_concept + cmf | 0-100 |
 | `sentiment` 情绪 | 0.10 | （未实现）| — |
+
+说明：`dimension_weights` 保留 6 个权重项且总和为 1.0；当前 `run_once` 只运行前 5 个
+filter，`sentiment` 缺失时按 0 分进入固定分母公式，因此 short 纯规则理论上限为 90。
 
 ### swing 策略（7 维度，`config/weights_swing.yaml`）
 

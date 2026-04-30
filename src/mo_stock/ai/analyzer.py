@@ -63,7 +63,9 @@ def analyze_stock_with_ai(
         session: SQLAlchemy session（读 stock_basic / daily_kline + 写 ai_analysis）
         ts_code: 股票代码，如 "600519.SH"
         trade_date: 选股交易日
-        rule_dim_scores: 该股 5 维度得分 {dim: ScoreResult}（来自 filter_score_daily）
+        rule_dim_scores: 该股已命中的规则维度得分 {dim: ScoreResult}（来自 filter_score_daily）。
+            当前 AI prompt 面向 short 策略，通常包含 limit / moneyflow / lhb / sector /
+            theme 的子集；sentiment 未接入时不会出现。
 
     Returns:
         StockAiAnalysis 对象（成功）或 None（任何失败：API 错、JSON 错、schema 错）
@@ -125,8 +127,9 @@ def analyze_stock_with_ai(
 def _build_static_for_stock(session: Session, ts_code: str) -> str:
     """从 DB 拿股票静态背景，构造 static_stock prompt。
 
-    简化版：暂只取 stock_basic 字段；K 线/公告摘要留空（占位 "（无）"）。
-    Phase 3+ 可补齐 30 日 K 线统计与公告抽取。
+    当前只取 stock_basic 字段；K 线/公告摘要留空，由 prompt 模板显式写成"无摘要"。
+    这样做是为了避免在 news_raw / anns_raw 尚未稳定接入 sentiment 前，把不完整新闻
+    当作 AI 分析依据。后续接入 sentiment 或公告摘要时，应在这里集中补上下游上下文。
     """
     basic = session.get(StockBasic, ts_code)
     return build_static_stock_prompt(
@@ -145,7 +148,7 @@ def _build_dynamic_for_stock(
     trade_date: date,
     rule_dim_scores: dict[str, ScoreResult],
 ) -> str:
-    """从 DB 拿当日行情快照 + 5 维度 detail，构造 dynamic_stock prompt。"""
+    """从 DB 拿当日行情快照 + 已命中规则维度 detail，构造 dynamic_stock prompt。"""
     kline = session.get(DailyKline, (ts_code, trade_date))
     close = kline.close if kline else None
     pct_chg = kline.pct_chg if kline else None

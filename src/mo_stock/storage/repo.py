@@ -1,7 +1,8 @@
-"""仓储层：统一的读取方法，供 filters / ai / report 调用。
+"""仓储层：统一的数据访问方法，供 ingest / filters / ai / report / backtest 调用。
 
 **重要约定**：
-- ingest 层是唯一写入方；repo 主要暴露**读方法**，写方法只给 ingest 用（以 `upsert_` 前缀区分）。
+- 写入入口集中在 `upsert_` / `replace_` 风格函数，避免各模块散落手写 DML。
+- 常规业务模块优先使用读方法；ingest、AI 落库和回测持仓等写入流程通过 repo 统一处理。
 - 所有方法接受 Session 作为第一个参数，便于在同一事务内批量调用。
 """
 from __future__ import annotations
@@ -282,7 +283,7 @@ def get_anns_for_stock(
 
 
 # ========================================================================
-# 写方法（仅 ingest 使用）
+# 通用写方法
 # ========================================================================
 
 def upsert_rows(
@@ -393,7 +394,7 @@ def upsert_sw_daily(session: Session, rows: Iterable[dict[str, Any]]) -> int:
 
 
 # ========================================================================
-# v2.1 plan：题材增强表 + 龙虎榜席位明细 upsert
+# 题材增强表 + 龙虎榜席位 / 游资明细 upsert
 # ========================================================================
 
 def upsert_ths_daily(session: Session, rows: Iterable[dict[str, Any]]) -> int:
@@ -439,7 +440,7 @@ def upsert_ai_analysis(session: Session, rows: Iterable[dict[str, Any]]) -> int:
 
 
 # ========================================================================
-# v2.1 plan：ThemeFilter / LhbFilter 读取 helpers
+# ThemeFilter / LhbFilter 读取 helpers
 # ========================================================================
 
 def get_top_ths_themes(session: Session, trade_date: date, n: int = 10) -> list[ThsDaily]:

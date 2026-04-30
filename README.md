@@ -1,41 +1,34 @@
 # mo-stock-selection
 
-> ⚠️ **本 README 部分内容已过期（2026-04-26 起）**
->
-> 项目从 v2.1 起把"题材增强"从 sector 维度拆出独立 `theme` 维度，规则层从 **5 维**升级为 **6 维**（limit / moneyflow / lhb / sector / **theme** / sentiment），LhbFilter 改为 base 60 + seat 40 双层结构。
->
-> **当前架构与调用链路请看 → [docs/architecture.md](docs/architecture.md)**
-> 评分公式与维度细则 → [docs/scoring.md](docs/scoring.md)
-> CLI 完整手册 → [docs/cli.md](docs/cli.md)
->
-> 本 README 下方的"5 个分析维度"和"架构概览"小节描述的是 v1 状态，仅作历史参考。后续会择机重写本 README 与新架构对齐。
+**A 股每日批量选股系统** —— 支持 `short` 短线选股与 `swing` 波段选股，共享数据层，
+通过 `strategy` 字段隔离评分、AI 分析和报告结果。
 
----
-
-**A 股每日批量选股系统** —— 5 维度规则快筛 + Claude AI 深度分析。
+当前架构与调用链路请看 [docs/architecture.md](docs/architecture.md)，评分公式与维度细则请看
+[docs/scoring.md](docs/scoring.md)，CLI 完整手册请看 [docs/cli.md](docs/cli.md)。
 
 ## 核心目标
 
-每个交易日收盘（15:30）后自动运行，从全市场综合分析 5 个维度，产出**次日短线（1–3 交易日）候选股清单** + 每只股票的裁决理由、建议入场价、止损位。
+每个交易日收盘（15:30）后自动运行，从全市场综合分析候选股，产出**短线（1-3 交易日）**
+或**波段（5-20 交易日）**候选清单，并为每只入选股票生成规则证据、AI 论点（如启用）、
+建议入场价、止损位和风险提示。
 
 **本项目仅做选股与报告，不接券商、不自动下单。**
 
-## 5 个分析维度
+## 策略与维度
 
-1. **龙虎榜**（Tushare `top_list` / `top_inst`）
-2. **异动涨停**（Tushare `limit_list_d`）
-3. **主力资金流向**（Tushare `moneyflow`）
-4. **板块 / 行业**（Tushare `sw_daily` + `ths_member`）
-5. **情绪**（Tushare `news` / `anns_d` + GTHT 研报）
+| 策略 | 周期 | 当前执行维度 | 说明 |
+|------|------|--------------|------|
+| `short` | 1-3 交易日 | 5 个已实现维度：`limit` / `moneyflow` / `lhb` / `sector` / `theme` | `sentiment` 权重仍保留在配置中，但 SentimentFilter 尚未接入，因此当前按 0 分处理 |
+| `swing` | 5-20 交易日 | 7 个维度：`trend` / `pullback` / `moneyflow_swing` / `sector_swing` / `theme_swing` / `catalyst` / `risk_liquidity` | 额外使用 `market_regime` 做组合层仓位与入选数量控制 |
 
 ## 架构概览
 
 ```
 调度层 (APScheduler 15:30)
   └─→ ingest (Tushare + GTHT) → PostgreSQL
-        └─→ filters (5 维度规则打分) → TOP 50
-              └─→ ai.analyzer (Claude + prompt cache)
-                    └─→ scorer (rule × 0.6 + ai × 0.4)
+        └─→ filters (按 strategy 选择短线或波段规则层) → TOP 候选
+              └─→ ai.analyzer (short 可选 Claude + prompt cache；swing 目前自动跳过 AI)
+                    └─→ scorer (AI 缺失时 final_score = rule_score；AI 存在时按权重融合)
                           └─→ report (Markdown + JSON)
 ```
 
@@ -79,7 +72,7 @@ src/mo_stock/
 ├── data_sources/     # Tushare + GTHT 客户端封装
 ├── storage/          # SQLAlchemy models + repo
 ├── ingest/           # 数据采集 → 落 PG
-├── filters/          # 5 维度规则打分
+├── filters/          # short 5 个已实现维度 + swing 7 维规则打分
 ├── ai/               # Claude 分析 + prompt cache
 ├── scorer/           # 规则 + AI 融合
 ├── report/           # Markdown / JSON 输出
@@ -108,14 +101,13 @@ pylint src               # 质量检查
 
 ## 数据库结构
 
-14 张表的结构、字段类型、NULL 约束、索引、保留策略：**[docs/schema.md](docs/schema.md)**
+24 张表的结构、字段类型、NULL 约束、索引、保留策略：**[docs/schema.md](docs/schema.md)**
 
-## 分期路线
+## 当前缺口
 
-- **Phase 1 MVP**：PG + Tushare + 涨停/资金 2 维度 + MD 报告（本阶段）
-- **Phase 2**：补齐龙虎榜 / 板块 / 情绪 3 维度 + 权重热调
-- **Phase 3**：接 Claude + 4 段 prompt cache + APScheduler
-- **Phase 4**：回测模块（T+1/T+3 胜率、期望收益、最大回撤）
+- `short` 的 `sentiment` 维度仍是预留权重，尚未实现独立 SentimentFilter。
+- `swing` 规则层和回测已接入，AI prompt 仍未接入；CLI / scheduler 会自动跳过 swing AI。
+- 波段阈值仍需用历史回测继续校准，再决定是否进入实盘提示和 AI 增强阶段。
 
 ## 数据策略
 

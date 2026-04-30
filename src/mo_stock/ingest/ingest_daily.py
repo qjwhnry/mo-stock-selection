@@ -1,17 +1,15 @@
 """每日行情数据采集：从 Tushare 拉取当日/历史数据并 upsert 到 PG。
 
-**Phase 1 MVP 覆盖的表**：
-- stock_basic（基础，周度刷新）
-- trade_cal（交易日历，月度刷新）
-- daily_kline（日线 OHLCV）
-- index_daily（指数日线，写入 daily_kline）
-- daily_basic（换手 / PE / PB / 市值）
-- limit_list（涨停列表）
-- moneyflow（主力资金流向）
-- lhb（龙虎榜上榜股，仅 top_list；席位明细 top_inst 待 Phase 2）
-- sw_daily（申万一级板块日线）
+当前数据分三类：
+- 低频元数据：stock_basic / trade_cal / index_member / ths_index / ths_member /
+  hot_money_list，通过 refresh-* 命令周度、月度或按需刷新。
+- CORE 日频数据：daily_kline（含个股日线和指数日线）/ daily_basic / limit_list /
+  moneyflow / lhb / sw_daily，是 short 与 swing 两类策略共同依赖的基础输入。
+- ENHANCED 日频数据：ths_daily / limit_concept_daily / ths_concept_moneyflow /
+  lhb_seat_detail / hot_money_detail，用于题材强度和龙虎榜席位结构加分。
 
-**Phase 2 会增加**：top_inst（lhb 席位明细 → seat 字段）、news_raw、anns_raw。
+注意：news_raw / anns_raw / research_report 模型已经存在，但当前日频 ingest 尚未接入。
+这些表主要服务未来 sentiment 维度或更完整的 AI 上下文，不应在当前 pipeline 中假设有数据。
 
 **使用**：
     ingestor = DailyIngestor()

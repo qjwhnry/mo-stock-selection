@@ -5,7 +5,8 @@ StockAiAnalysis 是 Claude 单股分析的 pydantic 输出 schema：
 - ts_code 严格正则校验（防 AI 幻觉）
 - 字段越界 → ValidationError → analyzer 层重试 1 次
 
-落库时映射到 AiAnalysis ORM 表字段，见 v2.1 plan §2.1 映射表（不在本模块负责）。
+落库时映射到 AiAnalysis ORM 表字段，映射逻辑集中在 analyzer._upsert_ai_analysis；
+schema 只负责校验 AI 输出形状，不直接依赖数据库模型。
 """
 from __future__ import annotations
 

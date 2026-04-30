@@ -246,7 +246,7 @@ def backfill(days: int, end: str | None) -> None:
 @click.option("--date", "date_str", default=None, help="选股日 YYYY-MM-DD，默认今日")
 @click.option("--skip-ingest", is_flag=True, help="跳过数据拉取步骤（用于已经有数据时的重算）")
 @click.option("--skip-enhanced", is_flag=True, help="只跑 CORE ingest，跳过题材/席位增强（5 步）")
-@click.option("--skip-ai", is_flag=True, help="跳过 AI 分析（v2.2）；行为等同 v2.1 纯规则模式")
+@click.option("--skip-ai", is_flag=True, help="跳过 AI 分析；final_score 直接使用 rule_score")
 @click.option("--strategy", default="short", show_default=True, help="策略：short / swing")
 @click.option("--force", is_flag=True, help="允许在非交易日运行（默认会拒绝）")
 def run_once(
@@ -256,7 +256,7 @@ def run_once(
     """对指定交易日跑一次端到端选股流程：ingest → filter → combine [+ AI] → report。"""
     strategy = _validate_strategy(strategy)
     if strategy == "swing" and not skip_ai:
-        logger.warning("swing AI prompt 尚未接入（Phase 4），本次自动跳过 AI")
+        logger.warning("swing AI prompt 尚未接入，本次自动跳过 AI，final_score 将使用规则分")
         skip_ai = True
     trade_date = _parse_date(date_str) if date_str else date.today()
     _ensure_trade_date(trade_date, force=force, kind="run-once")
@@ -318,6 +318,8 @@ def run_once(
         )
 
         # ---------- 4. 综合打分 + AI（可选）+ 硬规则 ----------
+        # short 可选择启用 Claude AI；swing 当前强制 skip_ai。
+        # combine_scores 内部会在 ai_score 缺失时回退为 rule_score，保证报告始终有 final_score。
         combine_scores(
             session,
             trade_date,
@@ -437,7 +439,7 @@ def backtest(strategy: str, start: str, end: str, top_n: int) -> None:
 
 @cli.command("scheduler")
 @click.option("--skip-enhanced", is_flag=True, help="scheduler 每日任务跳过 ENHANCED ingest（5 步）")
-@click.option("--skip-ai", is_flag=True, help="scheduler 每日任务跳过 AI 分析（行为等同 v2.1）")
+@click.option("--skip-ai", is_flag=True, help="scheduler 每日任务跳过 AI 分析，final_score 使用 rule_score")
 @click.option("--strategy", default="short", show_default=True, help="策略：short / swing")
 def scheduler(skip_enhanced: bool, skip_ai: bool, strategy: str) -> None:
     """启动常驻调度：每个交易日 15:30 自动跑 run-once。"""

@@ -69,7 +69,7 @@ def run_daily_pipeline(
     skip_ai: bool = False,
     strategy: str = "short",
 ) -> None:
-    """v2.2 端到端流程（与 cli.run_once 内部一致）。
+    """每日端到端流程（与 cli.run_once 内部一致）。
 
     P1-18：顶层 try-except 捕获并 logger.exception 记录完整堆栈，避免 APScheduler
     默认行为吞掉异常导致排查困难。
@@ -77,7 +77,7 @@ def run_daily_pipeline(
     Args:
         trade_date: 目标交易日，None 取当天
         skip_enhanced: True 时只跑 CORE ingest 步骤
-        skip_ai: True 时跳过 combine_scores 的 AI 阶段，行为等同 v2.1
+        skip_ai: True 时跳过 combine_scores 的 AI 阶段，final_score 直接使用 rule_score
         strategy: 策略标识，支持 short / swing
     """
     from config.settings import settings
@@ -85,7 +85,7 @@ def run_daily_pipeline(
     trade_date = trade_date or date.today()
     strategy = _validate_strategy(strategy)
     if strategy == "swing" and not skip_ai:
-        logger.warning("swing AI prompt 尚未接入（Phase 4），scheduler 本次自动跳过 AI")
+        logger.warning("swing AI prompt 尚未接入，scheduler 本次自动跳过 AI")
         skip_ai = True
     logger.info(
         "===== 每日定时任务触发：{} strategy={} (skip_enhanced={} skip_ai={}) =====",
