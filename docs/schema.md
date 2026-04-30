@@ -10,7 +10,7 @@
 
 ## 总览
 
-按用途分 7 大类 **23 张表**（v2.1 后）：
+按用途分 7 大类 **24 张表**（v2.4 后）：
 
 | 类别 | 表 | 条数级别 | 保留策略 |
 |------|----|--------|---------|
@@ -22,6 +22,7 @@
 | 龙虎榜席位（v2.1 新） | `lhb_seat_detail`, `hot_money_detail` | 日×百级 | **180 天滚动** |
 | 情绪 | `news_raw`, `anns_raw`, `research_report` | 日×千级 | **180 天滚动** |
 | 结果 | `filter_score_daily`, `ai_analysis`, `selection_result` | 日×N | **永久**（供回测） |
+| 波段策略（v2.4 新） | `swing_position` | 日×百级 | **按需清理**（回测按 run_id 删除） |
 
 **v2.1 schema 关键变更**：
 - DROP `lhb.seat` JSONB 字段（席位明细搬到独立表 `lhb_seat_detail`，PK 含 `seat_key=sha1(...)` 内容寻址，避免 top_inst 重跑顺序变化导致脏数据漂移）
@@ -393,6 +394,8 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 
 ## 6. 结果表（永久保留，供回测）
 
+> **v2.4 变更**：`filter_score_daily` / `ai_analysis` / `selection_result` 三表均新增 `strategy` 字段（`VARCHAR(20) DEFAULT 'short'`），唯一键调整为包含 `strategy`，支持短线/波段策略并行。
+
 ### `filter_score_daily` — 规则层逐维度打分
 
 每天每股最多 **6 行**（v2.1 后：`limit`/`moneyflow`/`lhb`/`sector`/`theme`/`sentiment`）。
@@ -402,11 +405,12 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 | `id` | INT | **PK** | 自增 |
 | `trade_date` | DATE | ✗ | 评分对应的交易日 |
 | `ts_code` | VARCHAR(12) | ✗ | 股票代码 |
+| `strategy` | VARCHAR(20) | ✗ | 策略标识（**v2.4 新增**，server default `'short'`） |
 | `dim` | VARCHAR(20) | ✗ | 维度标识，**6 选 1**（v2.1 新增 theme） |
 | `score` | FLOAT | ✗ | 本维度得分 0-100 |
 | `detail` | JSONB | ✓ | 打分细节 JSON，供报告/复盘 |
 
-**唯一约束**：`(trade_date, ts_code, dim)` → `uq_filter_score_key`
+**唯一约束**：`(trade_date, ts_code, strategy, dim)` → `uq_filter_score_key`（v2.4 调整：加入 `strategy`）
 **索引**：`(trade_date, dim)`
 
 ### `ai_analysis` — Claude AI 分析结果（Phase 3 启用）
@@ -418,6 +422,7 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 | `id` | INT | **PK** | 自增 |
 | `trade_date` | DATE | ✗ | 分析对应的交易日 |
 | `ts_code` | VARCHAR(12) | ✗ | 股票代码 |
+| `strategy` | VARCHAR(20) | ✗ | 策略标识（**v2.4 新增**，server default `'short'`） |
 | `ai_score` | INT | ✗ | AI 给出的 0-100 综合分 |
 | `thesis` | TEXT | ✗ | 投资逻辑核心陈述 |
 | `key_catalysts` | JSONB | ✓ | 关键催化剂数组 |
@@ -429,7 +434,7 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 | `cache_creation_tokens` / `cache_read_tokens` | INT | ✓ | prompt cache 写/读 token |
 | `created_at` | TIMESTAMPTZ | ✗ | 入库时间 |
 
-**唯一约束**：`(trade_date, ts_code)` → `uq_ai_analysis_key`
+**唯一约束**：`(trade_date, ts_code, strategy)` → `uq_ai_analysis_key`（v2.4 调整：加入 `strategy`）
 
 ### `selection_result` — 最终选股结果
 
@@ -440,6 +445,7 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 | `id` | INT | **PK** | 自增 |
 | `trade_date` | DATE | ✗ | 选股目标交易日 |
 | `ts_code` | VARCHAR(12) | ✗ | 股票代码 |
+| `strategy` | VARCHAR(20) | ✗ | 策略标识（**v2.4 新增**，server default `'short'`） |
 | `rank` | INT | ✗ | TOP N 排名（1 最强）；未入选填 `0` |
 | `rule_score` | NUMERIC(5,2) | ✗ | 规则层综合分 0-100 |
 | `ai_score` | NUMERIC(5,2) | ✓ | AI 层综合分 0-100；Phase 3 前 NULL |
@@ -448,7 +454,7 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 | `reject_reason` | VARCHAR(200) | ✓ | 硬规则淘汰原因；入选时 NULL |
 | `created_at` | TIMESTAMPTZ | ✗ | 入库时间 |
 
-**唯一约束**：`(trade_date, ts_code)` → `uq_selection_key`
+**唯一约束**：`(trade_date, ts_code, strategy)` → `uq_selection_key`（v2.4 调整：加入 `strategy`）
 **索引**：`(trade_date, rank)`
 
 ---
@@ -480,3 +486,43 @@ psql 内：`\d+ daily_kline`
 - Engine/Session：[src/mo_stock/storage/db.py](../src/mo_stock/storage/db.py)
 - 建表 CLI：`mo-stock init-db`（见 [docs/cli.md](cli.md)）
 - 同步注释：`mo-stock apply-comments`
+
+---
+
+## swing_position（波段持仓状态）
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | SERIAL PK | 自增主键 |
+| mode | VARCHAR(20) | 运行模式：backtest / live |
+| backtest_run_id | VARCHAR(36) | 回测批次 ID（mode=backtest 时填写） |
+| trade_date | DATE | 记录日期 |
+| ts_code | VARCHAR(12) | 股票代码 |
+| status | VARCHAR(20) | 持仓状态：watching / holding / stopped / exited |
+| entry_price | FLOAT | 入场价 |
+| entry_date | DATE | 入场日期 |
+| stop_loss_price | FLOAT | 当前止损价 |
+| target_price | FLOAT | 目标价 |
+| atr_at_entry | FLOAT | 入场时 ATR(20) |
+| max_price | FLOAT | 持仓期最高价 |
+| pnl_pct | FLOAT | 当前浮动盈亏 % |
+| exit_reason | VARCHAR(50) | 退出原因 |
+| holding_days | INT | 持仓交易日数 |
+| detail | JSONB | 补充信息 |
+
+索引：
+- `(mode, trade_date)`
+- `(backtest_run_id)`
+
+查询隔离：始终带 `WHERE mode = 'backtest'` 或 `WHERE mode = 'live'`。
+回测清理：`DELETE WHERE mode='backtest' AND backtest_run_id = ?`
+
+### v2.4 schema 变更说明
+
+Alembic migration: `alembic/versions/20260430_strategy_swing_phase0.py`
+
+变更内容：
+1. `selection_result` / `filter_score_daily` / `ai_analysis` 三表增加 `strategy` 字段（server default 'short'）
+2. 历史数据回填为 'short'
+3. 唯一键调整为包含 strategy
+4. 新建 `swing_position` 表

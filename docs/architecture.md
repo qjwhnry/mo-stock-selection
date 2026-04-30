@@ -1,8 +1,8 @@
 # mo-stock-selection 架构与调用链路
 
-> 当前版本：**v2.2**（2026-04-26 完成 AI 层接入后）
-> 维度数：**6 维规则 + AI 融合**（limit / moneyflow / lhb / sector / theme / sentiment + Claude AI score）
-> 数据库表：**23 张**（基础 6 + 行情 3 + 异动 3 + 题材 3 + 龙虎榜席位 2 + 情绪 3 + 结果 3，含 ai_analysis 已启用）
+> 当前版本：**v2.4**（2026-04-30 波段策略 Phase 0-2 已实现）
+> 双策略：**short**（6 维短线）+ **swing**（7 维波段 + market_regime 组合层控制）
+> 数据库表：**24 张**（+ swing_position；结果三表加 strategy 字段隔离）
 
 ---
 
@@ -24,21 +24,25 @@
 │                   业务编排层 (run-once 流程)                         │
 │                                                                    │
 │  1. ingest    → DailyIngestor.ingest_one_day(skip_enhanced=...)    │
-│                  ├─ CORE 6 步 (kline/basic/limit/moneyflow/lhb/sw) │
+│                  ├─ CORE 7 步 (kline/basic/limit/moneyflow/lhb/sw/│
+│                  │              index_daily 沪深300+上证指数)       │
 │                  └─ ENHANCED 5 步 (ths/limit_concept/cmf/inst/hm)  │
 │                                                                    │
-│  2. score     → 5 个 Filter.score_all() 并行打分（逻辑独立）       │
-│                  LimitFilter, MoneyflowFilter, LhbFilter,          │
-│                  SectorFilter, ThemeFilter (v2.1 新)               │
+│  2. score     → 按 strategy 选择 filter 集合                      │
+│                  short: Limit/Moneyflow/Lhb/Sector/Theme (5 维)    │
+│                  swing: Trend/Pullback/MoneyflowSwing/SectorSwing/ │
+│                        ThemeSwing/Catalyst/RiskLiquidity (7 维)    │
+│                  swing 额外: MarketRegimeFilter → regime_score     │
 │                                                                    │
-│  3. persist   → replace_filter_scores → filter_score_daily 表     │
-│                  (v2.3：DELETE+INSERT 同 trade_date+dim，避免脏数据)│
+│  3. persist   → replace_filter_scores(strategy=...)               │
+│                  按 strategy 隔离，重跑不互相干扰                   │
 │                                                                    │
-│  4. combine   → combine_scores                                     │
+│  4. combine   → combine_scores(strategy=..., regime_score=...)    │
 │                  ├─ _weighted_combine（固定分母 1.0）              │
 │                  ├─ _build_hard_reject_map（硬规则）               │
-│                  ├─ 板块多样化 cap（v2.3：每板块 ≤ 4 只）          │
-│                  └─ DELETE+INSERT selection_result（每日全量替换） │
+│                  ├─ swing: regime 分档 → top_n / position_scale   │
+│                  ├─ 板块多样化 cap（每板块 ≤ 4 只）                │
+│                  └─ DELETE+INSERT selection_result（按 strategy） │
 │                                                                    │
 │  5. report    → render_daily_report → MD + JSON 文件               │
 └────────────────────────────────────────────────────────────────────┘
@@ -145,17 +149,18 @@ cli.py:run_once()
 
 ---
 
-## 3. 数据库表分类（20 张）
+## 3. 数据库表分类（24 张）
 
-| 类别 | 表 | 来源 | v2.1 增量 |
+| 类别 | 表 | 来源 | v2.4 增量 |
 |------|----|----|----------|
-| **基础元数据**（周/月刷新） | `stock_basic` `trade_cal` `index_member` `ths_index` `ths_member` `hot_money_list` | refresh-basics | +1（hot_money_list） |
-| **日频行情**（每日） | `daily_kline` `daily_basic` `sw_daily` | run-once CORE | — |
+| **基础元数据**（周/月刷新） | `stock_basic` `trade_cal` `index_member` `ths_index` `ths_member` `hot_money_list` | refresh-basics | — |
+| **日频行情**（每日） | `daily_kline` `daily_basic` `sw_daily` | run-once CORE | daily_kline 含指数日线 |
 | **日频异动**（每日） | `limit_list` `lhb` `moneyflow` | run-once CORE | — |
-| **日频题材**（v2.1 新增） | `ths_daily` `limit_concept_daily` `ths_concept_moneyflow` | run-once ENHANCED | +3 |
-| **日频龙虎榜席位**（v2.1 新增） | `lhb_seat_detail` `hot_money_detail` | run-once ENHANCED | +2 |
-| **日频情绪** | `news_raw` `anns_raw` `research_report` | 待 Phase 2 接入 | — |
-| **结果表**（永久保留） | `filter_score_daily` `selection_result` `ai_analysis` | scorer 输出 | — |
+| **日频题材** | `ths_daily` `limit_concept_daily` `ths_concept_moneyflow` | run-once ENHANCED | — |
+| **日频龙虎榜席位** | `lhb_seat_detail` `hot_money_detail` | run-once ENHANCED | — |
+| **日频情绪** | `news_raw` `anns_raw` `research_report` | 待接入 | — |
+| **结果表**（永久保留） | `filter_score_daily` `selection_result` `ai_analysis` | scorer 输出 | **+strategy 字段** |
+| **波段持仓**（v2.4 新增） | `swing_position` | backtest / 实盘 | +1（mode 区分回测/实盘） |
 
 **v2.1 schema 关键变更**：
 - `Lhb.seat` JSONB 字段 DROP（v2.1 alembic migration `20260426_theme_lhb_v21.py`）
@@ -164,7 +169,9 @@ cli.py:run_once()
 
 ---
 
-## 4. 6 维度权重融合（核心评分公式）
+## 4. 权重融合（核心评分公式）
+
+### short 策略（6 维度，`config/weights.yaml`）
 
 ```
 final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
@@ -173,11 +180,31 @@ final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
 | 维度 | 权重 | 数据源 | 上限设计 |
 |------|------|--------|---------|
 | `limit` 涨停 | 0.25 | limit_list | 0-100 |
-| `moneyflow` 资金流 | 0.25 | moneyflow + daily_kline.amount | 0-100（today 50 + ratio 30 + rolling 20）|
-| `lhb` 龙虎榜 | 0.20 | lhb + **lhb_seat_detail** | **base 60 + seat 40** ⭐v2.1 重排 |
+| `moneyflow` 资金流 | 0.25 | moneyflow + daily_kline.amount | 0-100 |
+| `lhb` 龙虎榜 | 0.20 | lhb + lhb_seat_detail | base 60 + seat 40 |
 | `sector` 申万行业 | 0.10 | sw_daily + index_member | 0-100 |
-| `theme` 题材 ⭐v2.1 新 | 0.10 | ths_daily + limit_concept + cmf | 0-100（取最高概念加分）|
+| `theme` 题材 | 0.10 | ths_daily + limit_concept + cmf | 0-100 |
 | `sentiment` 情绪 | 0.10 | （未实现）| — |
+
+### swing 策略（7 维度，`config/weights_swing.yaml`）
+
+```
+final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
+```
+
+| 维度 | 权重 | 数据源 | 说明 |
+|------|------|--------|------|
+| `trend` 趋势结构 | 0.27 | daily_kline | MA 多头 + 量价确认 |
+| `pullback` 回踩承接 | 0.13 | daily_kline | 趋势内回撤 + 重新转强 |
+| `moneyflow_swing` 波段资金 | 0.20 | moneyflow | 5/10 日资金持续性 |
+| `sector_swing` 行业持续性 | 0.13 | sw_daily + index_member + moneyflow 聚合 | 行业多日强度 |
+| `theme_swing` 题材持续性 | 0.09 | ths_daily + ths_concept_moneyflow | 题材多日排名 |
+| `catalyst` 短线催化 | 0.08 | limit_list + lhb | 断板反包 + 龙虎榜 |
+| `risk_liquidity` 风险流动性 | 0.10 | daily_kline + daily_basic | 加分制质量分 |
+
+**market_regime 组合层控制**（不进入单股权重）：
+根据沪深 300 MA 趋势 + 涨跌家数计算 regime_score（0-100），分档控制
+`top_n`（3-20）、`position_scale`（0.2-1.0）、`min_final_score`（30）。
 
 **关键原则**：缺失维度按 0 计入分子，分母固定 1.0 → 严惩单维霸榜，奖励多维共振。
 
@@ -215,13 +242,13 @@ score(stock) = max over concepts of:
 ## 5. 架构亮点
 
 1. **分层清晰**：data_source → ingest → storage → filter（只读） → scorer → report，**filter 不直接调外部 API**
-2. **5 个 filter 完全独立**：score_all 间无依赖，可水平并行
+2. **双策略隔离**：short / swing 共享数据层，评分逻辑、权重、报告、结果表通过 `strategy` 字段完全隔离
 3. **固定分母综合分**：避免单维度极端分霸榜
 4. **CORE/ENHANCED 分组**：题材/席位增强可一键 skip（`--skip-enhanced`），限速场景兜底
 5. **席位明细 SHA1 主键**：top_inst 重跑顺序变化不会脏数据漂移
-6. **配置热调**：6 维权重 / 各 filter 阈值都在 [config/weights.yaml](../config/weights.yaml)，不改代码即可调
-7. **AI 层留位**：`_final_score_from(rule, ai)` 已有显式分支，Phase 3 接入只需补 `ai/` 目录
-8. **测试覆盖**：317 unit + integration tests（v2.1 后），含 sqlite_session 共享 fixture（自动 patch JSONB→JSON）
+6. **配置热调**：权重 / 阈值 / regime 分档都在 yaml，不改代码即可调
+7. **回测隔离**：swing_position 通过 `mode + backtest_run_id` 区分回测和实盘
+8. **测试覆盖**：388 unit + integration tests，含 sqlite_session 共享 fixture
 
 ---
 
@@ -229,26 +256,35 @@ score(stock) = max over concepts of:
 
 | 路径 | 作用 |
 |------|------|
-| [src/mo_stock/cli.py](../src/mo_stock/cli.py) | click CLI 入口（7 个子命令） |
-| [src/mo_stock/scheduler/daily_job.py](../src/mo_stock/scheduler/daily_job.py) | APScheduler + 时点断言 |
-| [src/mo_stock/data_sources/tushare_client.py](../src/mo_stock/data_sources/tushare_client.py) | Tushare 11 个接口封装 |
-| [src/mo_stock/data_sources/gtht_client.py](../src/mo_stock/data_sources/gtht_client.py) | 国泰海通 skill 子进程 |
+| [src/mo_stock/cli.py](../src/mo_stock/cli.py) | click CLI 入口（含 `--strategy` / `backtest` 命令） |
+| [src/mo_stock/scheduler/daily_job.py](../src/mo_stock/scheduler/daily_job.py) | APScheduler + 时点断言 + strategy 透传 |
+| [src/mo_stock/data_sources/tushare_client.py](../src/mo_stock/data_sources/tushare_client.py) | Tushare 接口封装（含 `index_daily`） |
 | [src/mo_stock/data_sources/calendar.py](../src/mo_stock/data_sources/calendar.py) | 交易日 / 选股池工具 |
-| [src/mo_stock/ingest/ingest_daily.py](../src/mo_stock/ingest/ingest_daily.py) | 11 个 ingest 方法 + 清洗函数 |
-| [src/mo_stock/storage/models.py](../src/mo_stock/storage/models.py) | 23 张表 ORM 定义 |
-| [src/mo_stock/storage/repo.py](../src/mo_stock/storage/repo.py) | upsert / 读 helpers |
-| [src/mo_stock/filters/short/limit_filter.py](../src/mo_stock/filters/short/limit_filter.py) | 涨停维度 |
-| [src/mo_stock/filters/short/moneyflow_filter.py](../src/mo_stock/filters/short/moneyflow_filter.py) | 资金流维度 |
-| [src/mo_stock/filters/short/lhb_filter.py](../src/mo_stock/filters/short/lhb_filter.py) | 龙虎榜（v2.1 base+seat） |
-| [src/mo_stock/filters/short/sector_filter.py](../src/mo_stock/filters/short/sector_filter.py) | 申万行业维度 |
-| [src/mo_stock/filters/short/theme_filter.py](../src/mo_stock/filters/short/theme_filter.py) | **v2.1 新** 题材维度 |
-| [src/mo_stock/scorer/combine.py](../src/mo_stock/scorer/combine.py) | 综合分 + 硬规则 |
-| [src/mo_stock/report/render_md.py](../src/mo_stock/report/render_md.py) | MD/JSON 报告渲染 |
-| [src/mo_stock/analyzer.py](../src/mo_stock/analyzer.py) | 单股分析（不写库） |
-| [src/mo_stock/ai/](../src/mo_stock/ai/) | **v2.2 已实现**：client / schemas / prompts / analyzer 4 文件 |
-| [config/weights.yaml](../config/weights.yaml) | 6 维度权重 + 子参数 |
-| [config/settings.py](../config/settings.py) | pydantic-settings（.env 加载） |
+| [src/mo_stock/ingest/ingest_daily.py](../src/mo_stock/ingest/ingest_daily.py) | ingest 方法 + 清洗函数（含 `ingest_index_daily`） |
+| [src/mo_stock/storage/models.py](../src/mo_stock/storage/models.py) | 24 张表 ORM（含 swing_position） |
+| [src/mo_stock/storage/repo.py](../src/mo_stock/storage/repo.py) | upsert / 读 helpers（含 strategy 过滤） |
+| [src/mo_stock/filters/limit_filter.py](../src/mo_stock/filters/limit_filter.py) | 短线涨停维度 |
+| [src/mo_stock/filters/moneyflow_filter.py](../src/mo_stock/filters/moneyflow_filter.py) | 短线资金流维度 |
+| [src/mo_stock/filters/lhb_filter.py](../src/mo_stock/filters/lhb_filter.py) | 龙虎榜维度 |
+| [src/mo_stock/filters/sector_filter.py](../src/mo_stock/filters/sector_filter.py) | 申万行业维度 |
+| [src/mo_stock/filters/theme_filter.py](../src/mo_stock/filters/theme_filter.py) | 题材维度 |
+| [src/mo_stock/filters/trend_filter.py](../src/mo_stock/filters/trend_filter.py) | **swing** 趋势结构维度 |
+| [src/mo_stock/filters/pullback_filter.py](../src/mo_stock/filters/pullback_filter.py) | **swing** 回踩承接维度 |
+| [src/mo_stock/filters/moneyflow_swing_filter.py](../src/mo_stock/filters/moneyflow_swing_filter.py) | **swing** 波段资金维度 |
+| [src/mo_stock/filters/sector_swing_filter.py](../src/mo_stock/filters/sector_swing_filter.py) | **swing** 行业持续性维度 |
+| [src/mo_stock/filters/theme_swing_filter.py](../src/mo_stock/filters/theme_swing_filter.py) | **swing** 题材持续性维度 |
+| [src/mo_stock/filters/catalyst_filter.py](../src/mo_stock/filters/catalyst_filter.py) | **swing** 短线催化维度 |
+| [src/mo_stock/filters/risk_liquidity_filter.py](../src/mo_stock/filters/risk_liquidity_filter.py) | **swing** 风险流动性维度 |
+| [src/mo_stock/filters/market_regime_filter.py](../src/mo_stock/filters/market_regime_filter.py) | **swing** 大盘环境（组合层） |
+| [src/mo_stock/filters/swing_utils.py](../src/mo_stock/filters/swing_utils.py) | **swing** 工具函数（MA / ATR） |
+| [src/mo_stock/scorer/combine.py](../src/mo_stock/scorer/combine.py) | 综合分 + 硬规则 + strategy 路由 + regime 控制 |
+| [src/mo_stock/backtest/](../src/mo_stock/backtest/) | **swing** 回测引擎（engine / metrics） |
+| [src/mo_stock/ai/](../src/mo_stock/ai/) | AI 分析（按 strategy 隔离） |
+| [src/mo_stock/report/render_md.py](../src/mo_stock/report/render_md.py) | MD/JSON 报告渲染（双策略模板） |
+| [config/weights.yaml](../config/weights.yaml) | short 策略权重 + 子参数 |
+| [config/weights_swing.yaml](../config/weights_swing.yaml) | **swing** 策略权重 + regime 控制 + ATR 止损 |
 | [alembic/versions/20260426_theme_lhb_v21.py](../alembic/versions/20260426_theme_lhb_v21.py) | v2.1 schema migration |
+| [alembic/versions/20260430_strategy_swing_phase0.py](../alembic/versions/20260430_strategy_swing_phase0.py) | v2.4 strategy 字段 + swing_position |
 
 详细评分公式：[docs/scoring.md](scoring.md)
 CLI 完整手册：[docs/cli.md](cli.md)

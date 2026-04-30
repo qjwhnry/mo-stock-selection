@@ -1,20 +1,32 @@
 # mo-stock-selection — 项目约定
 
-A 股每日批量选股系统：6 维度规则快筛（v2.1 后）+ **Claude AI 深度分析（v2.2 已接入）**。
-仅做选股与报告，**不接券商、不自动下单**。
+A 股批量选股系统：**短线（short）** 6 维度规则快筛 + **波段（swing）** 7 维度趋势选股
++ **Claude AI 深度分析**。仅做选股与报告，**不接券商、不自动下单**。
 
-## v2.2 起 AI 层流程
+## 双策略架构
+
+系统支持两种独立策略，通过 `--strategy` 参数切换，共享数据层但评分逻辑、权重、报告完全独立：
+
+| 策略 | 周期 | 维度数 | 权重文件 |
+|------|------|--------|---------|
+| `short`（默认） | 1-3 交易日 | 6 维（limit / moneyflow / lhb / sector / theme / sentiment） | `config/weights.yaml` |
+| `swing` | 5-20 交易日 | 7 维 + market_regime 组合层控制 | `config/weights_swing.yaml` |
+
+三表（`selection_result` / `filter_score_daily` / `ai_analysis`）通过 `strategy` 字段隔离。
+波段持仓状态由 `swing_position` 表管理（区分 `backtest` / `live` 模式）。
+
+## AI 层流程
 
 ```
-规则层 5 维 → 综合分排序 → 取 TOP 50 → analyze_stock_with_ai (Claude SDK + 4 段 prompt cache)
-  → ai_score 落库 ai_analysis 表
+规则层维度 → 综合分排序 → 取 TOP 50 → analyze_stock_with_ai (Claude SDK + 4 段 prompt cache)
+  → ai_score 落库 ai_analysis 表（按 strategy 隔离）
   → final_score = rule × 0.6 + ai × 0.4，按 final_score 重排 TOP N
   → 报告 markdown 含完整选出原因（AI 论点 + 维度证据中文翻译 + 操作建议 + 风险）
 ```
 
-`run-once --skip-ai` 跳过 AI 阶段，行为等同 v2.1 纯规则模式。
+`run-once --skip-ai` 跳过 AI 阶段。
 
-## 6 维度（v2.1）
+## short 策略 6 维度
 
 | 维度 | 权重 | 数据源 |
 |------|------|--------|
@@ -24,6 +36,24 @@ A 股每日批量选股系统：6 维度规则快筛（v2.1 后）+ **Claude AI 
 | `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` |
 | `theme` 同花顺概念 + 涨停最强 + 资金流 | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` |
 | `sentiment` 新闻公告 | 0.10 | （未实现） |
+
+## swing 策略 7 维度
+
+| 维度 | 权重 | 说明 |
+|------|------|------|
+| `trend` 趋势结构 + 量价确认 | 0.27 | MA 多头排列 + 放量突破 + 缩量回踩 |
+| `pullback` 回踩承接 | 0.13 | 趋势内健康回撤 + 重新转强 |
+| `moneyflow_swing` 波段资金 | 0.20 | 5/10 日资金持续性 |
+| `sector_swing` 行业持续性 | 0.13 | 行业多日强度 + 派生资金聚合 |
+| `theme_swing` 题材持续性 | 0.09 | 题材多日排名 + 资金确认 |
+| `catalyst` 短线催化 | 0.08 | 断板反包 + 龙虎榜机构（低权重） |
+| `risk_liquidity` 风险流动性 | 0.10 | 流动性、波动率、透支度质量分 |
+
+`market_regime`（大盘环境）不进入单股权重，作为组合层控制：根据 regime_score 分档
+动态调整 `top_n`（3-20）、`position_scale`（0.2-1.0）和 `min_final_score`。
+止损使用 ATR 自适应：`clamp(1.5 × ATR_pct, 4%, 10%)`。
+
+详细设计见 [`docs/swing-strategy-plan-revised-2026-04-30.md`](docs/swing-strategy-plan-revised-2026-04-30.md)。
 
 ---
 
@@ -72,32 +102,37 @@ A 股每日批量选股系统：6 维度规则快筛（v2.1 后）+ **Claude AI 
 
 ```bash
 # 测试 / 静态检查
-.venv/Scripts/python.exe -m pytest tests/                  # 单元 + 集成
-.venv/Scripts/python.exe -m ruff check src tests           # lint
-.venv/Scripts/python.exe -m mypy src                       # 类型
+.venv/bin/python -m pytest tests/               # 单元 + 集成
+.venv/bin/python -m ruff check src tests        # lint
+.venv/bin/python -m mypy src                    # 类型
 
 # CLI 入口
 mo-stock init-db                            # 首次部署：建表
 mo-stock refresh-basics [--with-ths]        # 周度元数据
 mo-stock refresh-cal --start 2024-01-01     # 年度交易日历
-mo-stock backfill --days 180                # 一次性回填
-mo-stock run-once --date YYYY-MM-DD [--force]  # 每日选股端到端
+mo-stock backfill --days 180                # 一次性回填（含指数日线）
+mo-stock run-once --date YYYY-MM-DD [--force]  # 短线选股（默认）
+mo-stock run-once --strategy swing --date YYYY-MM-DD  # 波段选股
+mo-stock backtest --strategy swing --start 2025-01-01 --end 2026-04-30  # 波段回测
 mo-stock analyze 600519.SH [--date ...]     # 单股调试（不写库）
-mo-stock scheduler                          # 生产常驻
+mo-stock scheduler [--strategy short|swing]  # 生产常驻
 ```
 
 ### 关键路径
 
 | 路径 | 作用 |
 |------|------|
-| `src/mo_stock/filters/` | 5 维度规则打分（limit / moneyflow / lhb / sector + sentiment 待接入） |
-| `src/mo_stock/scorer/combine.py` | 综合分（固定分母）+ 硬规则过滤 |
-| `src/mo_stock/data_sources/tushare_client.py` | Tushare 接口封装（重试 + 节流 + 日志） |
-| `src/mo_stock/ai/` | **v2.2 已实现**：client / schemas / prompts / analyzer |
-| `config/weights.yaml` | 维度权重 + 硬规则配置（热调，无需改代码） |
+| `src/mo_stock/filters/` | 短线 5 维 + 波段 7 维规则打分 |
+| `src/mo_stock/filters/swing_utils.py` | 波段工具函数（MA / ATR / 量比计算） |
+| `src/mo_stock/scorer/combine.py` | 综合分（固定分母）+ 硬规则 + strategy 路由 + regime 控制 |
+| `src/mo_stock/data_sources/tushare_client.py` | Tushare 接口封装（含 `index_daily` 指数日线） |
+| `src/mo_stock/backtest/` | 波段回测引擎 + 指标计算 |
+| `src/mo_stock/ai/` | AI 分析（按 strategy 隔离） |
+| `config/weights.yaml` | 短线权重 + 硬规则配置 |
+| `config/weights_swing.yaml` | 波段权重 + regime 控制 + ATR 止损参数 |
 | `docs/scoring.md` | 综合分公式与维度细节 |
 | `docs/cli.md` | CLI 子命令完整手册 |
-| `docs/audit-2026-04-26.md` | 最近一次代码 / 策略审计报告 |
+| `docs/swing-strategy-plan-revised-2026-04-30.md` | 波段策略设计文档（v4） |
 
 ### 测试约定
 
@@ -112,9 +147,11 @@ mo-stock scheduler                          # 生产常驻
 详见 [`docs/audit-2026-04-26.md`](docs/audit-2026-04-26.md)。当前最关键的几项：
 
 1. ~~Phase 3 AI 层完整实现~~ ✅ v2.2 已完成
-2. **阈值历史回测**（各 filter 阈值未经 IR / 胜率验证）
+2. **短线阈值历史回测**（各 filter 阈值未经 IR / 胜率验证）
 3. ~~ingest_one_day 中 4 个核心步骤被注释~~ ✅ v2.1 已解开
 4. ~~THS 概念板块接入~~ ✅ v2.1 已接入（独立 ThemeFilter 维度）
 5. ~~龙虎榜机构 / 游资分离~~ ✅ v2.1 已接入（lhb_seat_detail 表 + seat_type 分类）
 6. **AI prompt 质量持续优化**（v2.2 后用真实数据观察 thesis 输出，按需迭代 prompts.py）
 7. **AI 成本监控**（v2.2 后建议每周看 ai_analysis 表的 token usage 总和）
+8. ~~波段策略 Phase 0-2~~ ✅ 已实现（Phase 2.5 回测校准待做）
+9. **波段阈值校准**（Phase 2.5：回测结果达标后才进入 Phase 3 报告 + Phase 4 AI）

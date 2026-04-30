@@ -617,3 +617,57 @@ sort key = (-final_score, -rule_score, -active_dim_count, ts_code)
 - [docs/cli.md](./cli.md) - 命令行手册
 - [docs/schema.md](./schema.md) - 数据库表结构
 - [docs/两种主力资金统计口径对比.md](./两种主力资金统计口径对比%20%26%20实战选用指南（详细版）.md) - moneyflow 两套统计口径详解
+
+
+---
+
+## swing 策略评分规则（v2.4）
+
+> 配置文件：`config/weights_swing.yaml`
+> 详细设计：`docs/swing-strategy-plan-revised-2026-04-30.md`
+
+### 综合分公式
+
+与 short 策略共享同一公式框架：
+
+    final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
+
+### 7 维度权重
+
+| 维度 | 权重 | 说明 |
+|------|------|------|
+| `trend` 趋势结构 | 0.27 | MA 多头排列 + 量价确认 |
+| `pullback` 回踩承接 | 0.13 | 趋势内健康回撤 + 重新转强 |
+| `moneyflow_swing` 波段资金 | 0.20 | 5/10 日资金持续性 |
+| `sector_swing` 行业持续性 | 0.13 | 行业多日强度 + 派生资金聚合 |
+| `theme_swing` 题材持续性 | 0.09 | 题材多日排名 + 资金确认 |
+| `catalyst` 短线催化 | 0.08 | 断板反包 + 龙虎榜（低权重） |
+| `risk_liquidity` 风险流动性 | 0.10 | 流动性、波动率、透支度质量分 |
+
+### market_regime 组合层控制
+
+`market_regime` 不进入单股权重，而是作为组合层控制：
+
+- 数据源：沪深 300 MA20 趋势 + 全市场涨跌家数
+- 根据分档动态调整 `top_n`、`position_scale`、`min_final_score`
+- 大盘弱势时自动缩减候选数量和仓位
+
+| 分档 | regime_score | top_n | position_scale |
+|------|---:|---:|---:|
+| 强势市 | ≥ 70 | 20 | 1.0 |
+| 震荡市 | ≥ 50 | 15 | 0.7 |
+| 弱势市 | ≥ 30 | 8 | 0.4 |
+| 极弱市 | < 30 | 3 | 0.2 |
+
+低于 `min_final_score=30` 的候选直接淘汰。
+
+### ATR 自适应止损
+
+    stop_pct = clamp(1.5 × ATR_pct(20), 4%, 10%)
+
+ATR_pct = ATR_abs / close × 100，用百分比形式，clamp 限制在 [4%, 10%] 区间。
+移动止盈：盈利 >10% 后，从高点回撤 2×ATR_pct 即退出。
+
+### 维度打分规则
+
+各维度满分 100，加分/扣分制。详细打分条件见 `docs/swing-strategy-plan-revised-2026-04-30.md` §3.2。
