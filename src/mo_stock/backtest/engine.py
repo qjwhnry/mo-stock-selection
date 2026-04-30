@@ -12,14 +12,14 @@ from sqlalchemy.orm import Session
 
 from mo_stock.backtest.metrics import compute_trade_metrics
 from mo_stock.filters.base import ScoreResult
-from mo_stock.filters.catalyst_filter import CatalystFilter
-from mo_stock.filters.market_regime_filter import MarketRegimeFilter
-from mo_stock.filters.moneyflow_swing_filter import MoneyflowSwingFilter
-from mo_stock.filters.pullback_filter import PullbackFilter
-from mo_stock.filters.risk_liquidity_filter import RiskLiquidityFilter
-from mo_stock.filters.sector_swing_filter import SectorSwingFilter
-from mo_stock.filters.theme_swing_filter import ThemeSwingFilter
-from mo_stock.filters.trend_filter import TrendFilter
+from mo_stock.filters.swing.catalyst_filter import CatalystFilter
+from mo_stock.filters.swing.market_regime_filter import MarketRegimeFilter
+from mo_stock.filters.swing.moneyflow_swing_filter import MoneyflowSwingFilter
+from mo_stock.filters.swing.pullback_filter import PullbackFilter
+from mo_stock.filters.swing.risk_liquidity_filter import RiskLiquidityFilter
+from mo_stock.filters.swing.sector_swing_filter import SectorSwingFilter
+from mo_stock.filters.swing.theme_swing_filter import ThemeSwingFilter
+from mo_stock.filters.swing.trend_filter import TrendFilter
 from mo_stock.scorer.combine import _build_hard_reject_map, _weighted_combine
 from mo_stock.storage import repo
 from mo_stock.storage.models import DailyKline, SwingPosition, TradeCal

@@ -12,7 +12,7 @@ from datetime import date
 import pytest
 from sqlalchemy.orm import Session
 
-from mo_stock.filters.theme_filter import ThemeFilter, _bonus_from_table
+from mo_stock.filters.short.theme_filter import ThemeFilter, _bonus_from_table
 from mo_stock.storage.models import (
     LimitConceptDaily,
     ThsConceptMoneyflow,

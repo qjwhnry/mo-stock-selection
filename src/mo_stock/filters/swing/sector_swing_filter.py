@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from mo_stock.filters.base import FilterBase, ScoreResult, clamp
-from mo_stock.filters.swing_utils import recent_trade_dates_asc
+from mo_stock.filters.swing.swing_utils import recent_trade_dates_asc
 from mo_stock.storage import repo
 from mo_stock.storage.models import Moneyflow, SwDaily
 

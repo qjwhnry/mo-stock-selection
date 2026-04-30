@@ -12,7 +12,7 @@ from datetime import date
 
 import pytest
 
-from mo_stock.filters.lhb_filter import (
+from mo_stock.filters.short.lhb_filter import (
     LhbFilter,
     _is_drop_rebound_reason,
     _net_rate_tier_bonus,

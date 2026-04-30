@@ -150,7 +150,7 @@ def populated_session(tmp_path):
 class TestFiltersEndToEnd:
     def test_limit_filter_scores(self, populated_session):
         """验证 LimitFilter 对当日两只涨停股的打分逻辑。"""
-        from mo_stock.filters.limit_filter import LimitFilter
+        from mo_stock.filters.short.limit_filter import LimitFilter
 
         f = LimitFilter(weights={
             "first_board_bonus": 20,
@@ -176,7 +176,7 @@ class TestFiltersEndToEnd:
 
     def test_moneyflow_filter_scores(self, populated_session):
         """验证 MoneyflowFilter 的打分与负信号检测。"""
-        from mo_stock.filters.moneyflow_filter import MoneyflowFilter
+        from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
 
         f = MoneyflowFilter(weights={
             "today_net_inflow_bonus": 20,

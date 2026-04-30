@@ -23,12 +23,12 @@ def test_analyze_stock_includes_theme_filter(sqlite_session, monkeypatch) -> Non
     ))
     sqlite_session.commit()
 
-    monkeypatch.setattr("mo_stock.filters.limit_filter.LimitFilter.score_all", lambda self, s, d: [])
-    monkeypatch.setattr("mo_stock.filters.moneyflow_filter.MoneyflowFilter.score_all", lambda self, s, d: [])
-    monkeypatch.setattr("mo_stock.filters.lhb_filter.LhbFilter.score_all", lambda self, s, d: [])
-    monkeypatch.setattr("mo_stock.filters.sector_filter.SectorFilter.score_all", lambda self, s, d: [])
+    monkeypatch.setattr("mo_stock.filters.short.limit_filter.LimitFilter.score_all", lambda self, s, d: [])
+    monkeypatch.setattr("mo_stock.filters.short.moneyflow_filter.MoneyflowFilter.score_all", lambda self, s, d: [])
+    monkeypatch.setattr("mo_stock.filters.short.lhb_filter.LhbFilter.score_all", lambda self, s, d: [])
+    monkeypatch.setattr("mo_stock.filters.short.sector_filter.SectorFilter.score_all", lambda self, s, d: [])
     monkeypatch.setattr(
-        "mo_stock.filters.theme_filter.ThemeFilter.score_all",
+        "mo_stock.filters.short.theme_filter.ThemeFilter.score_all",
         lambda self, s, d: [
             ScoreResult(
                 ts_code=ts_code,

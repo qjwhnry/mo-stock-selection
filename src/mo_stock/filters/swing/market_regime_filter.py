@@ -7,7 +7,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from mo_stock.filters.swing_utils import pct_change, recent_trade_dates_asc, sma
+from mo_stock.filters.swing.swing_utils import pct_change, recent_trade_dates_asc, sma
 from mo_stock.storage.models import DailyKline
 
 DEFAULT_REGIME_SCORE = 50.0

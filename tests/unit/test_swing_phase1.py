@@ -3,9 +3,9 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from mo_stock.filters.catalyst_filter import CatalystFilter
-from mo_stock.filters.market_regime_filter import MarketRegimeFilter
-from mo_stock.filters.trend_filter import TrendFilter
+from mo_stock.filters.swing.catalyst_filter import CatalystFilter
+from mo_stock.filters.swing.market_regime_filter import MarketRegimeFilter
+from mo_stock.filters.swing.trend_filter import TrendFilter
 from mo_stock.scorer.combine import combine_scores
 from mo_stock.storage.models import (
     DailyKline,

@@ -8,7 +8,7 @@ from datetime import date
 
 import pytest
 
-from mo_stock.filters.moneyflow_filter import MoneyflowFilter, _today_bonus_tier
+from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter, _today_bonus_tier
 from mo_stock.storage.models import DailyKline, Moneyflow, TradeCal
 
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from mo_stock.filters.sector_filter import (
+from mo_stock.filters.short.sector_filter import (
     _rank_to_bonus,
     _three_day_avg_bonus,
     _top_n_l1_codes,

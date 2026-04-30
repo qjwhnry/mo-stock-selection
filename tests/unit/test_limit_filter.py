@@ -8,7 +8,7 @@ from datetime import date
 
 import pytest
 
-from mo_stock.filters.limit_filter import (
+from mo_stock.filters.short.limit_filter import (
     LimitFilter,
     _break_board_rebound_bonus,
 )

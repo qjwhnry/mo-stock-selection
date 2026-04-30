@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from mo_stock.filters.base import FilterBase, ScoreResult, clamp
-from mo_stock.filters.swing_utils import (
+from mo_stock.filters.swing.swing_utils import (
     distance_pct,
     group_klines_by_stock,
     pct_change,
