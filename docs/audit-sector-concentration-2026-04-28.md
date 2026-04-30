@@ -34,10 +34,10 @@
 
 | 文件 | 行 | 问题 |
 |------|----|------|
-| `src/mo_stock/filters/limit_filter.py` | 163-172 | `sector_heat_bonus` 给同板块所有非涨停股加 60 分（板块层面） |
-| `src/mo_stock/filters/sector_filter.py` | 79-84 | 给 TOP1 板块所有股 +70（板块层面） |
-| `src/mo_stock/filters/theme_filter.py` | — | 同概念集体加分，与 sector 高度相关 |
-| `src/mo_stock/filters/moneyflow_filter.py` | — | 板块爆发时同板块股普遍落入同一档位 |
+| `src/mo_stock/filters/short/limit_filter.py` | 163-172 | `sector_heat_bonus` 给同板块所有非涨停股加 60 分（板块层面） |
+| `src/mo_stock/filters/short/sector_filter.py` | 79-84 | 给 TOP1 板块所有股 +70（板块层面） |
+| `src/mo_stock/filters/short/theme_filter.py` | — | 同概念集体加分，与 sector 高度相关 |
+| `src/mo_stock/filters/short/moneyflow_filter.py` | — | 板块爆发时同板块股普遍落入同一档位 |
 
 **结论**：4 个"独立维度"实际上都在反映同一个信号"板块强势"，违背多因子选股的正交假设。
 
@@ -201,7 +201,7 @@ limit=60, moneyflow=70, sector=70, theme=50
 
 #### 问题 A：`limit` 维度混入板块热度，形成最直接共线性
 
-代码位置：`src/mo_stock/filters/limit_filter.py:163-172`
+代码位置：`src/mo_stock/filters/short/limit_filter.py:163-172`
 
 `LimitFilter` 对所有同板块非涨停股加入 `sector_heat_bonus`。当同一申万一级行业涨停数 `>=10` 时，`_sector_limit_heat_bonus()` 直接返回 `60`：
 
@@ -214,7 +214,7 @@ if limit_count >= 10:
 
 #### 问题 B：`sector` 维度天然是整板块统一加分
 
-代码位置：`src/mo_stock/filters/sector_filter.py:78-84`
+代码位置：`src/mo_stock/filters/short/sector_filter.py:78-84`
 
 `SectorFilter` 命中 TOP1 申万一级行业时加 `70` 分，所有属于该行业的股票都会获得同样的 `rank_bonus`。这个逻辑本身符合板块维度定义，但与 `limit_filter.sector_heat_bonus`、`theme`、资金流阈值叠加后，会显著放大同板块股票的排序优势。
 
@@ -248,7 +248,7 @@ for item in scored:
 
 原文说 `moneyflow` 是板块爆发时的板块层面信号，这个表述不够准确。
 
-代码位置：`src/mo_stock/filters/moneyflow_filter.py:77-109`
+代码位置：`src/mo_stock/filters/short/moneyflow_filter.py:77-109`
 
 `MoneyflowFilter` 计算的是个股级别信号，包括：
 
@@ -260,7 +260,7 @@ for item in scored:
 
 #### 修正 2：`theme` 与 `sector` 高相关，但不应直接视为同一信号
 
-代码位置：`src/mo_stock/filters/theme_filter.py:71-89`
+代码位置：`src/mo_stock/filters/short/theme_filter.py:71-89`
 
 `ThemeFilter` 基于同花顺概念、涨停最强概念、概念资金流取最高概念分。它不是申万行业维度，理论上可以捕捉跨行业题材。
 
@@ -466,7 +466,7 @@ Codex 的复核非常有价值——3 处实现细节修正（cap 时机、secto
 ### 10.1 P0 首轮实施
 
 按第 9 节方案完成：
-- `src/mo_stock/filters/limit_filter.py`：删除 `sector_heat_bonus` + `_sector_limit_heat_bonus` + 相关 docstring
+- `src/mo_stock/filters/short/limit_filter.py`：删除 `sector_heat_bonus` + `_sector_limit_heat_bonus` + 相关 docstring
 - `src/mo_stock/scorer/combine.py`：新增 `combine_cfg` 参数、板块 cap、用 `repo.get_index_member_l1_map` 取板块映射、仅入选股消耗名额
 - `src/mo_stock/storage/repo.py`：删除 unused `get_l1_limit_count_map`
 - `src/mo_stock/cli.py`：读 `cfg["combine"]` 并传入
@@ -522,13 +522,13 @@ if rows:
 
 | 文件 | 改动 |
 |------|------|
-| `src/mo_stock/filters/limit_filter.py` | 删除 `sector_heat_bonus` 逻辑 + 函数 + docstring |
+| `src/mo_stock/filters/short/limit_filter.py` | 删除 `sector_heat_bonus` 逻辑 + 函数 + docstring |
 | `src/mo_stock/scorer/combine.py` | 新增 `replace_filter_scores`；`combine_cfg` 参数；板块 cap + unknown cap + 空 map 警告；`selection_result` DELETE+INSERT |
 | `src/mo_stock/storage/repo.py` | 删除 unused `get_l1_limit_count_map` |
 | `src/mo_stock/cli.py` | 改用 `replace_filter_scores`；传 `combine_cfg` |
 | `src/mo_stock/scheduler/daily_job.py` | 同上（生产路径对齐） |
 | `config/weights.yaml` | `combine.max_stocks_per_sector: 4`、`max_unknown_sector_stocks: 0` |
-| `tests/unit/test_limit_filter.py` | 移除 `TestSectorLimitHeatBonus` |
+| `tests/unit/filters/short/test_limit_filter.py` | 移除 `TestSectorLimitHeatBonus` |
 | `tests/integration/test_combine_sector_cap.py` | **新增** 9 个集成测试覆盖 cap、replace、selection refresh |
 
 ### 10.5 Residual（P1，不在本次范围）

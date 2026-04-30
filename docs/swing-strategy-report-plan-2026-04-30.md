@@ -290,11 +290,11 @@ mo-stock run-swing --date 2026-04-30
 
 | 文件 | 作用 |
 |---|---|
-| `src/mo_stock/filters/trend_filter.py` | MA 结构、趋势斜率、20 日涨幅 |
-| `src/mo_stock/filters/pullback_filter.py` | 回踩 MA10 / MA20、缩量回撤、重新转强 |
-| `src/mo_stock/filters/moneyflow_swing_filter.py` | 5/10 日资金持续性 |
+| `src/mo_stock/filters/swing/trend_filter.py` | MA 结构、趋势斜率、20 日涨幅 |
+| `src/mo_stock/filters/swing/pullback_filter.py` | 回踩 MA10 / MA20、缩量回撤、重新转强 |
+| `src/mo_stock/filters/swing/moneyflow_swing_filter.py` | 5/10 日资金持续性 |
 | `src/mo_stock/filters/sector_theme_swing_filter.py` | 行业 + 题材多日持续性 |
-| `src/mo_stock/filters/risk_liquidity_filter.py` | 流动性、波动率、透支度 |
+| `src/mo_stock/filters/swing/risk_liquidity_filter.py` | 流动性、波动率、透支度 |
 
 测试建议：
 
@@ -346,7 +346,7 @@ data/reports/swing/YYYY-MM-DD.json
 |---|---|
 | `src/mo_stock/backtest/swing.py` | 波段回测主逻辑 |
 | `src/mo_stock/backtest/metrics.py` | 胜率、盈亏比、最大回撤、期望收益 |
-| `tests/unit/test_swing_backtest.py` | 单元测试 |
+| `tests/unit/backtest/test_swing_backtest.py` | 单元测试 |
 
 回测指标：
 

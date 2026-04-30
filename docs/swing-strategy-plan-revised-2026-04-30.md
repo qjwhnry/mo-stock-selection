@@ -624,13 +624,13 @@ class SwingPosition(Base):
 
 | 文件 | 职责 |
 |------|------|
-| `src/mo_stock/filters/trend_filter.py` | MA 结构 + 量价确认 + 20 日涨幅评估 |
-| `src/mo_stock/filters/pullback_filter.py` | 回踩 MA10/MA20 + 缩量回撤 + 重新转强 |
-| `src/mo_stock/filters/moneyflow_swing_filter.py` | 5/10 日资金持续性 |
-| `src/mo_stock/filters/sector_swing_filter.py` | 行业多日强度 + **派生资金聚合** + 回撤稳定性 |
-| `src/mo_stock/filters/theme_swing_filter.py` | 题材多日持续性 |
-| `src/mo_stock/filters/risk_liquidity_filter.py` | 流动性、波动率、透支度 |
-| `src/mo_stock/filters/market_regime_filter.py` | 大盘环境判断（指数 MA + 涨跌家数），输出全局 regime_score |
+| `src/mo_stock/filters/swing/trend_filter.py` | MA 结构 + 量价确认 + 20 日涨幅评估 |
+| `src/mo_stock/filters/swing/pullback_filter.py` | 回踩 MA10/MA20 + 缩量回撤 + 重新转强 |
+| `src/mo_stock/filters/swing/moneyflow_swing_filter.py` | 5/10 日资金持续性 |
+| `src/mo_stock/filters/swing/sector_swing_filter.py` | 行业多日强度 + **派生资金聚合** + 回撤稳定性 |
+| `src/mo_stock/filters/swing/theme_swing_filter.py` | 题材多日持续性 |
+| `src/mo_stock/filters/swing/risk_liquidity_filter.py` | 流动性、波动率、透支度 |
+| `src/mo_stock/filters/swing/market_regime_filter.py` | 大盘环境判断（指数 MA + 涨跌家数），输出全局 regime_score |
 | `src/mo_stock/storage/models.py` | 新增 `SwingPosition` ORM 模型 |
 
 除 `market_regime_filter.py` 外，其它波段 filter 继承 `FilterBase`，输出 `ScoreResult`

@@ -20,11 +20,11 @@ ingest → 5 个 filter 各自打分 (0-100) → combine 加权融合 → 硬规
 
 | 维度 | 权重 | 数据源 | 实现状态 |
 |------|------|--------|---------|
-| `limit` 异动涨停 | 0.25 | `limit_list` 表 | ✓ [LimitFilter](../src/mo_stock/filters/limit_filter.py) |
-| `moneyflow` 主力资金流向 | 0.25 | `moneyflow` + `daily_kline.amount` | ✓ [MoneyflowFilter](../src/mo_stock/filters/moneyflow_filter.py) |
-| `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail`（v2.1） | ✓ [LhbFilter](../src/mo_stock/filters/lhb_filter.py) |
-| `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` | ✓ [SectorFilter](../src/mo_stock/filters/sector_filter.py) |
-| `theme` 同花顺概念 + 涨停最强 + 资金流（v2.1 新增） | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` | ✓ [ThemeFilter](../src/mo_stock/filters/theme_filter.py) |
+| `limit` 异动涨停 | 0.25 | `limit_list` 表 | ✓ [LimitFilter](../src/mo_stock/filters/short/limit_filter.py) |
+| `moneyflow` 主力资金流向 | 0.25 | `moneyflow` + `daily_kline.amount` | ✓ [MoneyflowFilter](../src/mo_stock/filters/short/moneyflow_filter.py) |
+| `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail`（v2.1） | ✓ [LhbFilter](../src/mo_stock/filters/short/lhb_filter.py) |
+| `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` | ✓ [SectorFilter](../src/mo_stock/filters/short/sector_filter.py) |
+| `theme` 同花顺概念 + 涨停最强 + 资金流（v2.1 新增） | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` | ✓ [ThemeFilter](../src/mo_stock/filters/short/theme_filter.py) |
 | `sentiment` 新闻公告 | 0.10 | `news_raw` / `anns_raw` | ❌ 未实现 |
 
 每个维度独立打分，0-100 分，**只对该维度有信号的股 append 结果**（score=0 视为信号缺失，由综合分公式按 0 处理）。
@@ -97,7 +97,7 @@ final_score = Σ(dim_score × weight) / Σ(全部权重)
 
 - **断板反包**单维度最高 100（极强反包）
 
-代码：[filters/limit_filter.py](../src/mo_stock/filters/limit_filter.py)
+代码：[filters/short/limit_filter.py](../src/mo_stock/filters/short/limit_filter.py)
 配置：`weights.yaml: limit_filter`
 
 ---
@@ -168,7 +168,7 @@ Tushare `net_mf_amount` 是**主动主力**口径（外盘买、内盘卖），
 我们 today_bonus 用前者（主动力度），ratio_bonus 用后者（全量大资金占比），
 两者交叉验证。详见：[两种主力资金统计口径对比.md](./两种主力资金统计口径对比%20%26%20实战选用指南（详细版）.md)
 
-代码：[filters/moneyflow_filter.py](../src/mo_stock/filters/moneyflow_filter.py)
+代码：[filters/short/moneyflow_filter.py](../src/mo_stock/filters/short/moneyflow_filter.py)
 配置：`weights.yaml: moneyflow_filter`
 
 ---
@@ -255,7 +255,7 @@ score = clamp(base + seat, 0, 100)
 
 **100 分**：base 满档 60 + seat 满档 40 = 100，clamp 到 0-100。
 
-代码：[filters/lhb_filter.py](../src/mo_stock/filters/lhb_filter.py)
+代码：[filters/short/lhb_filter.py](../src/mo_stock/filters/short/lhb_filter.py)
 配置：`weights.yaml: lhb_filter`（v2.1 全部参数化，可热调）
 
 ---
@@ -304,7 +304,7 @@ score = 0
 
 **100 分**：rank #1 (+70) + 3 日均涨 ≥5% (+30) = 100。归一到 0-100。
 
-代码：[filters/sector_filter.py](../src/mo_stock/filters/sector_filter.py)
+代码：[filters/short/sector_filter.py](../src/mo_stock/filters/short/sector_filter.py)
 配置：`weights.yaml: sector_filter` （`top_n_sectors: 5` 可调）
 
 ---
@@ -371,7 +371,7 @@ score = clamp(min(best, max_theme_bonus), 0, 100)
 
 **100 分**：ths rank 1 (+50) + limit rank 1 (+50) + moneyflow > 0 (+15) = 115，clamp 到 100。
 
-代码：[filters/theme_filter.py](../src/mo_stock/filters/theme_filter.py)
+代码：[filters/short/theme_filter.py](../src/mo_stock/filters/short/theme_filter.py)
 配置：`weights.yaml: theme_filter`（top_n_themes / 三档分值 / max_theme_bonus 全部可热调）
 
 ---

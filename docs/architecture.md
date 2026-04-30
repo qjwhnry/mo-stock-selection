@@ -237,11 +237,11 @@ score(stock) = max over concepts of:
 | [src/mo_stock/ingest/ingest_daily.py](../src/mo_stock/ingest/ingest_daily.py) | 11 个 ingest 方法 + 清洗函数 |
 | [src/mo_stock/storage/models.py](../src/mo_stock/storage/models.py) | 23 张表 ORM 定义 |
 | [src/mo_stock/storage/repo.py](../src/mo_stock/storage/repo.py) | upsert / 读 helpers |
-| [src/mo_stock/filters/limit_filter.py](../src/mo_stock/filters/limit_filter.py) | 涨停维度 |
-| [src/mo_stock/filters/moneyflow_filter.py](../src/mo_stock/filters/moneyflow_filter.py) | 资金流维度 |
-| [src/mo_stock/filters/lhb_filter.py](../src/mo_stock/filters/lhb_filter.py) | 龙虎榜（v2.1 base+seat） |
-| [src/mo_stock/filters/sector_filter.py](../src/mo_stock/filters/sector_filter.py) | 申万行业维度 |
-| [src/mo_stock/filters/theme_filter.py](../src/mo_stock/filters/theme_filter.py) | **v2.1 新** 题材维度 |
+| [src/mo_stock/filters/short/limit_filter.py](../src/mo_stock/filters/short/limit_filter.py) | 涨停维度 |
+| [src/mo_stock/filters/short/moneyflow_filter.py](../src/mo_stock/filters/short/moneyflow_filter.py) | 资金流维度 |
+| [src/mo_stock/filters/short/lhb_filter.py](../src/mo_stock/filters/short/lhb_filter.py) | 龙虎榜（v2.1 base+seat） |
+| [src/mo_stock/filters/short/sector_filter.py](../src/mo_stock/filters/short/sector_filter.py) | 申万行业维度 |
+| [src/mo_stock/filters/short/theme_filter.py](../src/mo_stock/filters/short/theme_filter.py) | **v2.1 新** 题材维度 |
 | [src/mo_stock/scorer/combine.py](../src/mo_stock/scorer/combine.py) | 综合分 + 硬规则 |
 | [src/mo_stock/report/render_md.py](../src/mo_stock/report/render_md.py) | MD/JSON 报告渲染 |
 | [src/mo_stock/analyzer.py](../src/mo_stock/analyzer.py) | 单股分析（不写库） |

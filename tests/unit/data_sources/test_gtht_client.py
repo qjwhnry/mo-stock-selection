@@ -16,8 +16,8 @@ from mo_stock.data_sources.gtht_client import (
     _strip_debug_lines,
 )
 
-# 真实 skill 的 stdout 样本（提取自 4 个端到端调用），见 README 同名目录。
-FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "gtht_skill_outputs"
+# 真实 skill 的 stdout 样本（提取自 4 个端到端调用），见 tests/fixtures 同名目录。
+FIXTURES_DIR = Path(__file__).parents[2] / "fixtures" / "gtht_skill_outputs"
 
 
 @pytest.fixture

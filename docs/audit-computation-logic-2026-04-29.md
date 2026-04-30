@@ -67,8 +67,8 @@ rule_score = Σ(dim_score * weight) / Σ(all_dimension_weights)
 
 位置：
 
-- `src/mo_stock/filters/limit_filter.py:49`
-- `src/mo_stock/filters/limit_filter.py:50`
+- `src/mo_stock/filters/short/limit_filter.py:49`
+- `src/mo_stock/filters/short/limit_filter.py:50`
 
 当前逻辑：
 
@@ -259,7 +259,7 @@ scored.sort(
 
 位置：
 
-- `src/mo_stock/filters/moneyflow_filter.py:103`
+- `src/mo_stock/filters/short/moneyflow_filter.py:103`
 
 当前每只股票都会调用：
 
@@ -284,7 +284,7 @@ repo.get_moneyflow_series(session, row.ts_code, trade_date, days=3)
 位置：
 
 - `config/weights.yaml:52`
-- `src/mo_stock/filters/limit_filter.py:214`
+- `src/mo_stock/filters/short/limit_filter.py:214`
 
 问题：
 
