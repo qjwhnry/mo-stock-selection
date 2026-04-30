@@ -8,7 +8,7 @@ from __future__ import annotations
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
 # 项目的 ORM metadata 与运行时配置
 from config.settings import settings
@@ -16,9 +16,6 @@ from mo_stock.storage.models import Base
 
 # Alembic Config 对象
 config = context.config
-
-# 动态注入数据库 URL，覆盖 alembic.ini 中的空值
-config.set_main_option("sqlalchemy.url", settings.db_url)
 
 # 读取日志配置
 if config.config_file_name is not None:
@@ -30,13 +27,12 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     """离线模式：只打印 SQL，不连 DB。用于 CI 或 review diff。"""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=settings.db_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        compare_type=True,       # 检测列类型变化
+        compare_type=True,
         compare_server_default=True,
     )
 
@@ -46,11 +42,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """在线模式：连 DB 执行 migrations。"""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_engine(settings.db_url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(
