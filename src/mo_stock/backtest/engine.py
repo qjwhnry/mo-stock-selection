@@ -25,6 +25,16 @@ from mo_stock.storage import repo
 from mo_stock.storage.models import DailyKline, SwingPosition, TradeCal
 
 
+def _limit_up_gap_threshold(ts_code: str) -> float:
+    """根据板块涨跌幅限制返回涨停高开跳过阈值（%）。"""
+    if ts_code.endswith(".BJ"):
+        return 29.5
+    prefix = ts_code[:3]
+    if prefix in {"300", "301", "688", "689"}:
+        return 19.5
+    return 9.5
+
+
 def run_swing_backtest(
     session: Session,
     start: date,
@@ -55,6 +65,13 @@ def run_swing_backtest(
             entry_kline = session.get(DailyKline, (item["ts_code"], next_date))
             if entry_kline is None or entry_kline.open is None:
                 continue
+            # 涨停高开跳过：按板块涨跌幅限制动态阈值
+            # 避免 20%/30% 板块合法高开被误过滤（9.5% 只适用于主板 10%）
+            signal_kline = session.get(DailyKline, (item["ts_code"], trade_date))
+            if signal_kline and signal_kline.close and signal_kline.close > 0:
+                gap_pct = (entry_kline.open / signal_kline.close - 1) * 100
+                if gap_pct > _limit_up_gap_threshold(item["ts_code"]):
+                    continue
             outcome = _simulate_trade(
                 session,
                 item["ts_code"],

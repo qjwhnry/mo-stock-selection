@@ -10,6 +10,7 @@ from datetime import date, timedelta
 from sqlalchemy.orm import Session
 
 from mo_stock.storage.models import StockBasic, TradeCal
+from mo_stock.utils.stock_name import is_st_name
 
 
 def is_trading_day(session: Session, d: date) -> bool:
@@ -66,11 +67,11 @@ def is_selectable(basic: StockBasic, trade_date: date, min_list_days: int = 60) 
     Returns:
         (是否可选, 被过滤原因)；可选时原因为空字符串
     """
-    # ST 过滤：优先看 is_st 字段，兜底检查名称
+    # ST 过滤：优先看 is_st 字段，兜底用锚定正则（非包含子串）
     if basic.is_st:
         return False, "ST 股"
-    if basic.name and ("ST" in basic.name.upper() or basic.name.startswith("*ST")):
-        return False, "名称含 ST"
+    if is_st_name(basic.name):
+        return False, "ST 股"
 
     # 次新过滤
     if basic.list_date:
@@ -86,8 +87,8 @@ def classify_market(ts_code: str) -> str:
     - 600xxx / 601xxx / 603xxx / 605xxx → 主板(沪)
     - 000xxx / 001xxx / 002xxx / 003xxx → 主板/中小板(深)
     - 300xxx / 301xxx → 创业板
-    - 688xxx → 科创板
-    - 8xxxxx / 4xxxxx → 北交所
+    - 688xxx / 689xxx → 科创板
+    - .BJ / 8xxxxx / 4xxxxx → 北交所
     """
     code = ts_code.split(".")[0]
     prefix = code[:3]
@@ -98,8 +99,8 @@ def classify_market(ts_code: str) -> str:
         return "主板-深"
     if prefix in {"300", "301"}:
         return "创业板"
-    if prefix == "688":
+    if prefix in {"688", "689"}:
         return "科创板"
-    if code.startswith("8") or code.startswith("4"):
+    if ts_code.endswith(".BJ") or code.startswith(("8", "4")):
         return "北交所"
     return "未知"

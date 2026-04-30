@@ -48,13 +48,13 @@ def mean(values: list[float]) -> float | None:
 
 
 def sma(values: list[float | None], window: int) -> float | None:
-    """简单移动平均。"""
+    """简单移动平均，容忍少量缺失值（要求至少半数非空）。"""
     if len(values) < window:
         return None
     clean = [v for v in values[-window:] if v is not None]
-    if len(clean) < window:
+    if len(clean) < window / 2:
         return None
-    return sum(clean) / window
+    return sum(clean) / len(clean)
 
 
 def pct_change(start: float | None, end: float | None) -> float | None:

@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from mo_stock.filters.swing.catalyst_filter import CatalystFilter
 from mo_stock.filters.swing.market_regime_filter import MarketRegimeFilter
+from mo_stock.filters.swing.pullback_filter import _recent_drawdown_pct
 from mo_stock.filters.swing.trend_filter import TrendFilter
 from mo_stock.scorer.combine import combine_scores
 from mo_stock.storage.models import (
@@ -186,3 +187,44 @@ def test_combine_scores_applies_market_regime_top_n(sqlite_session) -> None:
     assert picked == 1
     assert sum(1 for r in rows if r.picked) == 1
     assert {r.ts_code for r in rows if r.picked} == {"600001.SH"}
+
+
+# ---------------------------------------------------------------------------
+# _recent_drawdown_pct — running peak 时序回撤
+# ---------------------------------------------------------------------------
+
+class TestRecentDrawdownPct:
+    """窗口内最大回撤：峰值必须出现在谷值之前（时序约束）。"""
+
+    def test_peak_before_trough(self) -> None:
+        """简单下跌：10 → 8，回撤 20%。"""
+        assert _recent_drawdown_pct([10.0, 8.0], 2) == 20.0
+
+    def test_peak_not_at_end(self) -> None:
+        """[10, 8, 11]：running peak 在 10，8 时回撤 20%，之后创新高不掩盖。"""
+        assert _recent_drawdown_pct([10.0, 8.0, 11.0], 3) == 20.0
+
+    def test_peak_not_at_end_with_final_dip(self) -> None:
+        """[10, 8, 11, 10.5]：最大回撤仍是 10→8 的 20%，不是 11→10.5。"""
+        assert _recent_drawdown_pct([10.0, 8.0, 11.0, 10.5], 4) == 20.0
+
+    def test_last_peak_produces_deeper_drawdown(self) -> None:
+        """[10, 9, 12, 9]：12→9 的 25% 大于 10→9 的 10%。"""
+        assert _recent_drawdown_pct([10.0, 9.0, 12.0, 9.0], 4) == 25.0
+
+    def test_uptrend_no_drawdown(self) -> None:
+        """一路创新高，无回撤。"""
+        assert _recent_drawdown_pct([10.0, 11.0, 12.0], 3) is None
+
+    def test_with_none_values(self) -> None:
+        """含 None 的停牌日被跳过，不影响回撤计算。"""
+        assert _recent_drawdown_pct([10.0, None, 8.0, None, 11.0], 5) == 20.0
+
+    def test_window_slice(self) -> None:
+        """仅取最后 window 个值，前置数据被忽略。"""
+        closes = [5.0, 6.0, 7.0, 10.0, 8.0, 9.0]
+        assert _recent_drawdown_pct(closes, 3) == 20.0  # [10, 8, 9]
+
+    def test_insufficient_data(self) -> None:
+        assert _recent_drawdown_pct([10.0], 3) is None
+        assert _recent_drawdown_pct([], 3) is None

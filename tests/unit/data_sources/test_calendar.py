@@ -23,8 +23,10 @@ class TestClassifyMarket:
             ("300750.SZ", "创业板"),
             ("301239.SZ", "创业板"),
             ("688981.SH", "科创板"),
+            ("689009.SH", "科创板"),
             ("831010.BJ", "北交所"),
             ("430047.BJ", "北交所"),
+            ("920001.BJ", "北交所"),
         ],
     )
     def test_various_prefixes(self, ts_code: str, expected: str) -> None:
@@ -80,3 +82,18 @@ class TestIsSelectable:
         basic = self._make_basic(list_date=date(2026, 2, 21))  # 距 4/22 正好 60 天
         ok, _ = is_selectable(basic, sample_trade_date, min_list_days=60)
         assert ok is True
+
+    def test_st_anchored_does_not_match_mid_name(self, sample_trade_date: date) -> None:
+        """ST 正则锚定开头，"STAR-V WW" 不应被误判为 ST。"""
+        basic = self._make_basic(name="STAR-V WW", is_st=False)
+        ok, reason = is_selectable(basic, sample_trade_date)
+        assert ok is True
+        assert reason == ""
+
+    def test_st_anchored_still_matches_prefix_variants(self, sample_trade_date: date) -> None:
+        """ST/*ST 前缀 + 前导空格/大小写 仍正确识别。"""
+        for name in ("ST康美", "*ST 天龙", "  *ST 康美  ", "st东航"):
+            basic = self._make_basic(name=name, is_st=False)
+            ok, reason = is_selectable(basic, sample_trade_date)
+            assert ok is False, f"{name=}"
+            assert "ST" in reason

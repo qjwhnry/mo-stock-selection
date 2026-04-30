@@ -224,4 +224,4 @@ def _upsert_ai_analysis(
         "cache_read_tokens": usage.get("cache_read_tokens"),
     }
     repo.upsert_ai_analysis(session, [row])
-    session.commit()
+    session.flush()

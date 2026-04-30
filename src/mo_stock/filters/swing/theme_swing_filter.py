@@ -65,7 +65,7 @@ def _theme_score_map(session: Session, dates5: list[date]) -> dict[str, dict[str
 
     rank_points: dict[str, int] = defaultdict(int)
     rank_history: dict[str, list[int]] = defaultdict(list)
-    for day_rows in by_date.values():
+    for _date, day_rows in sorted(by_date.items()):
         ranked = sorted(
             [r for r in day_rows if r.pct_change is not None],
             key=lambda r: r.pct_change or 0,

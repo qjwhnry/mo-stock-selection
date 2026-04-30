@@ -80,14 +80,26 @@ class PullbackFilter(FilterBase):
 
 
 def _recent_drawdown_pct(closes: list[float | None], window: int) -> float | None:
-    recent = [c for c in closes[-window:] if c is not None]
-    if not recent:
+    """计算窗口内最大回撤（时序峰值→谷值，单次遍历 running peak）。
+
+    例：[10, 8, 11] → running peak 在 10，8 时回撤 20%，之后 peak 更新到 11。
+    不会因为全局最高点在末尾而漏掉前面的回撤。
+    """
+    recent = closes[-window:]
+    if len(recent) < 2:
         return None
-    high = max(recent)
-    low = min(recent)
-    if high <= 0:
-        return None
-    return (high - low) / high * 100
+    running_peak: float | None = None
+    max_drawdown = 0.0
+    for c in recent:
+        if c is None:
+            continue
+        if running_peak is None or c > running_peak:
+            running_peak = c
+        elif running_peak > 0:
+            dd = (running_peak - c) / running_peak * 100
+            if dd > max_drawdown:
+                max_drawdown = dd
+    return max_drawdown if max_drawdown > 0 else None
 
 
 def _pullback_volume_shrunk(vols: list[float | None]) -> bool:

@@ -66,7 +66,7 @@ class MoneyflowSwingFilter(FilterBase):
                 small_net = (r.buy_sm_amount or 0.0) - (r.sell_sm_amount or 0.0)
                 if r.trade_date in dates5 and small_net > 0 and big_net < 0:
                     small_up_big_down = True
-            if big_positive_days >= 5:
+            if len(items) >= 5 and big_positive_days / len(items) >= 0.5:
                 score += 20
                 detail["big_order_positive_days"] = big_positive_days
             if small_up_big_down:

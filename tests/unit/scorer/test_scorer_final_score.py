@@ -38,7 +38,6 @@ class TestNameIsSt:
         "ST康美",
         "*st 天龙",     # 大小写
         "  *ST 康美  ", # 首尾空格
-        "X*ST",         # 中间出现也算（兜底场景）
     ])
     def test_st_names_recognized(self, name: str) -> None:
         assert _name_is_st(name) is True
@@ -46,15 +45,10 @@ class TestNameIsSt:
     @pytest.mark.parametrize("name", [
         "贵州茅台",
         "中国平安",
-        "STAR-V WW",  # 含子串 "STA" 但不是 ST 标记——本 regex 会误判，
-        # 这是已知的"宽松匹配"取舍：宁可错杀（拒绝几只名字含 ST 的正常股）
-        # 也不漏 ST。如有正常股被误杀再以 is_st 字段为主修正即可。
+        "STAR-V WW",    # 含 "STA" 不是 ST 前缀，正则正确放过
     ])
     def test_normal_names_filtered(self, name: str) -> None:
-        # 注意：含子串 ST 的股票名极少见；当前 regex \*?ST 是宽松方案
-        # 此用例只断言"贵州茅台"/"中国平安"等典型不命中
-        if "ST" not in name.upper():
-            assert _name_is_st(name) is False
+        assert _name_is_st(name) is False
 
     def test_empty_or_none(self) -> None:
         assert _name_is_st(None) is False

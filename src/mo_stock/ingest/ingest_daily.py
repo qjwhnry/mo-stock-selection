@@ -468,7 +468,7 @@ class DailyIngestor:
     def backfill(self, start: date, end: date) -> dict[str, int]:
         """回填 [start, end] 区间的日频数据。
 
-        按日逐天拉取，每天失败不影响整体（记录日志后继续）。
+        按日逐天拉取，跳过非交易日，每天失败不影响整体（记录日志后继续）。
         """
         logger.info("=== backfill {} → {} ===", start, end)
         total: dict[str, int] = {}
@@ -476,6 +476,10 @@ class DailyIngestor:
         cursor = start
         while cursor <= end:
             try:
+                with get_session() as s:
+                    if not repo.is_trade_date(s, cursor):
+                        cursor += timedelta(days=1)
+                        continue
                 stats = self.ingest_one_day(cursor)
                 for k, v in stats.items():
                     total[k] = total.get(k, 0) + v
@@ -567,11 +571,9 @@ def _daily_kline_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def _is_st(name: str) -> bool:
-    """根据股票名称判断是否 ST。"""
-    if not name:
-        return False
-    upper = name.upper()
-    return "ST" in upper or name.startswith("*ST")
+    """根据股票名称判断是否 ST（以 ST 或 *ST 开头）。"""
+    from mo_stock.utils.stock_name import is_st_name
+    return is_st_name(name)
 
 
 def _lhb_rows_from_df(df: pd.DataFrame) -> list[dict[str, Any]]:

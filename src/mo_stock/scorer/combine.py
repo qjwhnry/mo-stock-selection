@@ -21,7 +21,6 @@
 """
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import date, timedelta
@@ -42,10 +41,7 @@ from mo_stock.storage.models import (
     SelectionResult,
     StockBasic,
 )
-
-# P2-6：ST 名称识别——同时覆盖 "ST"、"*ST"、半角/全角空格污染等场景
-# 大小写不敏感；任意位置出现都算（兜底 is_st 字段未同步的情况）
-_ST_NAME_RE = re.compile(r"\*?ST", re.IGNORECASE)
+from mo_stock.utils.stock_name import is_st_name as _is_st_name
 
 
 def persist_filter_scores(
@@ -531,10 +527,5 @@ def _pick_market_regime_tier(
 
 
 def _name_is_st(name: str | None) -> bool:
-    """根据股票名称判断是否 ST（兜底 is_st 字段未同步）。
-
-    P2-6：用 regex 替代 startswith，覆盖 "*ST"、"ST"、大小写、首尾空格等场景。
-    """
-    if not name:
-        return False
-    return bool(_ST_NAME_RE.search(name))
+    """根据股票名称判断是否 ST（兜底 is_st 字段未同步）。"""
+    return _is_st_name(name)
