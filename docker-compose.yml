@@ -1,26 +1,6 @@
-# 本地开发用：一键起 PostgreSQL 15
-# 使用：docker compose up -d pg
+# 部署用：api + nginx（PostgreSQL 已单独部署）
+# 使用：DB_URL=postgresql+psycopg2://user:pass@host:5432/dbname docker compose up -d
 services:
-  pg:
-    image: postgres:15-alpine
-    container_name: mo_stock_pg
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: mo_stock
-      POSTGRES_PASSWORD: mo_stock
-      POSTGRES_DB: mo_stock
-      TZ: Asia/Shanghai
-      PGTZ: Asia/Shanghai
-    ports:
-      - "5432:5432"
-    volumes:
-      - mo_stock_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U mo_stock -d mo_stock"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   api:
     build:
       context: .
@@ -29,10 +9,7 @@ services:
     restart: unless-stopped
     command: uvicorn mo_stock.web.app:app --host 0.0.0.0 --port 8000
     environment:
-      DB_URL: postgresql+psycopg2://mo_stock:mo_stock@pg:5432/mo_stock
-    depends_on:
-      pg:
-        condition: service_healthy
+      DB_URL: ${DB_URL:?请设置 DB_URL 环境变量}
     ports:
       - "8000:8000"
 
@@ -48,6 +25,3 @@ services:
       - ./.htpasswd:/etc/nginx/.htpasswd:ro
     depends_on:
       - api
-
-volumes:
-  mo_stock_pgdata:
