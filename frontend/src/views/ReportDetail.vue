@@ -1,53 +1,70 @@
 <template>
   <div class="min-h-screen bg-gray-50">
-    <header class="bg-white shadow">
-      <div class="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
-        <div class="flex items-center gap-4">
-          <router-link to="/" class="text-gray-500 hover:text-gray-700">&larr; 返回</router-link>
-          <h1 class="text-lg font-bold">{{ date }} {{ strategyLabel }}选股报告</h1>
-        </div>
-        <router-link to="/execute" class="text-sm text-blue-600 hover:underline">任务执行</router-link>
-      </div>
-    </header>
+    <van-nav-bar
+      :title="`${date} ${strategyLabel}选股报告`"
+      left-text="返回"
+      left-arrow
+      @click-left="$router.push('/')"
+    >
+      <template #right>
+        <router-link to="/execute" class="text-sm text-blue-600">执行</router-link>
+      </template>
+    </van-nav-bar>
 
-    <main class="mx-auto max-w-5xl px-4 py-6 space-y-4">
-      <div v-if="loading" class="py-12 text-center text-gray-500">加载中...</div>
-      <div v-else-if="error" class="py-12 text-center text-red-600">{{ error }}</div>
+    <div class="px-3 py-4 space-y-3">
+      <div v-if="loading" class="py-12 text-center">
+        <van-loading size="24px">加载中...</van-loading>
+      </div>
+      <van-empty v-else-if="error" :description="error" />
       <template v-else>
         <MarketOverview v-if="data" :market="data.market" />
 
-        <div class="flex flex-wrap gap-3 rounded-lg bg-white p-3 shadow">
-          <select
-            v-model="sector"
-            @change="loadDetail"
-            class="rounded border px-3 py-1.5 text-sm"
-          >
-            <option value="">全部行业</option>
-            <option v-for="s in data?.available_sectors" :key="s" :value="s">{{ s }}</option>
-          </select>
-          <input
+        <!-- 筛选栏 -->
+        <van-cell-group inset>
+          <van-field
             v-model="keyword"
-            @keyup.enter="loadDetail"
             placeholder="搜索名称/代码"
-            class="rounded border px-3 py-1.5 text-sm flex-1 min-w-[150px]"
+            clearable
+          >
+            <template #left-icon>
+              <span class="text-gray-400">🔍</span>
+            </template>
+            <template #button>
+              <van-button size="small" type="primary" @click="loadDetail()">搜索</van-button>
+            </template>
+          </van-field>
+          <van-field
+            :model-value="sectorLabel"
+            is-link
+            readonly
+            placeholder="全部行业"
+            @click="showSectorPicker = true"
           />
-          <button @click="loadDetail" class="rounded bg-blue-600 px-4 py-1.5 text-sm text-white">
-            搜索
-          </button>
-        </div>
+        </van-cell-group>
 
-        <div v-if="data && data.stocks.length > 0" class="rounded-lg bg-white shadow">
-          <ScoreTable
-            :stocks="data.stocks"
-            :strategy="strategy"
-            :current-sort="sortBy"
-            :current-order="order"
-            @sort="onSort"
+        <van-popup v-model:show="showSectorPicker" position="bottom" round>
+          <van-picker
+            :columns="sectorOptions"
+            @confirm="onSectorConfirm"
+            @cancel="showSectorPicker = false"
           />
+        </van-popup>
+
+        <!-- 股票列表 -->
+        <div data-stocks>
+          <template v-if="data && data.stocks.length > 0">
+            <ScoreTable
+              :stocks="data.stocks"
+              :strategy="strategy"
+              :current-sort="sortBy"
+              :current-order="order"
+              @sort="onSort"
+            />
+          </template>
+          <van-empty v-else description="当日无入选股票" />
         </div>
-        <div v-else class="py-12 text-center text-gray-500">当日无入选股票</div>
       </template>
-    </main>
+    </div>
   </div>
 </template>
 
@@ -72,8 +89,25 @@ const sortBy = ref('final_score')
 const order = ref('desc')
 const sector = ref('')
 const keyword = ref('')
+const showSectorPicker = ref(false)
 
-async function loadDetail() {
+const sectorOptions = computed(() => {
+  const sectors = data.value?.available_sectors || []
+  return [{ text: '全部行业', value: '' }, ...sectors.map(s => ({ text: s, value: s }))]
+})
+
+const sectorLabel = computed(() => {
+  if (!sector.value) return '全部行业'
+  return sector.value
+})
+
+function onSectorConfirm({ selectedValues }: { selectedValues: string[] }) {
+  sector.value = selectedValues[0] || ''
+  showSectorPicker.value = false
+  loadDetail()
+}
+
+async function loadDetail(scrollAfter = false) {
   loading.value = true
   error.value = ''
   try {
@@ -83,6 +117,10 @@ async function loadDetail() {
       keyword.value || undefined,
     )
     data.value = resp
+    if (scrollAfter) {
+      const el = document.querySelector('[data-stocks]')
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '请求失败'
   } finally {
@@ -93,8 +131,8 @@ async function loadDetail() {
 function onSort(column: string, newOrder: string) {
   sortBy.value = column
   order.value = newOrder
-  loadDetail()
+  loadDetail(true)
 }
 
-onMounted(loadDetail)
+onMounted(() => loadDetail())
 </script>

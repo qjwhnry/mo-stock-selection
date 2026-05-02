@@ -1,95 +1,60 @@
 <template>
   <div class="space-y-3">
     <!-- Sort controls -->
-    <div class="flex items-center gap-4 text-sm">
-      <div class="flex items-center gap-2">
-        <label class="text-gray-600">排序:</label>
-        <select
-          :value="currentSort"
-          @change="handleSortChange($event)"
-          class="border border-gray-300 rounded px-2 py-1 bg-white"
-        >
-          <option value="final_score">综合分</option>
-          <option value="rule_score">规则分</option>
-          <option value="ai_score">AI 分</option>
-          <option disabled>──────────</option>
-          <template v-if="strategy === 'swing'">
-            <option value="trend">{{ dimLabel('trend') }}</option>
-            <option value="pullback">{{ dimLabel('pullback') }}</option>
-            <option value="moneyflow_swing">{{ dimLabel('moneyflow_swing') }}</option>
-            <option value="sector_swing">{{ dimLabel('sector_swing') }}</option>
-            <option value="theme_swing">{{ dimLabel('theme_swing') }}</option>
-            <option value="catalyst">{{ dimLabel('catalyst') }}</option>
-            <option value="risk_liquidity">{{ dimLabel('risk_liquidity') }}</option>
-          </template>
-          <template v-else>
-            <option value="limit">{{ dimLabel('limit') }}</option>
-            <option value="moneyflow">{{ dimLabel('moneyflow') }}</option>
-            <option value="lhb">{{ dimLabel('lhb') }}</option>
-            <option value="sector">{{ dimLabel('sector') }}</option>
-            <option value="theme">{{ dimLabel('theme') }}</option>
-          </template>
-        </select>
-      </div>
-      <div class="flex items-center gap-2">
-        <label class="text-gray-600">方向:</label>
-        <button
-          @click="toggleOrder"
-          class="border border-gray-300 rounded px-3 py-1 bg-white hover:bg-gray-50 min-w-[80px]"
-        >
-          {{ currentOrder === 'desc' ? '↓ 降序' : '↑ 升序' }}
-        </button>
-      </div>
-    </div>
-
-    <!-- Table -->
-    <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead class="bg-gray-50">
-        <tr>
-          <th class="px-3 py-2 text-left">排名</th>
-          <th class="px-3 py-2 text-left">代码</th>
-          <th class="px-3 py-2 text-left">名称</th>
-          <th class="px-3 py-2 text-left">行业</th>
-          <th class="px-3 py-2 text-center cursor-pointer" @click="toggleSort('final_score')">
-            综合分 {{ sortIndicator('final_score') }}
-          </th>
-          <th class="px-3 py-2 text-left">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template v-for="stock in stocks" :key="stock.ts_code">
-          <tr class="border-t hover:bg-gray-50 cursor-pointer" @click="toggleExpand(stock.ts_code)">
-            <td class="px-3 py-2">{{ stock.rank }}</td>
-            <td class="px-3 py-2">{{ stock.ts_code }}</td>
-            <td class="px-3 py-2">{{ stock.name }}</td>
-            <td class="px-3 py-2">{{ stock.industry }}</td>
-            <td class="px-3 py-2 text-center font-medium">{{ stock.final_score }}</td>
-            <td class="px-3 py-2">
-              <router-link
-                :to="`/stock/${stock.ts_code}?strategy=${strategy}`"
-                class="text-blue-600 hover:underline"
-                @click.stop
-              >
-                详情
-              </router-link>
-            </td>
-          </tr>
-          <tr v-if="expanded === stock.ts_code" class="border-t bg-gray-50">
-            <td colspan="6" class="px-4 py-3">
-              <DimensionBar :scores="stock.scores" />
-              <AiSummary :summary="stock.ai_summary" />
-            </td>
-          </tr>
+    <van-cell-group inset>
+      <van-field
+        :model-value="sortLabel"
+        is-link
+        readonly
+        label="排序"
+        @click="showSortPicker = true"
+      />
+      <van-field label="方向">
+        <template #input>
+          <van-button size="small" @click="toggleOrder">
+            {{ currentOrder === 'desc' ? '↓ 降序' : '↑ 升序' }}
+          </van-button>
         </template>
-      </tbody>
-    </table>
-    </div>
+      </van-field>
+    </van-cell-group>
+
+    <van-popup v-model:show="showSortPicker" position="bottom" round>
+      <van-picker :columns="sortOptions" @confirm="onSortConfirm" @cancel="showSortPicker = false" />
+    </van-popup>
+
+    <!-- Stock list with collapse -->
+    <p class="text-xs text-gray-400 px-2">点击股票展开查看维度评分</p>
+    <van-collapse v-model="expandedNames">
+      <van-collapse-item
+        v-for="stock in stocks"
+        :key="stock.ts_code"
+        :title="stock.name"
+        :label="`${stock.ts_code} · ${stock.industry}`"
+        :name="stock.ts_code"
+      >
+        <template #value>
+          <span class="text-blue-600 font-medium">{{ stock.final_score }}</span>
+          <span class="text-gray-400 text-xs ml-1">排名{{ stock.rank }}</span>
+        </template>
+
+        <DimensionBar :scores="stock.scores" :strategy="strategy" />
+        <AiSummary :summary="stock.ai_summary" />
+
+        <div class="mt-2">
+          <router-link
+            :to="`/stock/${stock.ts_code}?strategy=${strategy}`"
+            class="text-blue-600 text-sm"
+          >
+            查看详情 →
+          </router-link>
+        </div>
+      </van-collapse-item>
+    </van-collapse>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { StockItem } from '../api'
 import { dimLabel } from '../api'
 import DimensionBar from './DimensionBar.vue'
@@ -106,29 +71,34 @@ const emit = defineEmits<{
   sort: [sortBy: string, order: string]
 }>()
 
-const expanded = ref<string | null>(null)
+const showSortPicker = ref(false)
+const expandedNames = ref<string[]>([])
 
-function toggleExpand(code: string) {
-  expanded.value = expanded.value === code ? null : code
-}
+const sortOptions = computed(() => {
+  const base = [
+    { text: '综合分', value: 'final_score' },
+    { text: '规则分', value: 'rule_score' },
+    { text: 'AI 分', value: 'ai_score' },
+  ]
+  const dims = props.strategy === 'swing'
+    ? ['trend', 'pullback', 'moneyflow_swing', 'sector_swing', 'theme_swing', 'catalyst', 'risk_liquidity']
+    : ['limit', 'moneyflow', 'lhb', 'sector', 'theme']
+  const dimOpts = dims.map(d => ({ text: dimLabel(d), value: d }))
+  return [...base, ...dimOpts]
+})
 
-function toggleSort(column: string) {
-  const newOrder = props.currentSort === column && props.currentOrder === 'desc' ? 'asc' : 'desc'
-  emit('sort', column, newOrder)
+const sortLabel = computed(() => {
+  const opt = sortOptions.value.find(o => o.value === props.currentSort)
+  return opt?.text || props.currentSort
+})
+
+function onSortConfirm({ selectedValues }: { selectedValues: string[] }) {
+  showSortPicker.value = false
+  emit('sort', selectedValues[0], props.currentOrder)
 }
 
 function toggleOrder() {
   const newOrder = props.currentOrder === 'desc' ? 'asc' : 'desc'
   emit('sort', props.currentSort, newOrder)
-}
-
-function handleSortChange(event: Event) {
-  const target = event.target as HTMLSelectElement
-  emit('sort', target.value, props.currentOrder)
-}
-
-function sortIndicator(column: string) {
-  if (props.currentSort !== column) return ''
-  return props.currentOrder === 'desc' ? '↓' : '↑'
 }
 </script>

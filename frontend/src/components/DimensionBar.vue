@@ -1,22 +1,28 @@
 <template>
-  <div class="space-y-1">
-    <div v-for="(value, key) in scores" :key="key" class="flex items-center gap-2">
-      <span class="w-32 text-xs text-gray-600 truncate" :title="dimLabel(key as string)">{{ dimLabel(key as string) }}</span>
-      <div class="flex-1 bg-gray-200 rounded h-4">
-        <div
-          class="bg-blue-500 h-4 rounded"
-          :style="{ width: `${value}%` }"
-        />
+  <div class="space-y-2">
+    <div v-for="dim in allDims" :key="dim">
+      <div class="flex items-center justify-between text-xs text-gray-600 mb-1">
+        <span>{{ dimLabel(dim) }}</span>
+        <span class="font-medium">{{ scores[dim] ?? 0 }}</span>
       </div>
-      <span class="w-8 text-right text-xs text-gray-700">{{ value }}</span>
+      <van-progress :percentage="scores[dim] ?? 0" :show-pivot="false" stroke-width="6" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { dimLabel } from '../api'
+import { computed } from 'vue'
+import { dimLabel, DIM_LABELS } from '../api'
 
-defineProps<{
+const SHORT_DIMS = ['limit', 'moneyflow', 'lhb', 'sector', 'theme']
+const SWING_DIMS = ['trend', 'pullback', 'moneyflow_swing', 'sector_swing', 'theme_swing', 'catalyst', 'risk_liquidity']
+
+const props = defineProps<{
   scores: Record<string, number>
+  strategy?: string
 }>()
+
+const allDims = computed(() => {
+  return props.strategy === 'swing' ? SWING_DIMS : SHORT_DIMS
+})
 </script>

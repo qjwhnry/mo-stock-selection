@@ -1,125 +1,156 @@
 <template>
   <div class="min-h-screen bg-gray-50">
-    <header class="bg-white shadow">
-      <div class="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
-        <div class="flex items-center gap-4">
-          <router-link to="/" class="text-gray-500 hover:text-gray-700">&larr; 返回</router-link>
-          <h1 class="text-lg font-bold">任务执行</h1>
-        </div>
-      </div>
-    </header>
+    <van-nav-bar
+      title="任务执行"
+      left-text="返回"
+      left-arrow
+      @click-left="$router.push('/')"
+    />
 
-    <main class="mx-auto max-w-5xl px-4 py-6 space-y-6">
-
-    <!-- 手动选股 -->
-    <div class="bg-white rounded-lg shadow p-6 space-y-4">
-      <h2 class="text-lg font-semibold text-gray-700">手动选股</h2>
-
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div>
-          <label class="block text-sm text-gray-600 mb-1">策略</label>
-          <select v-model="runForm.strategy" class="w-full border rounded px-2 py-1.5 text-sm">
-            <option value="short">短线</option>
-            <option value="swing">波段</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm text-gray-600 mb-1">日期（可选）</label>
-          <input v-model="runForm.tradeDate" type="date" class="w-full border rounded px-2 py-1.5 text-sm" />
-        </div>
-        <div class="flex items-end">
-          <label class="flex items-center gap-2 text-sm text-gray-600">
-            <input v-model="runForm.skipAi" type="checkbox" class="rounded" />
-            跳过 AI
-          </label>
-        </div>
-        <div class="flex items-end">
-          <button
-            @click="handleRun"
+    <div class="px-3 py-4 space-y-4">
+      <!-- 手动选股 -->
+      <van-cell-group inset title="手动选股">
+        <van-field
+          :model-value="runForm.strategy === 'short' ? '短线' : '波段'"
+          is-link
+          readonly
+          label="策略"
+          @click="showStrategyPicker = true"
+        />
+        <van-field
+          :model-value="runForm.tradeDate"
+          is-link
+          readonly
+          label="日期"
+          placeholder="默认今天"
+          @click="showDatePicker = true"
+        />
+        <van-cell title="跳过 AI">
+          <template #value>
+            <van-switch v-model="runForm.skipAi" size="20px" />
+          </template>
+        </van-cell>
+        <div class="p-3">
+          <van-button
+            type="primary"
+            block
             :disabled="taskStatus?.status === 'running'"
-            class="w-full bg-blue-600 text-white rounded px-4 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            @click="handleRun"
           >
             {{ taskStatus?.status === 'running' ? '执行中...' : '执行选股' }}
-          </button>
+          </van-button>
         </div>
-      </div>
+      </van-cell-group>
 
       <!-- 任务状态 -->
-      <div v-if="taskStatus && taskStatus.status !== 'idle'" class="border rounded p-3 text-sm space-y-1"
-        :class="taskStatus.status === 'running' ? 'bg-blue-50 border-blue-200' : taskStatus.status === 'error' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'">
-        <div class="flex items-center gap-2">
-          <span v-if="taskStatus.status === 'running'" class="animate-spin inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full"></span>
-          <span class="font-medium">
-            {{ taskStatus.status === 'running' ? '正在执行' : taskStatus.status === 'error' ? '执行失败' : '已完成' }}
-          </span>
-        </div>
-        <div v-if="taskStatus.strategy" class="text-gray-600">策略：{{ taskStatus.strategy }} | 日期：{{ taskStatus.trade_date }}</div>
-        <div v-if="taskStatus.started_at" class="text-gray-500 text-xs">开始时间：{{ taskStatus.started_at }}</div>
-        <div v-if="taskStatus.error" class="text-red-600">{{ taskStatus.error }}</div>
-      </div>
-    </div>
+      <van-notice-bar
+        v-if="taskStatus && taskStatus.status === 'running'"
+        left-text="正在执行"
+        :text="`${taskStatus.strategy === 'short' ? '短线' : '波段'} · ${taskStatus.trade_date} · ${taskStatus.started_at}`"
+      />
+      <van-notice-bar
+        v-else-if="taskStatus && taskStatus.status === 'error'"
+        color="#ee0a24"
+        background="#ffe1e1"
+        left-text="执行失败"
+        :text="taskStatus.error || ''"
+      />
+      <van-notice-bar
+        v-else-if="taskStatus && taskStatus.status === 'idle' && taskStatus.trade_date"
+        left-text="执行完成"
+        :text="`${taskStatus.strategy === 'short' ? '短线' : '波段'} · ${taskStatus.trade_date}`"
+      />
 
-    <!-- 定时调度 -->
-    <div class="bg-white rounded-lg shadow p-6 space-y-4">
-      <h2 class="text-lg font-semibold text-gray-700">定时调度</h2>
-
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div>
-          <label class="block text-sm text-gray-600 mb-1">策略</label>
-          <select v-model="schedForm.strategy" :disabled="schedStatus?.status === 'running'" class="w-full border rounded px-2 py-1.5 text-sm disabled:bg-gray-100">
-            <option value="short">短线</option>
-            <option value="swing">波段</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm text-gray-600 mb-1">小时</label>
-          <input v-model.number="schedForm.cronHour" type="number" min="0" max="23" :disabled="schedStatus?.status === 'running'" class="w-full border rounded px-2 py-1.5 text-sm disabled:bg-gray-100" />
-        </div>
-        <div>
-          <label class="block text-sm text-gray-600 mb-1">分钟</label>
-          <input v-model.number="schedForm.cronMinute" type="number" min="0" max="59" :disabled="schedStatus?.status === 'running'" class="w-full border rounded px-2 py-1.5 text-sm disabled:bg-gray-100" />
-        </div>
-        <div class="flex items-end">
-          <label class="flex items-center gap-2 text-sm text-gray-600">
-            <input v-model="schedForm.skipAi" type="checkbox" :disabled="schedStatus?.status === 'running'" class="rounded disabled:bg-gray-100" />
-            跳过 AI
-          </label>
-        </div>
-        <div class="flex items-end gap-2">
-          <button
+      <!-- 定时调度 -->
+      <van-cell-group inset title="定时调度">
+        <van-field
+          :model-value="schedForm.strategy === 'short' ? '短线' : '波段'"
+          is-link
+          readonly
+          label="策略"
+          :disabled="schedStatus?.status === 'running'"
+          @click="schedStatus?.status !== 'running' && (showSchedStrategyPicker = true)"
+        />
+        <van-field
+          :model-value="`${String(schedForm.cronHour).padStart(2, '0')}:${String(schedForm.cronMinute).padStart(2, '0')}`"
+          is-link
+          readonly
+          label="执行时间"
+          :disabled="schedStatus?.status === 'running'"
+          @click="schedStatus?.status !== 'running' && (showTimePicker = true)"
+        />
+        <van-cell title="跳过 AI">
+          <template #value>
+            <van-switch v-model="schedForm.skipAi" size="20px" :disabled="schedStatus?.status === 'running'" />
+          </template>
+        </van-cell>
+        <div class="p-3">
+          <van-button
             v-if="schedStatus?.status !== 'running'"
+            type="success"
+            block
             @click="handleStartSched"
-            class="flex-1 bg-green-600 text-white rounded px-3 py-1.5 text-sm hover:bg-green-700"
           >
-            启动
-          </button>
-          <button
+            启动调度
+          </van-button>
+          <van-button
             v-else
+            type="danger"
+            block
             @click="handleStopSched"
-            class="flex-1 bg-red-600 text-white rounded px-3 py-1.5 text-sm hover:bg-red-700"
           >
-            停止
-          </button>
+            停止调度
+          </van-button>
         </div>
-      </div>
+      </van-cell-group>
 
       <!-- 调度状态 -->
-      <div v-if="schedStatus?.status === 'running'" class="border rounded p-3 text-sm bg-green-50 border-green-200 space-y-1">
-        <div class="flex items-center gap-2">
-          <span class="inline-block w-2 h-2 bg-green-500 rounded-full"></span>
-          <span class="font-medium text-green-700">调度运行中</span>
-        </div>
-        <div class="text-gray-600">策略：{{ schedStatus.strategy }} | Cron：{{ schedStatus.cron }}</div>
-        <div v-if="schedStatus.next_run" class="text-gray-500 text-xs">下次执行：{{ schedStatus.next_run }}</div>
-      </div>
-      <div v-else class="text-sm text-gray-400">调度器未启动</div>
+      <van-cell-group v-if="schedStatus?.status === 'running'" inset>
+        <van-cell title="状态" value="运行中" />
+        <van-cell title="策略" :value="schedStatus.strategy" />
+        <van-cell title="执行规则" :value="cronFriendly(schedStatus.cron)" />
+        <van-cell v-if="schedStatus.next_run" title="下次执行" :value="schedStatus.next_run" />
+      </van-cell-group>
+      <van-empty v-else-if="schedStatus" description="调度器未启动" :image-size="60" />
     </div>
-    </main>
+
+    <!-- Pickers -->
+    <van-popup v-model:show="showStrategyPicker" position="bottom" round>
+      <van-picker
+        :columns="[{ text: '短线', value: 'short' }, { text: '波段', value: 'swing' }]"
+        @confirm="({ selectedValues }: any) => { runForm.strategy = selectedValues[0]; showStrategyPicker = false }"
+        @cancel="showStrategyPicker = false"
+      />
+    </van-popup>
+
+    <van-popup v-model:show="showSchedStrategyPicker" position="bottom" round>
+      <van-picker
+        :columns="[{ text: '短线', value: 'short' }, { text: '波段', value: 'swing' }]"
+        @confirm="({ selectedValues }: any) => { schedForm.strategy = selectedValues[0]; showSchedStrategyPicker = false }"
+        @cancel="showSchedStrategyPicker = false"
+      />
+    </van-popup>
+
+    <van-popup v-model:show="showDatePicker" position="bottom" round>
+      <van-date-picker
+        v-model="datePickerValue"
+        @confirm="onDateConfirm"
+        @cancel="showDatePicker = false"
+      />
+    </van-popup>
+
+    <van-popup v-model:show="showTimePicker" position="bottom" round>
+      <van-picker
+        :columns="timeColumns"
+        @confirm="onTimeConfirm"
+        @cancel="showTimePicker = false"
+      />
+    </van-popup>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, reactive } from 'vue'
+import { onMounted, onUnmounted, ref, reactive, computed } from 'vue'
 import {
   runTask,
   fetchTaskStatus,
@@ -146,7 +177,38 @@ const schedForm = reactive({
 const taskStatus = ref<TaskStatusResponse | null>(null)
 const schedStatus = ref<SchedulerStatusResponse | null>(null)
 
-let pollTimer: ReturnType<typeof setInterval> | null = null
+const showStrategyPicker = ref(false)
+const showSchedStrategyPicker = ref(false)
+const showDatePicker = ref(false)
+const showTimePicker = ref(false)
+
+const datePickerValue = ref(['2026', '05', '02'])
+
+const timeColumns = computed(() => [
+  Array.from({ length: 24 }, (_, i) => ({ text: String(i).padStart(2, '0'), value: i })),
+  Array.from({ length: 60 }, (_, i) => ({ text: String(i).padStart(2, '0'), value: i })),
+])
+
+function onDateConfirm({ selectedValues }: { selectedValues: string[] }) {
+  runForm.tradeDate = selectedValues.join('-')
+  showDatePicker.value = false
+}
+
+function onTimeConfirm({ selectedValues }: { selectedValues: number[] }) {
+  schedForm.cronHour = selectedValues[0]
+  schedForm.cronMinute = selectedValues[1]
+  showTimePicker.value = false
+}
+
+function cronFriendly(cron: string): string {
+  const parts = cron.split(/\s+/)
+  if (parts.length !== 5) return cron
+  const [min, hour, , , dow] = parts
+  const time = `${hour.padStart(2, '0')}:${min.padStart(2, '0')}`
+  if (dow === 'mon-fri' || dow === '1-5') return `工作日 ${time}`
+  if (dow === '*') return `每天 ${time}`
+  return cron
+}
 
 async function handleRun() {
   try {
@@ -184,6 +246,8 @@ async function pollStatus() {
     // ignore
   }
 }
+
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   pollStatus()
