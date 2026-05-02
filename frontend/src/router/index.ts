@@ -20,6 +20,11 @@ const router = createRouter({
       component: () => import('../views/StockDetail.vue'),
       props: true,
     },
+    {
+      path: '/execute',
+      name: 'execute',
+      component: () => import('../views/Execute.vue'),
+    },
   ],
 })
 

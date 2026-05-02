@@ -205,6 +205,13 @@ def combine_scores(
         ai_top_n if ai_top_n is not None else settings.top_n_after_filter
     )
 
+    # swing: 低 regime 时用 tier top_n 限制 AI 候选数，避免弱市烧大量 AI 调用
+    _regime_cfg = (combine_cfg or {}).get("market_regime_control", {})
+    if strategy == "swing" and regime_score is not None and _regime_cfg:
+        _tier = _pick_market_regime_tier(regime_score, _regime_cfg.get("tiers", []))
+        if _tier:
+            effective_ai_top_n = min(effective_ai_top_n, int(_tier.get("top_n", effective_ai_top_n)))
+
     # ---------- 1. 读当日全部维度得分，按 ts_code 聚合 ----------
     stmt = (
         select(FilterScoreDaily)
@@ -262,6 +269,7 @@ def combine_scores(
                 session, ts_code, trade_date,
                 rule_dim_scores=dim_scores_map.get(ts_code, {}),
                 strategy=strategy,
+                regime_score=regime_score,
             )
             if ai_obj is not None:
                 ai_results[ts_code] = ai_obj.score

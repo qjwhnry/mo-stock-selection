@@ -2,8 +2,9 @@
   <div class="min-h-screen bg-gray-50">
     <!-- Header -->
     <header class="bg-white shadow">
-      <div class="mx-auto max-w-5xl px-4 py-4">
+      <div class="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
         <h1 class="text-xl font-bold text-gray-900">mo-stock 选股系统</h1>
+        <router-link to="/execute" class="text-sm text-blue-600 hover:underline">任务执行</router-link>
       </div>
     </header>
 

@@ -33,6 +33,9 @@ from mo_stock.ai.prompts import (
     build_dynamic_stock_prompt,
     build_methodology_prompt,
     build_static_stock_prompt,
+    build_swing_dynamic_stock_prompt,
+    build_swing_methodology_prompt,
+    build_swing_system_prompt,
     build_system_prompt,
 )
 from mo_stock.ai.schemas import StockAiAnalysis
@@ -56,6 +59,7 @@ def analyze_stock_with_ai(
     trade_date: date,
     rule_dim_scores: dict[str, ScoreResult],
     strategy: str = "short",
+    regime_score: float | None = None,
 ) -> StockAiAnalysis | None:
     """对单股调 Claude 做深度分析。
 
@@ -64,19 +68,26 @@ def analyze_stock_with_ai(
         ts_code: 股票代码，如 "600519.SH"
         trade_date: 选股交易日
         rule_dim_scores: 该股已命中的规则维度得分 {dim: ScoreResult}（来自 filter_score_daily）。
-            当前 AI prompt 面向 short 策略，通常包含 limit / moneyflow / lhb / sector /
-            theme 的子集；sentiment 未接入时不会出现。
+            short 通常包含 limit / moneyflow / lhb / sector / theme 的子集；
+            swing 通常包含 trend / pullback / moneyflow_swing 等 7 维度的子集。
+        strategy: 策略标识，short 或 swing，决定使用哪套 prompt。
+        regime_score: 大盘环境评分（swing 专用，由 combine_scores 传入，避免重复计算）。
 
     Returns:
         StockAiAnalysis 对象（成功）或 None（任何失败：API 错、JSON 错、schema 错）
     """
-    # 1. 构造 4 段 prompt
+    # 1. 构造 4 段 prompt（按 strategy 路由）
     try:
-        system_p = build_system_prompt()
-        method_p = build_methodology_prompt()
+        if strategy == "swing":
+            system_p = build_swing_system_prompt()
+            method_p = build_swing_methodology_prompt()
+        else:
+            system_p = build_system_prompt()
+            method_p = build_methodology_prompt()
         static_p = _build_static_for_stock(session, ts_code)
         dynamic_p = _build_dynamic_for_stock(
             session, ts_code, trade_date, rule_dim_scores,
+            strategy=strategy, regime_score=regime_score,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("AI prompt 构造失败 ts_code={} trade_date={}: {}",
@@ -104,6 +115,13 @@ def analyze_stock_with_ai(
 
         parsed = _try_parse_response(raw, ts_code, attempt + 1)
         if parsed is not None:
+            if parsed.ts_code != ts_code:
+                logger.warning(
+                    "AI 返回 ts_code={} 不匹配请求 {}，attempt={}",
+                    parsed.ts_code, ts_code, attempt + 1,
+                )
+                parsed = None
+                continue
             break
 
     if parsed is None:
@@ -123,6 +141,47 @@ def analyze_stock_with_ai(
 # ---------------------------------------------------------------------------
 # 内部辅助：prompt 上下文构造
 # ---------------------------------------------------------------------------
+
+
+def _calc_ma20_atr(
+    session: Session, ts_code: str, trade_date: date,
+) -> tuple[float | None, float | None]:
+    """从 DB 查近 21 日 K 线计算 MA20 和 ATR(20) 百分比。"""
+    from sqlalchemy import select
+
+    rows = session.execute(
+        select(DailyKline.close, DailyKline.high, DailyKline.low)
+        .where(DailyKline.ts_code == ts_code)
+        .where(DailyKline.trade_date <= trade_date)
+        .order_by(DailyKline.trade_date.desc())
+        .limit(21)
+    ).all()
+
+    # 按完整行过滤：close/high/low 任一缺失则跳过该行
+    ohlc = [
+        (float(r[0]), float(r[1]), float(r[2]))
+        for r in reversed(rows)
+        if r[0] is not None and r[1] is not None and r[2] is not None
+    ]
+
+    if len(ohlc) < 20:
+        return None, None
+
+    closes = [r[0] for r in ohlc]
+    ma20 = sum(closes[-20:]) / 20
+
+    # ATR(20): 需要 21 根 K 线产生 20 个 TR
+    if len(ohlc) < 21:
+        return round(ma20, 2), None
+
+    trs = []
+    for i in range(1, 21):
+        hi, lo, pc = ohlc[i][1], ohlc[i][2], ohlc[i - 1][0]
+        trs.append(max(hi - lo, abs(hi - pc), abs(lo - pc)))
+    atr = sum(trs) / 20
+    atr_pct = atr / closes[-1] * 100 if closes[-1] else None
+
+    return round(ma20, 2), round(atr_pct, 2) if atr_pct else None
 
 def _build_static_for_stock(session: Session, ts_code: str) -> str:
     """从 DB 拿股票静态背景，构造 static_stock prompt。
@@ -147,13 +206,30 @@ def _build_dynamic_for_stock(
     ts_code: str,
     trade_date: date,
     rule_dim_scores: dict[str, ScoreResult],
+    strategy: str = "short",
+    regime_score: float | None = None,
 ) -> str:
-    """从 DB 拿当日行情快照 + 已命中规则维度 detail，构造 dynamic_stock prompt。"""
+    """从 DB 拿当日行情快照 + 已命中规则维度 detail，构造 dynamic prompt。"""
     kline = session.get(DailyKline, (ts_code, trade_date))
     close = kline.close if kline else None
     pct_chg = kline.pct_chg if kline else None
     # daily_kline.amount 单位是千元，转换为亿元：千元 * 1000 / 1e8 = / 1e5
     amount_yi = (kline.amount / 1e5) if (kline and kline.amount) else None
+
+    if strategy == "swing":
+        ma20, atr_pct = _calc_ma20_atr(session, ts_code, trade_date)
+
+        return build_swing_dynamic_stock_prompt(
+            ts_code=ts_code,
+            trade_date=trade_date,
+            dim_scores=rule_dim_scores,
+            regime_score=regime_score,
+            close=close,
+            pct_chg=pct_chg,
+            amount_yi=amount_yi,
+            ma20=ma20,
+            atr_pct=atr_pct,
+        )
 
     return build_dynamic_stock_prompt(
         ts_code=ts_code,

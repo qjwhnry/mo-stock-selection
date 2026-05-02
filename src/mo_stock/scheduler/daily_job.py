@@ -84,9 +84,6 @@ def run_daily_pipeline(
 
     trade_date = trade_date or date.today()
     strategy = _validate_strategy(strategy)
-    if strategy == "swing" and not skip_ai:
-        logger.warning("swing AI prompt 尚未接入，scheduler 本次自动跳过 AI")
-        skip_ai = True
     logger.info(
         "===== 每日定时任务触发：{} strategy={} (skip_enhanced={} skip_ai={}) =====",
         trade_date, strategy, skip_enhanced, skip_ai,

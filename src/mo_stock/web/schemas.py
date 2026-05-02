@@ -72,3 +72,33 @@ class StockDetailResponse(BaseModel):
     latest_scores: dict[str, int]
     ai_analysis: AiAnalysisData | None = None
     recent_picks: list[RecentPick]
+
+
+class RunTaskRequest(BaseModel):
+    strategy: str = "short"
+    trade_date: str | None = None
+    skip_ai: bool = False
+    force: bool = False
+
+
+class TaskStatusResponse(BaseModel):
+    task_id: str | None = None
+    status: str  # running / idle / error
+    strategy: str | None = None
+    trade_date: str | None = None
+    started_at: str | None = None
+    error: str | None = None
+
+
+class SchedulerConfig(BaseModel):
+    strategy: str = "short"
+    skip_ai: bool = False
+    cron_hour: int = 15
+    cron_minute: int = 30
+
+
+class SchedulerStatusResponse(BaseModel):
+    status: str  # running / stopped
+    strategy: str | None = None
+    cron: str | None = None
+    next_run: str | None = None

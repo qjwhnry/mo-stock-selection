@@ -14,20 +14,20 @@
           <option value="ai_score">AI 分</option>
           <option disabled>──────────</option>
           <template v-if="strategy === 'swing'">
-            <option value="trend">趋势结构</option>
-            <option value="pullback">回踩承接</option>
-            <option value="moneyflow_swing">波段资金</option>
-            <option value="sector_swing">行业持续</option>
-            <option value="theme_swing">题材持续</option>
-            <option value="catalyst">短线催化</option>
-            <option value="risk_liquidity">风险流动性</option>
+            <option value="trend">{{ dimLabel('trend') }}</option>
+            <option value="pullback">{{ dimLabel('pullback') }}</option>
+            <option value="moneyflow_swing">{{ dimLabel('moneyflow_swing') }}</option>
+            <option value="sector_swing">{{ dimLabel('sector_swing') }}</option>
+            <option value="theme_swing">{{ dimLabel('theme_swing') }}</option>
+            <option value="catalyst">{{ dimLabel('catalyst') }}</option>
+            <option value="risk_liquidity">{{ dimLabel('risk_liquidity') }}</option>
           </template>
           <template v-else>
-            <option value="limit">涨停异动</option>
-            <option value="moneyflow">资金流向</option>
-            <option value="lhb">龙虎榜</option>
-            <option value="sector">板块</option>
-            <option value="theme">题材</option>
+            <option value="limit">{{ dimLabel('limit') }}</option>
+            <option value="moneyflow">{{ dimLabel('moneyflow') }}</option>
+            <option value="lhb">{{ dimLabel('lhb') }}</option>
+            <option value="sector">{{ dimLabel('sector') }}</option>
+            <option value="theme">{{ dimLabel('theme') }}</option>
           </template>
         </select>
       </div>
@@ -91,6 +91,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { StockItem } from '../api'
+import { dimLabel } from '../api'
 import DimensionBar from './DimensionBar.vue'
 import AiSummary from './AiSummary.vue'
 

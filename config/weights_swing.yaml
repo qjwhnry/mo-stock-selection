@@ -5,8 +5,7 @@
 # - 7 个 swing filter 已接入 run-once / scheduler / backtest。
 # - market_regime_control 不作为单股维度入库，而是在 combine 阶段调整 top_n、
 #   position_scale 和最低 final_score。
-# - swing AI prompt 尚未接入，CLI / scheduler 会自动跳过 AI；因此当前
-#   final_score 通常等于 rule_score。
+# - swing AI prompt 已接入，final_score = rule × 0.6 + ai × 0.4。
 # ==============================================================
 
 strategy:

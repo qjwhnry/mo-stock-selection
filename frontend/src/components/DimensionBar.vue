@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-1">
     <div v-for="(value, key) in scores" :key="key" class="flex items-center gap-2">
-      <span class="w-20 text-xs text-gray-600">{{ key }}</span>
+      <span class="w-32 text-xs text-gray-600 truncate" :title="dimLabel(key as string)">{{ dimLabel(key as string) }}</span>
       <div class="flex-1 bg-gray-200 rounded h-4">
         <div
           class="bg-blue-500 h-4 rounded"
@@ -14,6 +14,8 @@
 </template>
 
 <script setup lang="ts">
+import { dimLabel } from '../api'
+
 defineProps<{
   scores: Record<string, number>
 }>()

@@ -5,6 +5,29 @@ const api = axios.create({
   timeout: 10000,
 })
 
+// 维度中英文映射
+export const DIM_LABELS: Record<string, string> = {
+  // short 维度
+  limit: '涨停异动',
+  moneyflow: '资金流向',
+  lhb: '龙虎榜',
+  sector: '板块',
+  theme: '题材',
+  // swing 维度
+  trend: '趋势结构',
+  pullback: '回踩承接',
+  moneyflow_swing: '波段资金',
+  sector_swing: '行业持续',
+  theme_swing: '题材持续',
+  catalyst: '短线催化',
+  risk_liquidity: '风险流动性',
+}
+
+export function dimLabel(key: string): string {
+  const zh = DIM_LABELS[key]
+  return zh ? `${zh} (${key})` : key
+}
+
 // Type definitions
 export interface ReportListItem {
   trade_date: string
@@ -100,4 +123,51 @@ export function fetchStockDetail(tsCode: string, strategy: string, days = 10) {
   return api.get<StockDetailResponse>(`/stocks/${tsCode}`, {
     params: { strategy, days },
   })
+}
+
+// Task execution types
+export interface TaskStatusResponse {
+  task_id: string | null
+  status: 'running' | 'idle' | 'error'
+  strategy: string | null
+  trade_date: string | null
+  started_at: string | null
+  error: string | null
+}
+
+export interface SchedulerStatusResponse {
+  status: 'running' | 'stopped'
+  strategy: string | null
+  cron: string | null
+  next_run: string | null
+}
+
+// Task execution methods
+export function runTask(strategy: string, tradeDate?: string, skipAi = false) {
+  return api.post<TaskStatusResponse>('/tasks/run', {
+    strategy,
+    trade_date: tradeDate || null,
+    skip_ai: skipAi,
+  })
+}
+
+export function fetchTaskStatus() {
+  return api.get<TaskStatusResponse>('/tasks/status')
+}
+
+export function startScheduler(strategy: string, skipAi = false, cronHour = 15, cronMinute = 30) {
+  return api.post<{ message: string; cron: string }>('/scheduler/start', {
+    strategy,
+    skip_ai: skipAi,
+    cron_hour: cronHour,
+    cron_minute: cronMinute,
+  })
+}
+
+export function stopScheduler() {
+  return api.post<{ message: string }>('/scheduler/stop')
+}
+
+export function fetchSchedulerStatus() {
+  return api.get<SchedulerStatusResponse>('/scheduler/status')
 }

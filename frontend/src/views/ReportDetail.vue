@@ -1,9 +1,12 @@
 <template>
   <div class="min-h-screen bg-gray-50">
     <header class="bg-white shadow">
-      <div class="mx-auto max-w-5xl px-4 py-4 flex items-center gap-4">
-        <router-link to="/" class="text-gray-500 hover:text-gray-700">&larr; 返回</router-link>
-        <h1 class="text-lg font-bold">{{ date }} {{ strategyLabel }}选股报告</h1>
+      <div class="mx-auto max-w-5xl px-4 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+          <router-link to="/" class="text-gray-500 hover:text-gray-700">&larr; 返回</router-link>
+          <h1 class="text-lg font-bold">{{ date }} {{ strategyLabel }}选股报告</h1>
+        </div>
+        <router-link to="/execute" class="text-sm text-blue-600 hover:underline">任务执行</router-link>
       </div>
     </header>
 

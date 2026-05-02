@@ -255,9 +255,6 @@ def run_once(
 ) -> None:
     """对指定交易日跑一次端到端选股流程：ingest → filter → combine [+ AI] → report。"""
     strategy = _validate_strategy(strategy)
-    if strategy == "swing" and not skip_ai:
-        logger.warning("swing AI prompt 尚未接入，本次自动跳过 AI，final_score 将使用规则分")
-        skip_ai = True
     trade_date = _parse_date(date_str) if date_str else date.today()
     _ensure_trade_date(trade_date, force=force, kind="run-once")
     logger.info("=== run-once {} strategy={} (skip_ai={}) ===", trade_date, strategy, skip_ai)
@@ -318,7 +315,6 @@ def run_once(
         )
 
         # ---------- 4. 综合打分 + AI（可选）+ 硬规则 ----------
-        # short 可选择启用 Claude AI；swing 当前强制 skip_ai。
         # combine_scores 内部会在 ai_score 缺失时回退为 rule_score，保证报告始终有 final_score。
         combine_scores(
             session,

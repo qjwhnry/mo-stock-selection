@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from mo_stock.web.routers import reports, stocks
+from mo_stock.web.routers import reports, stocks, tasks
 
 app = FastAPI(
     title="mo-stock API",
@@ -13,6 +13,7 @@ app = FastAPI(
 
 app.include_router(reports.router, prefix="/api")
 app.include_router(stocks.router, prefix="/api")
+app.include_router(tasks.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -206,3 +206,83 @@ class TestBuildDynamicForStock:
         prompt = _build_dynamic_for_stock(sqlite_session, basic_stock, td, {})
 
         assert "<amount_yi>1.0</amount_yi>" in prompt
+
+
+class TestSwingAiCallPath:
+    """Swing AI 调用路径：strategy=swing 走 swing prompt + 落库 strategy=swing。"""
+
+    def test_swing_strategy_uses_swing_prompt(
+        self, sqlite_session, mock_claude_client, basic_stock,
+    ) -> None:
+        mock_claude_client.analyze.return_value = (
+            '{"ts_code":"600519.SH","score":78.0,'
+            '"thesis":"趋势延续，波段资金持续流入，行业共振。MA 多头排列确认趋势强度，资金 5 日持续净流入验证主力意图，行业板块同步走强形成共振效应。",'
+            '"entry_price":1680.0,"stop_loss":1640.0,'
+            '"key_signals":["MA 多头排列","资金 5 日持续净流入"],'
+            '"risks":["大盘回调风险"]}',
+            {"input_tokens": 1000, "output_tokens": 300,
+             "cache_creation_tokens": 800, "cache_read_tokens": 0},
+        )
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+            strategy="swing",
+            regime_score=65.0,
+        )
+        assert result is not None
+        assert result.score == 78.0
+
+        from sqlalchemy import select
+        row = sqlite_session.execute(
+            select(AiAnalysis)
+            .where(AiAnalysis.ts_code == "600519.SH")
+        ).scalar_one()
+        assert row.strategy == "swing"
+        assert row.ai_score == 78
+
+    def test_swing_dynamic_contains_regime_and_ma20(
+        self, sqlite_session, basic_stock,
+    ) -> None:
+        td = date(2026, 4, 24)
+        # 插入 21 天 K 线以计算 MA20 和 ATR
+        from datetime import timedelta
+        for i in range(21):
+            d = td - timedelta(days=21 - i)
+            sqlite_session.add(DailyKline(
+                ts_code=basic_stock, trade_date=d,
+                open=10.0 + i * 0.1, high=10.5 + i * 0.1,
+                low=9.8 + i * 0.1, close=10.2 + i * 0.1,
+                pre_close=10.0, pct_chg=1.0, vol=1e5, amount=1e5,
+            ))
+        sqlite_session.commit()
+
+        prompt = _build_dynamic_for_stock(
+            sqlite_session, basic_stock, td, {},
+            strategy="swing", regime_score=55.0,
+        )
+        assert "<regime_score>55.0</regime_score>" in prompt
+        assert "<ma20>" in prompt
+        assert "缺失" not in prompt.split("<ma20>")[1].split("</ma20>")[0]
+
+    def test_ts_code_mismatch_rejected(
+        self, sqlite_session, mock_claude_client, basic_stock,
+    ) -> None:
+        """AI 返回的 ts_code 与请求不匹配时拒绝，重试后仍错则返回 None。"""
+        mock_claude_client.analyze.side_effect = [
+            ('{"ts_code":"000001.SZ","score":80,'
+             '"thesis":"这是一个长度足够的测试论点，用于验证代码不匹配时会被拒绝。",'
+             '"entry_price":null,"stop_loss":null,"key_signals":[],"risks":[]}',
+             {"input_tokens": 100, "output_tokens": 50,
+              "cache_creation_tokens": 0, "cache_read_tokens": 0}),
+            ('{"ts_code":"000002.SZ","score":70,'
+             '"thesis":"第二次返回仍然不匹配，验证重试后仍返回 None 的逻辑。",'
+             '"entry_price":null,"stop_loss":null,"key_signals":[],"risks":[]}',
+             {"input_tokens": 100, "output_tokens": 50,
+              "cache_creation_tokens": 0, "cache_read_tokens": 0}),
+        ]
+        result = analyze_stock_with_ai(
+            sqlite_session, basic_stock, date(2026, 4, 24),
+            rule_dim_scores={},
+        )
+        assert result is None
+        assert mock_claude_client.analyze.call_count == 2
