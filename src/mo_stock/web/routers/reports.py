@@ -312,7 +312,7 @@ async def get_report_detail(
         select(IndexMember.ts_code, IndexMember.l1_name)
         .where(IndexMember.ts_code.in_(all_picked_codes))
     ).all() if all_picked_codes else []
-    available_sectors = sorted(set(r.l1_name for r in all_sector_rows if r.l1_name))
+    available_sectors = sorted({r.l1_name for r in all_sector_rows if r.l1_name})
 
     # 获取市场数据
     market = _get_market_data(db, trade_date)

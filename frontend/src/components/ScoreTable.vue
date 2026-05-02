@@ -13,11 +13,22 @@
           <option value="rule_score">规则分</option>
           <option value="ai_score">AI 分</option>
           <option disabled>──────────</option>
-          <option value="limit">涨停异动</option>
-          <option value="moneyflow">资金流向</option>
-          <option value="lhb">龙虎榜</option>
-          <option value="sector">板块</option>
-          <option value="theme">题材</option>
+          <template v-if="strategy === 'swing'">
+            <option value="trend">趋势结构</option>
+            <option value="pullback">回踩承接</option>
+            <option value="moneyflow_swing">波段资金</option>
+            <option value="sector_swing">行业持续</option>
+            <option value="theme_swing">题材持续</option>
+            <option value="catalyst">短线催化</option>
+            <option value="risk_liquidity">风险流动性</option>
+          </template>
+          <template v-else>
+            <option value="limit">涨停异动</option>
+            <option value="moneyflow">资金流向</option>
+            <option value="lhb">龙虎榜</option>
+            <option value="sector">板块</option>
+            <option value="theme">题材</option>
+          </template>
         </select>
       </div>
       <div class="flex items-center gap-2">
