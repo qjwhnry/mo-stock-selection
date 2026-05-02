@@ -4,7 +4,7 @@
     <van-nav-bar title="mo-stock 选股系统">
       <template #right>
         <div class="flex items-center gap-3">
-          <router-link to="/login" class="text-sm text-blue-600">登录</router-link>
+          <button type="button" class="text-sm text-blue-600" @click="handleLogout">退出</button>
           <router-link to="/execute" class="text-sm text-blue-600">执行</router-link>
         </div>
       </template>
@@ -55,8 +55,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { fetchReports, type ReportListItem } from '../api'
+import { clearAuthSession } from '../auth'
 
+const router = useRouter()
 const strategy = ref('short')
 const page = ref(1)
 const pageSize = 20
@@ -70,6 +73,11 @@ const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize))
 function onStrategyChange() {
   page.value = 1
   loadReports()
+}
+
+function handleLogout() {
+  clearAuthSession()
+  router.push('/login')
 }
 
 async function loadReports() {

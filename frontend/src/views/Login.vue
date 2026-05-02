@@ -84,10 +84,13 @@
 
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { showToast } from 'vant'
+import { verifyAuth } from '../api'
+import { buildBasicAuth, setAuthSession } from '../auth'
 
 const router = useRouter()
+const route = useRoute()
 const showPassword = ref(false)
 const submitting = ref(false)
 
@@ -97,7 +100,7 @@ const form = reactive({
   remember: true,
 })
 
-function handleSubmit() {
+async function handleSubmit() {
   if (!form.username || !form.password) {
     showToast('请输入账号和密码')
     return
@@ -105,10 +108,17 @@ function handleSubmit() {
 
   submitting.value = true
 
-  window.setTimeout(() => {
+  try {
+    const authorization = buildBasicAuth(form.username, form.password)
+    await verifyAuth(authorization)
+    setAuthSession(form.username, authorization, form.remember)
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    router.push(redirect)
+  } catch {
+    showToast('账号或密码错误')
+  } finally {
     submitting.value = false
-    router.push('/')
-  }, 500)
+  }
 }
 </script>
 

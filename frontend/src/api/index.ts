@@ -1,9 +1,34 @@
-import axios from 'axios'
+import axios, { AxiosHeaders } from 'axios'
+import { clearAuthSession, getAuthSession } from '../auth'
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 10000,
 })
+
+api.interceptors.request.use((config) => {
+  const auth = getAuthSession()
+  const headers = AxiosHeaders.from(config.headers)
+  if (auth && !headers.has('Authorization')) {
+    headers.set('Authorization', auth.authorization)
+  }
+  config.headers = headers
+  return config
+})
+
+api.interceptors.response.use(
+  response => response,
+  error => {
+    if (error?.response?.status === 401) {
+      clearAuthSession()
+      if (window.location.pathname !== '/login') {
+        const redirect = `${window.location.pathname}${window.location.search}`
+        window.location.href = `/login?redirect=${encodeURIComponent(redirect)}`
+      }
+    }
+    return Promise.reject(error)
+  },
+)
 
 // 维度中英文映射
 export const DIM_LABELS: Record<string, string> = {
@@ -100,6 +125,12 @@ export interface StockDetailResponse {
 }
 
 // API methods
+export function verifyAuth(authorization: string) {
+  return api.get<{ status: string }>('/health', {
+    headers: { Authorization: authorization },
+  })
+}
+
 export function fetchReports(strategy: string, page: number, pageSize: number) {
   return api.get<ReportListResponse>('/reports', {
     params: { strategy, page, page_size: pageSize },
