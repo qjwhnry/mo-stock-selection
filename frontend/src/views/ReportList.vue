@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
+  <div class="home-page min-h-screen">
     <!-- Header -->
     <van-nav-bar title="mo-stock 选股系统">
       <template #right>
@@ -29,7 +29,7 @@
       <van-empty v-else-if="reports.length === 0" description="暂无选股数据，请先运行选股" />
 
       <!-- Report Cards -->
-      <van-cell-group v-else inset>
+      <van-cell-group v-else inset class="report-list-card">
         <van-cell
           v-for="r in reports"
           :key="r.trade_date"
@@ -96,3 +96,64 @@ async function loadReports() {
 
 onMounted(loadReports)
 </script>
+
+<style scoped>
+.home-page {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, #f8faf8 0%, #f2f5f3 46%, #eef2ef 100%);
+  color: #1f2a25;
+}
+
+:deep(.van-nav-bar) {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 0 rgba(31, 42, 37, 0.06);
+}
+
+:deep(.van-nav-bar__title) {
+  color: #1f2a25;
+  font-weight: 700;
+}
+
+:deep(.van-tabs__wrap) {
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: inset 0 -1px 0 rgba(31, 42, 37, 0.05);
+}
+
+:deep(.van-tabs__nav) {
+  background: transparent;
+}
+
+:deep(.van-tab) {
+  color: #52615b;
+}
+
+:deep(.van-tab--active) {
+  color: #17201d;
+  font-weight: 700;
+}
+
+:deep(.van-tabs__line) {
+  background: #1f8a7f;
+}
+
+:deep(.report-list-card) {
+  overflow: hidden;
+  border: 1px solid rgba(31, 42, 37, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 30px rgba(31, 42, 37, 0.04);
+}
+
+:deep(.report-list-card .van-cell) {
+  background: transparent;
+}
+
+:deep(.report-list-card .van-cell__title) {
+  color: #24302b;
+}
+
+:deep(.report-list-card .van-cell__label) {
+  color: #7a8781;
+}
+</style>
