@@ -11,7 +11,7 @@ services:
     environment:
       DB_URL: ${DB_URL:?请设置 DB_URL 环境变量}
     ports:
-      - "8000:8000"
+      - "8001:8001"
 
   nginx:
     image: nginx:alpine
