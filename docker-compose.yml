@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: mo_stock_api
     restart: unless-stopped
-    command: uvicorn mo_stock.web.app:app --host 0.0.0.0 --port 8000
+    command: uvicorn mo_stock.web.app:app --host 0.0.0.0 --port 8001
     environment:
       DB_URL: ${DB_URL:?请设置 DB_URL 环境变量}
     ports:
