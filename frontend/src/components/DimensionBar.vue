@@ -12,7 +12,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { dimLabel, DIM_LABELS } from '../api'
+import { dimLabel } from '../api'
 
 const SHORT_DIMS = ['limit', 'moneyflow', 'lhb', 'sector', 'theme']
 const SWING_DIMS = ['trend', 'pullback', 'moneyflow_swing', 'sector_swing', 'theme_swing', 'catalyst', 'risk_liquidity']

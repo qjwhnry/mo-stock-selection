@@ -3,7 +3,10 @@
     <!-- Header -->
     <van-nav-bar title="mo-stock 选股系统">
       <template #right>
-        <router-link to="/execute" class="text-sm text-blue-600">执行</router-link>
+        <div class="flex items-center gap-3">
+          <router-link to="/login" class="text-sm text-blue-600">登录</router-link>
+          <router-link to="/execute" class="text-sm text-blue-600">执行</router-link>
+        </div>
       </template>
     </van-nav-bar>
 

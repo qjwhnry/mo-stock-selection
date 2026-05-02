@@ -107,8 +107,8 @@
       <!-- 调度状态 -->
       <van-cell-group v-if="schedStatus?.status === 'running'" inset>
         <van-cell title="状态" value="运行中" />
-        <van-cell title="策略" :value="schedStatus.strategy" />
-        <van-cell title="执行规则" :value="cronFriendly(schedStatus.cron)" />
+        <van-cell title="策略" :value="schedStatus.strategy || '-'" />
+        <van-cell title="执行规则" :value="cronFriendly(schedStatus.cron || '')" />
         <van-cell v-if="schedStatus.next_run" title="下次执行" :value="schedStatus.next_run" />
       </van-cell-group>
       <van-empty v-else-if="schedStatus" description="调度器未启动" :image-size="60" />
