@@ -1,5 +1,38 @@
 <template>
-  <div class="overflow-x-auto">
+  <div class="space-y-3">
+    <!-- Sort controls -->
+    <div class="flex items-center gap-4 text-sm">
+      <div class="flex items-center gap-2">
+        <label class="text-gray-600">排序:</label>
+        <select
+          :value="currentSort"
+          @change="handleSortChange($event)"
+          class="border border-gray-300 rounded px-2 py-1 bg-white"
+        >
+          <option value="final_score">综合分</option>
+          <option value="rule_score">规则分</option>
+          <option value="ai_score">AI 分</option>
+          <option disabled>──────────</option>
+          <option value="limit">涨停异动</option>
+          <option value="moneyflow">资金流向</option>
+          <option value="lhb">龙虎榜</option>
+          <option value="sector">板块</option>
+          <option value="theme">题材</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="text-gray-600">方向:</label>
+        <button
+          @click="toggleOrder"
+          class="border border-gray-300 rounded px-3 py-1 bg-white hover:bg-gray-50 min-w-[80px]"
+        >
+          {{ currentOrder === 'desc' ? '↓ 降序' : '↑ 升序' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-gray-50">
         <tr>
@@ -40,6 +73,7 @@
         </template>
       </tbody>
     </table>
+    </div>
   </div>
 </template>
 
@@ -69,6 +103,16 @@ function toggleExpand(code: string) {
 function toggleSort(column: string) {
   const newOrder = props.currentSort === column && props.currentOrder === 'desc' ? 'asc' : 'desc'
   emit('sort', column, newOrder)
+}
+
+function toggleOrder() {
+  const newOrder = props.currentOrder === 'desc' ? 'asc' : 'desc'
+  emit('sort', props.currentSort, newOrder)
+}
+
+function handleSortChange(event: Event) {
+  const target = event.target as HTMLSelectElement
+  emit('sort', target.value, props.currentOrder)
 }
 
 function sortIndicator(column: string) {
