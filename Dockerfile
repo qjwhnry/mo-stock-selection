@@ -8,9 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install Python dependencies
-COPY pyproject.toml ./
+COPY pyproject.toml README.md ./
 COPY config/ config/
 COPY src/ src/
+COPY alembic.ini alembic/ ./
 RUN pip install --no-cache-dir -e .
 
 EXPOSE 8000

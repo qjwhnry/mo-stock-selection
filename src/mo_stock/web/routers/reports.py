@@ -203,11 +203,11 @@ async def get_report_detail(
     # 排序逻辑
     sort_column = VALID_SORT_BY[sort_by]
     if sort_column is not None:
-        # 直接按 SelectionResult 列排序
+        # 直接按 SelectionResult 列排序，nullable 列使用 nulls_last
         if order == "desc":
-            query = query.order_by(sort_column.desc())
+            query = query.order_by(sort_column.desc().nulls_last())
         else:
-            query = query.order_by(sort_column.asc())
+            query = query.order_by(sort_column.asc().nulls_last())
     else:
         # 按 filter_score_daily 维度分排序
         dim_join = (
@@ -301,8 +301,18 @@ async def get_report_detail(
             )
         )
 
-    # 获取可用行业列表（从本次 selection 中去重）
-    available_sectors = sorted(set(industry_map.values()))
+    # 获取可用行业列表（从当日全部入选股，与当前筛选结果解耦）
+    all_picked_codes = db.execute(
+        select(SelectionResult.ts_code)
+        .where(SelectionResult.trade_date == trade_date)
+        .where(SelectionResult.strategy == strategy)
+        .where(SelectionResult.picked.is_(True))
+    ).scalars().all()
+    all_sector_rows = db.execute(
+        select(IndexMember.ts_code, IndexMember.l1_name)
+        .where(IndexMember.ts_code.in_(all_picked_codes))
+    ).all() if all_picked_codes else []
+    available_sectors = sorted(set(r.l1_name for r in all_sector_rows if r.l1_name))
 
     # 获取市场数据
     market = _get_market_data(db, trade_date)
