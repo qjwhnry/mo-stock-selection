@@ -66,6 +66,11 @@ vendor/mo-skills/gtht-skill-shared/
 vendor/**/node_modules/
 vendor/**/__MACOSX/
 
+# ---------- 前端项目 ----------
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
 # Alembic 生成的 SQL 备份
 alembic/versions/*.sql
 
