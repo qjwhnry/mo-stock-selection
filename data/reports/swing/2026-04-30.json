@@ -1,0 +1,1361 @@
+[
+  {
+    "rank": 1,
+    "strategy": "swing",
+    "ts_code": "300862.SZ",
+    "name": "蓝盾光电",
+    "rule_score": 52.65,
+    "ai_score": null,
+    "final_score": 52.65,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 11.12%",
+          "近 5 日量能抬升"
+        ],
+        "pullback": [
+          "近 5 日回撤 4.2%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 1747 万",
+          "近 10 日主力净流入 1.11 亿",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 5 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801890.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 85.0,
+        "detail": {
+          "ma5": 23.84,
+          "ma10": 23.29,
+          "ma20": 22.61,
+          "ma60": 23.03,
+          "close": 24.08,
+          "pct_20d": 11.12,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "volume_trend_up": true,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 70.0,
+        "detail": {
+          "drawdown_5d_pct": 4.2,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 3.4,
+          "distance_ma20_pct": 6.5,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 90.0,
+        "detail": {
+          "net_mf_5d_wan": 1746.92,
+          "net_mf_10d_wan": 11116.18,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 5
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801890.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 2,
+    "strategy": "swing",
+    "ts_code": "603823.SH",
+    "name": "百合花",
+    "rule_score": 52.0,
+    "ai_score": null,
+    "final_score": 52.0,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 7.88%",
+          "突破放量确认"
+        ],
+        "pullback": [
+          "近 5 日回撤 0.61%",
+          "贴近 MA10/MA20 承接",
+          "回踩阶段缩量",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 798 万",
+          "近 10 日主力净流入 108 万",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 5 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801030.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 85.0,
+        "detail": {
+          "ma5": 16.38,
+          "ma10": 16.29,
+          "ma20": 15.75,
+          "ma60": 16.61,
+          "close": 16.7,
+          "pct_20d": 7.88,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true,
+          "breakout_volume_bonus": 10
+        }
+      },
+      "pullback": {
+        "score": 65.0,
+        "detail": {
+          "drawdown_5d_pct": 0.61,
+          "distance_ma10_pct": 2.54,
+          "distance_ma20_pct": 6.02,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true,
+          "pullback_volume_shrunk": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 90.0,
+        "detail": {
+          "net_mf_5d_wan": 798.08,
+          "net_mf_10d_wan": 107.51,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 5
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801030.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 3,
+    "strategy": "swing",
+    "ts_code": "600552.SH",
+    "name": "凯盛科技",
+    "rule_score": 51.8,
+    "ai_score": null,
+    "final_score": 51.8,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 28.54%"
+        ],
+        "pullback": [
+          "近 5 日回撤 4.72%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接",
+          "回踩阶段缩量",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 1.21 亿",
+          "近 10 日主力净流入 6678 万",
+          "近 5 日资金净流入 3 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业近 5 日资金净流入 53.87 亿",
+          "行业代码 801080.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 75.0,
+        "detail": {
+          "ma5": 15.42,
+          "ma10": 15.12,
+          "ma20": 13.9,
+          "ma60": 13.82,
+          "close": 15.54,
+          "pct_20d": 28.54,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 90.0,
+        "detail": {
+          "drawdown_5d_pct": 4.72,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 2.8,
+          "distance_ma20_pct": 11.81,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true,
+          "pullback_volume_shrunk": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 70.0,
+        "detail": {
+          "net_mf_5d_wan": 12079.08,
+          "net_mf_10d_wan": 6677.79,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20
+        }
+      },
+      "sector_swing": {
+        "score": 45.0,
+        "detail": {
+          "l1_code": "801080.SI",
+          "sector_pullback_stable": true,
+          "sector_moneyflow_5d_wan": 538695.74
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 4,
+    "strategy": "swing",
+    "ts_code": "002774.SZ",
+    "name": "快意电梯",
+    "rule_score": 50.05,
+    "ai_score": null,
+    "final_score": 50.05,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 11.87%",
+          "近 5 日量能抬升"
+        ],
+        "pullback": [
+          "近 5 日回撤 3.49%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 7031 万",
+          "近 10 日主力净流入 5699 万",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 7 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801890.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 85.0,
+        "detail": {
+          "ma5": 11.98,
+          "ma10": 11.65,
+          "ma20": 11.18,
+          "ma60": 11.1,
+          "close": 12.16,
+          "pct_20d": 11.87,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "volume_trend_up": true,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 50.0,
+        "detail": {
+          "drawdown_5d_pct": 3.49,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 4.4,
+          "distance_ma20_pct": 8.81,
+          "near_ma10_or_ma20": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 90.0,
+        "detail": {
+          "net_mf_5d_wan": 7031.18,
+          "net_mf_10d_wan": 5699.18,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 7
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801890.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 5,
+    "strategy": "swing",
+    "ts_code": "301536.SZ",
+    "name": "星宸科技",
+    "rule_score": 49.9,
+    "ai_score": null,
+    "final_score": 49.9,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业近 5 日资金净流入 53.87 亿",
+          "行业代码 801080.SI"
+        ],
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 19.35%",
+          "近 5 日量能抬升"
+        ],
+        "pullback": [
+          "近 5 日回撤 3.1%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 1.18 亿",
+          "近 10 日主力净流入 1.92 亿",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 5 天",
+          "⚠️ 小单买大单卖（扣 30 分）"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "sector_swing": {
+        "score": 45.0,
+        "detail": {
+          "l1_code": "801080.SI",
+          "sector_pullback_stable": true,
+          "sector_moneyflow_5d_wan": 538695.74
+        }
+      },
+      "trend": {
+        "score": 85.0,
+        "detail": {
+          "ma5": 82.11,
+          "ma10": 80.63,
+          "ma20": 76.15,
+          "ma60": 74.33,
+          "close": 82.45,
+          "pct_20d": 19.35,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "volume_trend_up": true,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 70.0,
+        "detail": {
+          "drawdown_5d_pct": 3.1,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 2.26,
+          "distance_ma20_pct": 8.28,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 60.0,
+        "detail": {
+          "net_mf_5d_wan": 11778.0,
+          "net_mf_10d_wan": 19151.11,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 5,
+          "small_up_big_down_penalty": -30
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 6,
+    "strategy": "swing",
+    "ts_code": "688172.SH",
+    "name": "燕东微",
+    "rule_score": 49.9,
+    "ai_score": null,
+    "final_score": 49.9,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 10.05%",
+          "近 5 日量能抬升"
+        ],
+        "pullback": [
+          "近 5 日回撤 8.5%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 8140 万",
+          "近 10 日主力净流入 2.96 亿",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 5 天",
+          "⚠️ 小单买大单卖（扣 30 分）"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业近 5 日资金净流入 53.87 亿",
+          "行业代码 801080.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 85.0,
+        "detail": {
+          "ma5": 41.47,
+          "ma10": 40.8,
+          "ma20": 39.76,
+          "ma60": 41.14,
+          "close": 42.49,
+          "pct_20d": 10.05,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "volume_trend_up": true,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 70.0,
+        "detail": {
+          "drawdown_5d_pct": 8.5,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 4.15,
+          "distance_ma20_pct": 6.86,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 60.0,
+        "detail": {
+          "net_mf_5d_wan": 8140.27,
+          "net_mf_10d_wan": 29553.72,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 5,
+          "small_up_big_down_penalty": -30
+        }
+      },
+      "sector_swing": {
+        "score": 45.0,
+        "detail": {
+          "l1_code": "801080.SI",
+          "sector_pullback_stable": true,
+          "sector_moneyflow_5d_wan": 538695.74
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 7,
+    "strategy": "swing",
+    "ts_code": "301479.SZ",
+    "name": "弘景光电",
+    "rule_score": 49.8,
+    "ai_score": null,
+    "final_score": 49.8,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 25.1%"
+        ],
+        "pullback": [
+          "近 5 日回撤 3.21%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接",
+          "回踩阶段缩量",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 7564 万",
+          "近 10 日主力净流入 1.92 亿",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 5 天",
+          "⚠️ 小单买大单卖（扣 30 分）"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业近 5 日资金净流入 53.87 亿",
+          "行业代码 801080.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 75.0,
+        "detail": {
+          "ma5": 109.27,
+          "ma10": 108.42,
+          "ma20": 101.0,
+          "ma60": 94.2,
+          "close": 113.3,
+          "pct_20d": 25.1,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 90.0,
+        "detail": {
+          "drawdown_5d_pct": 3.21,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 4.5,
+          "distance_ma20_pct": 12.18,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true,
+          "pullback_volume_shrunk": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 60.0,
+        "detail": {
+          "net_mf_5d_wan": 7563.8,
+          "net_mf_10d_wan": 19245.56,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 5,
+          "small_up_big_down_penalty": -30
+        }
+      },
+      "sector_swing": {
+        "score": 45.0,
+        "detail": {
+          "l1_code": "801080.SI",
+          "sector_pullback_stable": true,
+          "sector_moneyflow_5d_wan": 538695.74
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 8,
+    "strategy": "swing",
+    "ts_code": "000686.SZ",
+    "name": "东北证券",
+    "rule_score": 49.5,
+    "ai_score": null,
+    "final_score": 49.5,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 6.51%",
+          "近 5 日量能抬升",
+          "突破放量确认"
+        ],
+        "pullback": [
+          "贴近 MA10/MA20 承接"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 3193 万",
+          "近 10 日主力净流入 4934 万",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 5 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801790.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 95.0,
+        "detail": {
+          "ma5": 8.48,
+          "ma10": 8.4,
+          "ma20": 8.29,
+          "ma60": 8.56,
+          "close": 8.67,
+          "pct_20d": 6.51,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "volume_trend_up": true,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true,
+          "breakout_volume_bonus": 10
+        }
+      },
+      "pullback": {
+        "score": 25.0,
+        "detail": {
+          "distance_ma10_pct": 3.21,
+          "distance_ma20_pct": 4.64,
+          "near_ma10_or_ma20": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 90.0,
+        "detail": {
+          "net_mf_5d_wan": 3192.65,
+          "net_mf_10d_wan": 4934.21,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 5
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801790.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 9,
+    "strategy": "swing",
+    "ts_code": "300106.SZ",
+    "name": "西部牧业",
+    "rule_score": 48.85,
+    "ai_score": null,
+    "final_score": 48.85,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 15.37%",
+          "近 5 日量能抬升",
+          "突破放量确认"
+        ],
+        "pullback": [
+          "近 5 日回撤 0.28%",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 3051 万",
+          "近 10 日主力净流入 4838 万",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 6 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801120.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 95.0,
+        "detail": {
+          "ma5": 10.95,
+          "ma10": 10.32,
+          "ma20": 10.03,
+          "ma60": 10.62,
+          "close": 11.56,
+          "pct_20d": 15.37,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "volume_trend_up": true,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true,
+          "breakout_volume_bonus": 10
+        }
+      },
+      "pullback": {
+        "score": 20.0,
+        "detail": {
+          "drawdown_5d_pct": 0.28,
+          "recovered_ma5_or_ma10": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 90.0,
+        "detail": {
+          "net_mf_5d_wan": 3051.35,
+          "net_mf_10d_wan": 4838.44,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 6
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801120.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 10,
+    "strategy": "swing",
+    "ts_code": "000949.SZ",
+    "name": "新乡化纤",
+    "rule_score": 48.55,
+    "ai_score": null,
+    "final_score": 48.55,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 20.78%"
+        ],
+        "pullback": [
+          "近 5 日回撤 4.18%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接",
+          "回踩阶段缩量",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 234 万",
+          "近 10 日主力净流入 8297 万",
+          "近 5 日资金净流入 1 天",
+          "大单净流入 8 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801030.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 75.0,
+        "detail": {
+          "ma5": 7.94,
+          "ma10": 7.86,
+          "ma20": 7.5,
+          "ma60": 7.21,
+          "close": 8.08,
+          "pct_20d": 20.78,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 90.0,
+        "detail": {
+          "drawdown_5d_pct": 4.18,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 2.81,
+          "distance_ma20_pct": 7.75,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true,
+          "pullback_volume_shrunk": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 70.0,
+        "detail": {
+          "net_mf_5d_wan": 234.5,
+          "net_mf_10d_wan": 8296.8,
+          "positive_days_5d": 1,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "big_order_positive_days": 8
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801030.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 11,
+    "strategy": "swing",
+    "ts_code": "300972.SZ",
+    "name": "万辰集团",
+    "rule_score": 48.1,
+    "ai_score": null,
+    "final_score": 48.1,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 16.63%",
+          "近 5 日量能抬升",
+          "突破放量确认"
+        ],
+        "pullback": [
+          "近 5 日回撤 5.65%",
+          "趋势内健康回踩",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 3860 万",
+          "近 10 日主力净流入 1.10 亿",
+          "近 5 日资金净流入 1 天",
+          "大单净流入 5 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801200.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 95.0,
+        "detail": {
+          "ma5": 213.13,
+          "ma10": 210.05,
+          "ma20": 204.13,
+          "ma60": 201.05,
+          "close": 226.81,
+          "pct_20d": 16.63,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "volume_trend_up": true,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true,
+          "breakout_volume_bonus": 10
+        }
+      },
+      "pullback": {
+        "score": 45.0,
+        "detail": {
+          "drawdown_5d_pct": 5.65,
+          "healthy_pullback": true,
+          "recovered_ma5_or_ma10": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 70.0,
+        "detail": {
+          "net_mf_5d_wan": 3859.82,
+          "net_mf_10d_wan": 11037.24,
+          "positive_days_5d": 1,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "big_order_positive_days": 5
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801200.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 12,
+    "strategy": "swing",
+    "ts_code": "000333.SZ",
+    "name": "美的集团",
+    "rule_score": 46.8,
+    "ai_score": null,
+    "final_score": 46.8,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 5.54%",
+          "近 5 日量能抬升"
+        ],
+        "pullback": [
+          "近 5 日回撤 0.44%",
+          "贴近 MA10/MA20 承接"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 5.49 亿",
+          "近 10 日主力净流入 14.29 亿",
+          "近 5 日资金净流入 4 天",
+          "大单净流入 8 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801110.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 85.0,
+        "detail": {
+          "ma5": 80.11,
+          "ma10": 79.55,
+          "ma20": 78.08,
+          "ma60": 77.45,
+          "close": 81.1,
+          "pct_20d": 5.54,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "volume_trend_up": true,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 25.0,
+        "detail": {
+          "drawdown_5d_pct": 0.44,
+          "distance_ma10_pct": 1.95,
+          "distance_ma20_pct": 3.86,
+          "near_ma10_or_ma20": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 90.0,
+        "detail": {
+          "net_mf_5d_wan": 54916.31,
+          "net_mf_10d_wan": 142870.1,
+          "positive_days_5d": 4,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 8
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801110.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 13,
+    "strategy": "swing",
+    "ts_code": "601939.SH",
+    "name": "建设银行",
+    "rule_score": 46.7,
+    "ai_score": null,
+    "final_score": 46.7,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 5.29%"
+        ],
+        "pullback": [
+          "近 5 日回撤 0.62%",
+          "贴近 MA10/MA20 承接",
+          "回踩阶段缩量"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 1.91 亿",
+          "近 10 日主力净流入 4.56 亿",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 7 天"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801780.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 75.0,
+        "detail": {
+          "ma5": 9.78,
+          "ma10": 9.71,
+          "ma20": 9.54,
+          "ma60": 9.17,
+          "close": 9.95,
+          "pct_20d": 5.29,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 45.0,
+        "detail": {
+          "drawdown_5d_pct": 0.62,
+          "distance_ma10_pct": 2.44,
+          "distance_ma20_pct": 4.34,
+          "near_ma10_or_ma20": true,
+          "pullback_volume_shrunk": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 90.0,
+        "detail": {
+          "net_mf_5d_wan": 19095.11,
+          "net_mf_10d_wan": 45588.32,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 7
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801780.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 14,
+    "strategy": "swing",
+    "ts_code": "688382.SH",
+    "name": "益方生物-U",
+    "rule_score": 46.55,
+    "ai_score": null,
+    "final_score": 46.55,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 5.53%"
+        ],
+        "pullback": [
+          "近 5 日回撤 3.31%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接",
+          "回踩阶段缩量",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 9203 万",
+          "近 10 日主力净流入 1.78 亿",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 6 天",
+          "⚠️ 小单买大单卖（扣 30 分）"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801150.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 75.0,
+        "detail": {
+          "ma5": 22.67,
+          "ma10": 22.47,
+          "ma20": 22.17,
+          "ma60": 21.47,
+          "close": 23.3,
+          "pct_20d": 5.53,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 90.0,
+        "detail": {
+          "drawdown_5d_pct": 3.31,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 3.69,
+          "distance_ma20_pct": 5.08,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true,
+          "pullback_volume_shrunk": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 60.0,
+        "detail": {
+          "net_mf_5d_wan": 9203.19,
+          "net_mf_10d_wan": 17807.89,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 6,
+          "small_up_big_down_penalty": -30
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801150.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  },
+  {
+    "rank": 15,
+    "strategy": "swing",
+    "ts_code": "688399.SH",
+    "name": "硕世生物",
+    "rule_score": 46.55,
+    "ai_score": null,
+    "final_score": 46.55,
+    "rationale": {
+      "ai_thesis": null,
+      "key_signals": [],
+      "dim_evidences": {
+        "trend": [
+          "收盘站上 MA20",
+          "MA5 > MA10 > MA20 多头排列",
+          "MA20 近 5 日抬升",
+          "站上 MA60 或 MA20 上穿 MA60",
+          "近 20 日涨幅 13.66%"
+        ],
+        "pullback": [
+          "近 5 日回撤 3.02%",
+          "趋势内健康回踩",
+          "贴近 MA10/MA20 承接",
+          "回踩阶段缩量",
+          "重新收复 MA5/MA10"
+        ],
+        "moneyflow_swing": [
+          "近 5 日主力净流入 928 万",
+          "近 10 日主力净流入 1167 万",
+          "近 5 日资金净流入 3 天",
+          "大单净流入 6 天",
+          "⚠️ 小单买大单卖（扣 30 分）"
+        ],
+        "sector_swing": [
+          "行业回踩稳定",
+          "行业代码 801150.SI"
+        ]
+      },
+      "trade_plan": null,
+      "risks": []
+    },
+    "dimensions": {
+      "trend": {
+        "score": 75.0,
+        "detail": {
+          "ma5": 61.64,
+          "ma10": 60.12,
+          "ma20": 55.96,
+          "ma60": 60.89,
+          "close": 61.75,
+          "pct_20d": 13.66,
+          "above_ma20": true,
+          "ma_bullish": true,
+          "pct_20d_bonus": 15,
+          "above_ma60_or_cross": true,
+          "ma20_slope_positive": true
+        }
+      },
+      "pullback": {
+        "score": 90.0,
+        "detail": {
+          "drawdown_5d_pct": 3.02,
+          "healthy_pullback": true,
+          "distance_ma10_pct": 2.72,
+          "distance_ma20_pct": 10.35,
+          "near_ma10_or_ma20": true,
+          "recovered_ma5_or_ma10": true,
+          "pullback_volume_shrunk": true
+        }
+      },
+      "moneyflow_swing": {
+        "score": 60.0,
+        "detail": {
+          "net_mf_5d_wan": 928.39,
+          "net_mf_10d_wan": 1167.38,
+          "positive_days_5d": 3,
+          "net_mf_5d_positive": true,
+          "net_mf_10d_positive": true,
+          "positive_days_bonus": 20,
+          "big_order_positive_days": 6,
+          "small_up_big_down_penalty": -30
+        }
+      },
+      "sector_swing": {
+        "score": 20.0,
+        "detail": {
+          "l1_code": "801150.SI",
+          "sector_pullback_stable": true
+        }
+      }
+    },
+    "ai": null
+  }
+]

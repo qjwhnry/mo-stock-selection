@@ -37,6 +37,7 @@ ENV/
 # ---------- IDE ----------
 .idea/
 .vscode/
+.cc-connect/
 *.swp
 *.swo
 
