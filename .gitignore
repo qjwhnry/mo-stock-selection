@@ -45,6 +45,7 @@ ENV/
 # 敏感配置
 .env
 .env.*.local
+.htpasswd
 
 # 运行时产物
 data/cache/
