@@ -222,15 +222,17 @@ onMounted(async () => {
         </van-cell>
         <van-cell title="排序">
           <template #value>
-            <div class="inline-controls">
-              <select v-model="filters.sortBy" class="filter-select" @change="resetPageAndLoad">
-                <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">{{ opt.text }}</option>
-              </select>
-              <select v-model="filters.order" class="order-select" @change="resetPageAndLoad">
-                <option value="desc">降序</option>
-                <option value="asc">升序</option>
-              </select>
-            </div>
+            <select v-model="filters.sortBy" class="filter-select" @change="resetPageAndLoad">
+              <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">{{ opt.text }}</option>
+            </select>
+          </template>
+        </van-cell>
+        <van-cell title="方向">
+          <template #value>
+            <select v-model="filters.order" class="filter-select" @change="resetPageAndLoad">
+              <option value="desc">降序</option>
+              <option value="asc">升序</option>
+            </select>
           </template>
         </van-cell>
       </van-cell-group>
@@ -369,17 +371,12 @@ onMounted(async () => {
 <style scoped>
 .filter-select,
 .order-select {
-  max-width: 130px;
+  width: 100%;
+  max-width: min(170px, 52vw);
   border: 0;
   background: transparent;
   color: #2563eb;
   text-align: right;
-}
-
-.inline-controls {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .summary-grid {

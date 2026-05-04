@@ -77,7 +77,6 @@ onMounted(loadReports)
         <!-- 右侧操作按钮：退出 + 跳转执行页 -->
         <div class="flex items-center gap-3">
           <button type="button" class="text-sm text-blue-600" @click="handleLogout">退出</button>
-          <router-link to="/data" class="text-sm text-blue-600">数据洞察</router-link>
           <router-link to="/execute" class="text-sm text-blue-600">执行</router-link>
         </div>
       </template>
@@ -90,6 +89,16 @@ onMounted(loadReports)
     </van-tabs>
 
     <div class="px-3 py-4">
+
+      <!-- 数据洞察入口：放在内容区，避免移动端顶栏文字拥挤遮挡 -->
+      <van-cell-group inset class="mb-3 report-list-card">
+        <van-cell
+          title="数据洞察"
+          label="查看资金流、龙虎榜和席位明细"
+          is-link
+          to="/data"
+        />
+      </van-cell-group>
 
       <!-- 加载中状态 -->
       <div v-if="loading" class="py-12 text-center text-gray-500">
