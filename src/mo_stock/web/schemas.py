@@ -74,6 +74,142 @@ class StockDetailResponse(BaseModel):
     recent_picks: list[RecentPick]
 
 
+class MoneyflowSummaryStats(BaseModel):
+    net_mf_positive_count: int
+    total_net_mf_wan: float | None = None
+
+
+class MoneyflowSummaryItem(BaseModel):
+    ts_code: str
+    name: str
+    industry: str | None = None
+    close: float | None = None
+    pct_chg: float | None = None
+    net_mf_wan: float | None = None
+    net_mf_ratio_pct: float | None = None
+    buy_lg_wan: float | None = None
+    sell_lg_wan: float | None = None
+    buy_elg_wan: float | None = None
+    sell_elg_wan: float | None = None
+    picked: bool
+    rule_score: float | None = None
+    final_score: float | None = None
+    scores: dict[str, int]
+
+
+class MoneyflowSummaryResponse(BaseModel):
+    items: list[MoneyflowSummaryItem]
+    total: int
+    page: int
+    page_size: int
+    summary: MoneyflowSummaryStats
+
+
+class LhbSummaryStats(BaseModel):
+    lhb_count: int
+    institution_net_buy_count: int
+    total_lhb_net_amount_wan: float | None = None
+
+
+class LhbSummaryItem(BaseModel):
+    ts_code: str
+    name: str
+    industry: str | None = None
+    close: float | None = None
+    pct_chg: float | None = None
+    lhb_buy_wan: float | None = None
+    lhb_sell_wan: float | None = None
+    lhb_amount_wan: float | None = None
+    lhb_net_amount_wan: float | None = None
+    lhb_net_rate_pct: float | None = None
+    lhb_amount_rate_pct: float | None = None
+    reason: str | None = None
+    seat_summary: dict[str, int]
+    picked: bool
+    rule_score: float | None = None
+    final_score: float | None = None
+    scores: dict[str, int]
+
+
+class LhbSummaryResponse(BaseModel):
+    items: list[LhbSummaryItem]
+    total: int
+    page: int
+    page_size: int
+    summary: LhbSummaryStats
+
+
+class SectorListResponse(BaseModel):
+    trade_date: str
+    sectors: list[str]
+
+
+class StockKlineSignal(BaseModel):
+    trade_date: str
+    close: float | None = None
+    pct_chg: float | None = None
+    amount: float | None = None
+
+
+class StockMoneyflowSignal(BaseModel):
+    trade_date: str
+    net_mf_wan: float | None = None
+    net_mf_ratio_pct: float | None = None
+    buy_lg_wan: float | None = None
+    sell_lg_wan: float | None = None
+    buy_elg_wan: float | None = None
+    sell_elg_wan: float | None = None
+
+
+class StockLhbSignal(BaseModel):
+    trade_date: str
+    lhb_net_amount_wan: float | None = None
+    lhb_net_rate_pct: float | None = None
+    reason: str | None = None
+
+
+class StockScoreSignal(BaseModel):
+    trade_date: str
+    dim: str
+    score: float
+    detail: dict | None = None
+
+
+class StockSelectionSignal(BaseModel):
+    trade_date: str
+    picked: bool
+    rule_score: float | None = None
+    final_score: float | None = None
+
+
+class StockSignalsResponse(BaseModel):
+    ts_code: str
+    name: str | None = None
+    industry: str | None = None
+    kline: list[StockKlineSignal]
+    moneyflow: list[StockMoneyflowSignal]
+    lhb: list[StockLhbSignal]
+    scores: list[StockScoreSignal]
+    selections: list[StockSelectionSignal]
+
+
+class LhbSeatItem(BaseModel):
+    seat_no: int
+    exalter: str | None = None
+    side: str | None = None
+    buy_wan: float | None = None
+    sell_wan: float | None = None
+    net_buy_wan: float | None = None
+    seat_type: str
+    reason: str | None = None
+
+
+class LhbSeatsResponse(BaseModel):
+    trade_date: str
+    ts_code: str
+    seats: list[LhbSeatItem]
+
+
 class RunTaskRequest(BaseModel):
     strategy: str = "short"
     trade_date: str | None = None

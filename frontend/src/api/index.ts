@@ -173,6 +173,142 @@ export interface StockDetailResponse {
   recent_picks: RecentPick[]    // 最近 N 天该股的选股记录
 }
 
+export interface MoneyflowSummaryStats {
+  net_mf_positive_count: number
+  total_net_mf_wan: number | null
+}
+
+export interface MoneyflowSummaryItem {
+  ts_code: string
+  name: string
+  industry: string | null
+  close: number | null
+  pct_chg: number | null
+  net_mf_wan: number | null
+  net_mf_ratio_pct: number | null
+  buy_lg_wan: number | null
+  sell_lg_wan: number | null
+  buy_elg_wan: number | null
+  sell_elg_wan: number | null
+  picked: boolean
+  rule_score: number | null
+  final_score: number | null
+  scores: Record<string, number>
+}
+
+export interface MoneyflowSummaryResponse {
+  items: MoneyflowSummaryItem[]
+  total: number
+  page: number
+  page_size: number
+  summary: MoneyflowSummaryStats
+}
+
+export interface LhbSummaryStats {
+  lhb_count: number
+  institution_net_buy_count: number
+  total_lhb_net_amount_wan: number | null
+}
+
+export interface LhbSummaryItem {
+  ts_code: string
+  name: string
+  industry: string | null
+  close: number | null
+  pct_chg: number | null
+  lhb_buy_wan: number | null
+  lhb_sell_wan: number | null
+  lhb_amount_wan: number | null
+  lhb_net_amount_wan: number | null
+  lhb_net_rate_pct: number | null
+  lhb_amount_rate_pct: number | null
+  reason: string | null
+  seat_summary: Record<string, number>
+  picked: boolean
+  rule_score: number | null
+  final_score: number | null
+  scores: Record<string, number>
+}
+
+export interface LhbSummaryResponse {
+  items: LhbSummaryItem[]
+  total: number
+  page: number
+  page_size: number
+  summary: LhbSummaryStats
+}
+
+export interface SectorListResponse {
+  trade_date: string
+  sectors: string[]
+}
+
+export interface StockKlineSignal {
+  trade_date: string
+  close: number | null
+  pct_chg: number | null
+  amount: number | null
+}
+
+export interface StockMoneyflowSignal {
+  trade_date: string
+  net_mf_wan: number | null
+  net_mf_ratio_pct: number | null
+  buy_lg_wan: number | null
+  sell_lg_wan: number | null
+  buy_elg_wan: number | null
+  sell_elg_wan: number | null
+}
+
+export interface StockLhbSignal {
+  trade_date: string
+  lhb_net_amount_wan: number | null
+  lhb_net_rate_pct: number | null
+  reason: string | null
+}
+
+export interface StockScoreSignal {
+  trade_date: string
+  dim: string
+  score: number
+  detail: Record<string, any> | null
+}
+
+export interface StockSelectionSignal {
+  trade_date: string
+  picked: boolean
+  rule_score: number | null
+  final_score: number | null
+}
+
+export interface StockSignalsResponse {
+  ts_code: string
+  name: string | null
+  industry: string | null
+  kline: StockKlineSignal[]
+  moneyflow: StockMoneyflowSignal[]
+  lhb: StockLhbSignal[]
+  scores: StockScoreSignal[]
+  selections: StockSelectionSignal[]
+}
+
+export interface LhbSeatItem {
+  seat_no: number
+  exalter: string | null
+  side: string | null
+  buy_wan: number | null
+  sell_wan: number | null
+  net_buy_wan: number | null
+  seat_type: string
+  reason: string | null
+}
+
+export interface LhbSeatsResponse {
+  trade_date: string
+  ts_code: string
+  seats: LhbSeatItem[]
+}
+
 // ============================ API 请求方法 ============================
 
 /**
@@ -229,6 +365,72 @@ export function fetchReportDetail(
 export function fetchStockDetail(tsCode: string, strategy: string, days = 10) {
   return api.get<StockDetailResponse>(`/stocks/${tsCode}`, {
     params: { strategy, days },
+  })
+}
+
+export function fetchDataSectors(tradeDate: string) {
+  return api.get<SectorListResponse>('/data/sectors', {
+    params: { trade_date: tradeDate },
+  })
+}
+
+export function fetchMoneyflowSummary(params: {
+  tradeDate: string
+  strategy: string
+  keyword?: string
+  sector?: string
+  sortBy?: string
+  order?: 'asc' | 'desc'
+  page?: number
+  pageSize?: number
+}) {
+  return api.get<MoneyflowSummaryResponse>('/data/moneyflow-summary', {
+    params: {
+      trade_date: params.tradeDate,
+      strategy: params.strategy,
+      keyword: params.keyword,
+      sector: params.sector,
+      sort_by: params.sortBy,
+      order: params.order,
+      page: params.page,
+      page_size: params.pageSize,
+    },
+  })
+}
+
+export function fetchLhbSummary(params: {
+  tradeDate: string
+  strategy: string
+  keyword?: string
+  sector?: string
+  sortBy?: string
+  order?: 'asc' | 'desc'
+  page?: number
+  pageSize?: number
+}) {
+  return api.get<LhbSummaryResponse>('/data/lhb-summary', {
+    params: {
+      trade_date: params.tradeDate,
+      strategy: params.strategy,
+      keyword: params.keyword,
+      sector: params.sector,
+      sort_by: params.sortBy,
+      order: params.order,
+      page: params.page,
+      page_size: params.pageSize,
+    },
+  })
+}
+
+export function fetchStockSignals(tsCode: string, endDate: string, strategy: string, days = 20) {
+  return api.get<StockSignalsResponse>(`/data/stocks/${tsCode}/signals`, {
+    params: { end_date: endDate, strategy, days },
+  })
+}
+
+export function fetchLhbSeats(tsCode: string, tradeDate: string) {
+  return api.get<LhbSeatsResponse>(`/data/stocks/${tsCode}/lhb-seats`, {
+    params: { trade_date: tradeDate },
   })
 }
 

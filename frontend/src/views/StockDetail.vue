@@ -11,7 +11,7 @@
 
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { fetchStockDetail, type StockDetailResponse } from '../api'
+import { fetchStockDetail, fetchStockSignals, type StockDetailResponse, type StockSignalsResponse } from '../api'
 import DimensionBar from '../components/DimensionBar.vue'
 
 const route = useRoute()
@@ -22,8 +22,25 @@ const strategy = (route.query.strategy as string) || 'short'
 
 // 股票详情数据
 const data = ref<StockDetailResponse | null>(null)
+const signals = ref<StockSignalsResponse | null>(null)
 const loading = ref(true)
+const signalsLoading = ref(false)
 const error = ref('')
+const activeDetail = ref('')
+
+function todayText(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
+
+function fmt(value: number | null | undefined, suffix = '') {
+  if (value === null || value === undefined) return '暂无'
+  return `${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}${suffix}`
+}
 
 /**
  * 加载个股详情数据
@@ -34,10 +51,24 @@ async function loadDetail() {
   try {
     const { data: resp } = await fetchStockDetail(code, strategy)
     data.value = resp
+    await loadSignals(resp)
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '请求失败'
   } finally {
     loading.value = false
+  }
+}
+
+async function loadSignals(detail: StockDetailResponse) {
+  signalsLoading.value = true
+  try {
+    const endDate = detail.recent_picks[0]?.trade_date || todayText()
+    const { data: resp } = await fetchStockSignals(code, endDate, strategy, 20)
+    signals.value = resp
+  } catch {
+    signals.value = null
+  } finally {
+    signalsLoading.value = false
   }
 }
 
@@ -126,7 +157,62 @@ onMounted(loadDetail)
           </van-cell>
         </van-cell-group>
 
+        <!-- 原始数据明细：折叠展示，避免页面过长 -->
+        <van-cell-group inset title="数据明细">
+          <van-cell v-if="signalsLoading">
+            <van-loading size="20px">加载中...</van-loading>
+          </van-cell>
+          <van-collapse v-else-if="signals" v-model="activeDetail" accordion>
+            <van-collapse-item title="近 20 日资金流" name="moneyflow">
+              <van-empty v-if="signals.moneyflow.length === 0" description="暂无资金流数据" />
+              <div v-else class="signal-list">
+                <div v-for="row in signals.moneyflow" :key="row.trade_date" class="signal-row">
+                  <strong>{{ row.trade_date }}</strong>
+                  <span>主力净流入 {{ fmt(row.net_mf_wan, ' 万') }}</span>
+                  <span>占成交额 {{ fmt(row.net_mf_ratio_pct, '%') }}</span>
+                </div>
+              </div>
+            </van-collapse-item>
+            <van-collapse-item title="龙虎榜记录" name="lhb">
+              <van-empty v-if="signals.lhb.length === 0" description="暂无龙虎榜数据" />
+              <div v-else class="signal-list">
+                <div v-for="row in signals.lhb" :key="row.trade_date" class="signal-row">
+                  <strong>{{ row.trade_date }}</strong>
+                  <span>净买 {{ fmt(row.lhb_net_amount_wan, ' 万') }}</span>
+                  <span>净买占比 {{ fmt(row.lhb_net_rate_pct, '%') }}</span>
+                  <span>{{ row.reason || '暂无上榜原因' }}</span>
+                </div>
+              </div>
+            </van-collapse-item>
+          </van-collapse>
+          <van-cell v-else title="数据明细缺失" />
+        </van-cell-group>
+
       </template>
     </div>
   </div>
 </template>
+
+<style scoped>
+.signal-list {
+  display: grid;
+  gap: 8px;
+}
+
+.signal-row {
+  display: grid;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid #eef0f2;
+  color: #4b5563;
+  font-size: 13px;
+}
+
+.signal-row:last-child {
+  border-bottom: 0;
+}
+
+.signal-row strong {
+  color: #111827;
+}
+</style>

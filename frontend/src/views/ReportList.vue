@@ -77,6 +77,7 @@ onMounted(loadReports)
         <!-- 右侧操作按钮：退出 + 跳转执行页 -->
         <div class="flex items-center gap-3">
           <button type="button" class="text-sm text-blue-600" @click="handleLogout">退出</button>
+          <router-link to="/data" class="text-sm text-blue-600">数据洞察</router-link>
           <router-link to="/execute" class="text-sm text-blue-600">执行</router-link>
         </div>
       </template>

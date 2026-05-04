@@ -34,6 +34,13 @@ const router = createRouter({
       props: true,                    // 保留路由参数 props 映射能力，当前页面内部通过 useRoute 读取
       meta: { requiresAuth: true },
     },
+    // 数据洞察页（查看资金流、龙虎榜和席位明细）
+    {
+      path: '/data',
+      name: 'data-insight',
+      component: () => import('../views/DataInsight.vue'),
+      meta: { requiresAuth: true },
+    },
     // 执行页面（手动触发选股任务或查看任务状态）
     {
       path: '/execute',
