@@ -4,6 +4,8 @@
 
 前端和后端分开启动：前端由 Vite 提供开发服务，后端由 FastAPI 提供 `/api` 接口。开发环境中，Vite 会把 `/api` 请求代理到 `http://localhost:8000`。
 
+认证需要注意区分环境：生产部署通过 Nginx Basic Auth 保护 `/api`；本地直接启动 `uvicorn` 时，FastAPI 本身不校验 Basic Auth，登录页只是在确认 `/api/health` 可访问。
+
 ## 技术栈
 
 - Vue 3：页面与组件开发
@@ -63,6 +65,8 @@ Vite 默认会输出访问地址，通常是：
 ```text
 http://localhost:5173
 ```
+
+本地直连 FastAPI 时，登录页填写任意非空账号密码都能通过，因为 Basic Auth 校验实际在 Nginx 层。这样方便前端联调；如需验证真实认证流程，请走下方生产部署方式或让 Vite 代理指向带 Basic Auth 的 Nginx。
 
 开发代理配置在 `vite.config.ts`：
 
@@ -128,6 +132,31 @@ npm run preview
 | `fetchSchedulerStatus` | `GET /api/scheduler/status` | 查询调度器状态 |
 
 请求拦截器会自动从本地会话中读取 `Authorization` 并添加到请求头；响应拦截器遇到 `401` 会清理会话并跳转登录页。
+
+## 认证与部署
+
+生产环境建议使用根目录已有的 `nginx.conf` 和 `docker-compose.yml`：
+
+```bash
+# 项目根目录，首次创建 Basic Auth 密码文件
+htpasswd -c .htpasswd <username>
+
+# 构建前端静态资源
+cd frontend
+npm install
+npm run build
+cd ..
+
+# 启动 api + nginx；DB_URL 指向已有 PostgreSQL
+DB_URL=postgresql+psycopg2://user:pass@host:5432/dbname docker compose up -d
+```
+
+生产链路是：
+
+```text
+浏览器 -> Nginx 静态资源 / frontend/dist
+浏览器 -> /api/* -> Nginx Basic Auth -> FastAPI
+```
 
 ## 构建产物
 

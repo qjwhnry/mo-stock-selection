@@ -3,8 +3,8 @@
  * 登录页
  *
  * 功能：
- * 1. 使用 HTTP Basic Auth 认证方式
- * 2. 用户输入账号密码，前端构建 Basic Auth 字符串并发送给后端验证
+ * 1. 使用 HTTP Basic Auth 认证方式（生产环境由 Nginx 校验）
+ * 2. 用户输入账号密码，前端构建 Basic Auth 字符串并发送到 /api/health 验证
  * 3. 验证成功后保存认证信息到 localStorage（记住登录）或 sessionStorage（仅会话）
  * 4. 验证成功后根据 redirect 参数或默认跳转到首页
  */
@@ -47,7 +47,7 @@ async function handleSubmit() {
   try {
     // 构建 Authorization 头值：'Basic base64(username:password)'
     const authorization = buildBasicAuth(form.username, form.password)
-    // 调用 /api/health 验证认证信息（后端 Basic Auth 中间件校验）
+    // 调用 /api/health 验证认证信息（生产环境由 Nginx Basic Auth 校验）
     await verifyAuth(authorization)
     // 保存认证会话到本地存储
     setAuthSession(form.username, authorization, form.remember)
@@ -132,12 +132,12 @@ async function handleSubmit() {
             </template>
           </van-field>
 
-          <!-- 记住本机选项 -->
+          <!-- 记住本机选项和账号维护提示 -->
           <div class="form-options">
             <van-checkbox v-model="form.remember" icon-size="16px">
               记住本机
             </van-checkbox>
-            <a href="javascript:void(0)">忘记密码</a>
+            <span>联系管理员</span>
           </div>
 
           <!-- 提交按钮 -->
@@ -318,9 +318,8 @@ async function handleSubmit() {
   font-size: 13px;
 }
 
-.form-options a {
+.form-options span {
   color: #28786f;
-  text-decoration: none;
 }
 
 /* Vant 组件主题色覆盖 */

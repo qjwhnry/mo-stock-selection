@@ -177,6 +177,7 @@ export interface StockDetailResponse {
 
 /**
  * 验证认证信息是否有效（登录时使用）
+ * 生产部署下 /api 由 Nginx Basic Auth 保护；本地直连 FastAPI 时 /health 仅检查服务可用性。
  * @param authorization Basic Auth 字符串
  */
 export function verifyAuth(authorization: string) {

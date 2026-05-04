@@ -51,8 +51,22 @@ const showSchedStrategyPicker = ref(false)  // 调度策略选择器
 const showDatePicker = ref(false)           // 日期选择器
 const showTimePicker = ref(false)            // 时间选择器
 
+/**
+ * 日期选择器初始值：取 Asia/Shanghai 当天，避免写死日期导致后续默认值过期
+ */
+function todayPickerValue(): string[] {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const getPart = (type: string) => parts.find(part => part.type === type)?.value || ''
+  return [getPart('year'), getPart('month'), getPart('day')]
+}
+
 // 日期选择器初始值（年/月/日数组）
-const datePickerValue = ref(['2026', '05', '02'])
+const datePickerValue = ref(todayPickerValue())
 
 // 时间选择器列：[小时列表, 分钟列表]
 const timeColumns = computed(() => [
