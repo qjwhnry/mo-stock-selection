@@ -4,7 +4,7 @@
 
 前端和后端分开启动：前端由 Vite 提供开发服务，后端由 FastAPI 提供 `/api` 接口。开发环境中，Vite 会把 `/api` 请求代理到 `http://localhost:8000`。
 
-认证需要注意区分环境：生产部署通过 Nginx Basic Auth 保护 `/api`；本地直接启动 `uvicorn` 时，FastAPI 本身不校验 Basic Auth，登录页只是在确认 `/api/health` 可访问。
+认证需要注意区分环境：生产部署通过 FastAPI 校验 Basic Auth，但认证失败只返回普通 JSON `401`，不会触发浏览器原生登录弹窗；本地未配置 `WEB_BASIC_AUTH_PASSWORD` 时，FastAPI 不启用认证，登录页只是在确认 `/api/health` 可访问。
 
 ## 技术栈
 
@@ -66,7 +66,12 @@ Vite 默认会输出访问地址，通常是：
 http://localhost:5173
 ```
 
-本地直连 FastAPI 时，登录页填写任意非空账号密码都能通过，因为 Basic Auth 校验实际在 Nginx 层。这样方便前端联调；如需验证真实认证流程，请走下方生产部署方式或让 Vite 代理指向带 Basic Auth 的 Nginx。
+本地直连 FastAPI 且未配置 `WEB_BASIC_AUTH_PASSWORD` 时，登录页填写任意非空账号密码都能通过，方便前端联调。如需本地验证真实认证流程，启动后端前设置：
+
+```bash
+WEB_BASIC_AUTH_USERNAME=admin WEB_BASIC_AUTH_PASSWORD=your_password \
+  .venv/bin/uvicorn mo_stock.web.app:app --reload --host 0.0.0.0 --port 8000
+```
 
 开发代理配置在 `vite.config.ts`：
 
@@ -138,9 +143,6 @@ npm run preview
 生产环境建议使用根目录已有的 `nginx.conf` 和 `docker-compose.yml`：
 
 ```bash
-# 项目根目录，首次创建 Basic Auth 密码文件
-htpasswd -c .htpasswd <username>
-
 # 构建前端静态资源
 cd frontend
 npm install
@@ -148,15 +150,20 @@ npm run build
 cd ..
 
 # 启动 api + nginx；DB_URL 指向已有 PostgreSQL
-DB_URL=postgresql+psycopg2://user:pass@host:5432/dbname docker compose up -d
+DB_URL=postgresql+psycopg2://user:pass@host:5432/dbname \
+WEB_BASIC_AUTH_USERNAME=admin \
+WEB_BASIC_AUTH_PASSWORD=your_password \
+docker compose up -d
 ```
 
 生产链路是：
 
 ```text
 浏览器 -> Nginx 静态资源 / frontend/dist
-浏览器 -> /api/* -> Nginx Basic Auth -> FastAPI
+浏览器 -> /api/* -> Nginx 反向代理 -> FastAPI Basic Auth
 ```
+
+历史版本曾使用 Nginx `auth_basic` 和 `.htpasswd`，但错误密码会触发浏览器原生登录框。当前版本不再依赖 `.htpasswd`；账号密码通过 `WEB_BASIC_AUTH_USERNAME` / `WEB_BASIC_AUTH_PASSWORD` 配置。
 
 ## 构建产物
 

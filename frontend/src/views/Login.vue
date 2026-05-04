@@ -3,7 +3,7 @@
  * 登录页
  *
  * 功能：
- * 1. 使用 HTTP Basic Auth 认证方式（生产环境由 Nginx 校验）
+ * 1. 使用 HTTP Basic Auth 认证方式（生产环境由 FastAPI 校验）
  * 2. 用户输入账号密码，前端构建 Basic Auth 字符串并发送到 /api/health 验证
  * 3. 验证成功后保存认证信息到 localStorage（记住登录）或 sessionStorage（仅会话）
  * 4. 验证成功后根据 redirect 参数或默认跳转到首页
@@ -47,7 +47,7 @@ async function handleSubmit() {
   try {
     // 构建 Authorization 头值：'Basic base64(username:password)'
     const authorization = buildBasicAuth(form.username, form.password)
-    // 调用 /api/health 验证认证信息（生产环境由 Nginx Basic Auth 校验）
+    // 调用 /api/health 验证认证信息（生产环境由 FastAPI Basic Auth 校验）
     await verifyAuth(authorization)
     // 保存认证会话到本地存储
     setAuthSession(form.username, authorization, form.remember)

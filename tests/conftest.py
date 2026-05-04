@@ -12,6 +12,20 @@ def sample_trade_date() -> date:
     return date(2026, 4, 22)
 
 
+@pytest.fixture(autouse=True)
+def disable_web_basic_auth_for_tests():
+    """默认关闭 Web Basic Auth，避免本地 .env 密码影响 API 测试。"""
+    from config.settings import settings
+
+    old_username = settings.web_basic_auth_username
+    old_password = settings.web_basic_auth_password
+    settings.web_basic_auth_username = "admin"
+    settings.web_basic_auth_password = ""
+    yield
+    settings.web_basic_auth_username = old_username
+    settings.web_basic_auth_password = old_password
+
+
 def _register_jsonb_on_sqlite() -> None:
     """给 SQLite dialect 打补丁，使 JSONB 编译为 JSON（PG 专用类型在 SQLite 测试时降级）。
 

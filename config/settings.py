@@ -104,6 +104,16 @@ class Settings(BaseSettings):
     cache_dir: Path = Field(default=PROJECT_ROOT / "data" / "cache")
     log_dir: Path = Field(default=PROJECT_ROOT / "data" / "logs")
 
+    # ---------- Web ----------
+    web_basic_auth_username: str = Field(
+        default="admin",
+        description="Web API Basic Auth 用户名；仅在 WEB_BASIC_AUTH_PASSWORD 非空时启用",
+    )
+    web_basic_auth_password: str = Field(
+        default="",
+        description="Web API Basic Auth 密码；留空表示本地开发免认证",
+    )
+
     # ---------- 选股参数（可被 weights.yaml 覆盖）----------
     top_n_final: int = Field(default=20, description="最终报告输出的股票数量")
     top_n_after_filter: int = Field(default=50, description="规则层筛选后进入 AI 层的数量")
