@@ -1,66 +1,25 @@
-<template>
-  <div class="home-page min-h-screen">
-    <!-- Header -->
-    <van-nav-bar title="mo-stock 选股系统">
-      <template #right>
-        <div class="flex items-center gap-3">
-          <button type="button" class="text-sm text-blue-600" @click="handleLogout">退出</button>
-          <router-link to="/execute" class="text-sm text-blue-600">执行</router-link>
-        </div>
-      </template>
-    </van-nav-bar>
-
-    <!-- Strategy Tabs -->
-    <van-tabs v-model:active="strategy" @change="onStrategyChange">
-      <van-tab title="短线" name="short" />
-      <van-tab title="波段" name="swing" />
-    </van-tabs>
-
-    <div class="px-3 py-4">
-      <!-- Loading -->
-      <div v-if="loading" class="py-12 text-center text-gray-500">
-        <van-loading size="24px">加载中...</van-loading>
-      </div>
-
-      <!-- Error -->
-      <van-empty v-else-if="error" :description="error" />
-
-      <!-- Empty -->
-      <van-empty v-else-if="reports.length === 0" description="暂无选股数据，请先运行选股" />
-
-      <!-- Report Cards -->
-      <van-cell-group v-else inset class="report-list-card">
-        <van-cell
-          v-for="r in reports"
-          :key="r.trade_date"
-          :title="r.trade_date"
-          :label="`入选 ${r.count} 只 · 平均 ${r.avg_score.toFixed(1)} 分 · 最高 ${r.max_score.toFixed(1)}`"
-          is-link
-          :to="`/report/${r.trade_date}?strategy=${strategy}`"
-        />
-      </van-cell-group>
-
-      <!-- Pagination -->
-      <div v-if="totalPages > 1" class="mt-4">
-        <van-pagination
-          v-model="page"
-          :total-items="total"
-          :items-per-page="pageSize"
-          @change="loadReports"
-        />
-      </div>
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
+/**
+ * 首页 / 报告列表页
+ *
+ * 功能：
+ * 1. 按策略（短线/波段）切换展示历史选股报告列表
+ * 2. 每条报告卡片显示日期、入选数量、平均分、最高分
+ * 3. 点击卡片跳转至报告详情页 /report/:date
+ * 4. 支持退出登录
+ */
+
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchReports, type ReportListItem } from '../api'
 import { clearAuthSession } from '../auth'
 
 const router = useRouter()
+
+// 当前选中的策略标签（'short' 短线 / 'swing' 波段）
 const strategy = ref('short')
+
+// 分页相关状态
 const page = ref(1)
 const pageSize = 20
 const total = ref(0)
@@ -68,18 +27,28 @@ const reports = ref<ReportListItem[]>([])
 const loading = ref(false)
 const error = ref('')
 
+// 计算总页数（最少显示 1 页）
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
 
+/**
+ * 切换策略标签时重置页码并重新加载报告列表
+ */
 function onStrategyChange() {
   page.value = 1
   loadReports()
 }
 
+/**
+ * 退出登录：清除本地认证信息并跳转到登录页
+ */
 function handleLogout() {
   clearAuthSession()
   router.push('/login')
 }
 
+/**
+ * 从后端 API 获取报告列表数据
+ */
 async function loadReports() {
   loading.value = true
   error.value = ''
@@ -94,10 +63,71 @@ async function loadReports() {
   }
 }
 
+// 组件挂载时自动加载报告列表
 onMounted(loadReports)
 </script>
 
+<template>
+  <!-- 页面容器：渐变背景色 -->
+  <div class="home-page min-h-screen">
+
+    <!-- 顶部导航栏 -->
+    <van-nav-bar title="mo-stock 选股系统">
+      <template #right>
+        <!-- 右侧操作按钮：退出 + 跳转执行页 -->
+        <div class="flex items-center gap-3">
+          <button type="button" class="text-sm text-blue-600" @click="handleLogout">退出</button>
+          <router-link to="/execute" class="text-sm text-blue-600">执行</router-link>
+        </div>
+      </template>
+    </van-nav-bar>
+
+    <!-- 策略切换标签页（短线 / 波段） -->
+    <van-tabs v-model:active="strategy" @change="onStrategyChange">
+      <van-tab title="短线" name="short" />
+      <van-tab title="波段" name="swing" />
+    </van-tabs>
+
+    <div class="px-3 py-4">
+
+      <!-- 加载中状态 -->
+      <div v-if="loading" class="py-12 text-center text-gray-500">
+        <van-loading size="24px">加载中...</van-loading>
+      </div>
+
+      <!-- 错误提示 -->
+      <van-empty v-else-if="error" :description="error" />
+
+      <!-- 无数据提示 -->
+      <van-empty v-else-if="reports.length === 0" description="暂无选股数据，请先运行选股" />
+
+      <!-- 报告卡片列表 -->
+      <van-cell-group v-else inset class="report-list-card">
+        <van-cell
+          v-for="r in reports"
+          :key="r.trade_date"
+          :title="r.trade_date"
+          :label="`入选 ${r.count} 只 · 平均 ${r.avg_score.toFixed(1)} 分 · 最高 ${r.max_score.toFixed(1)}`"
+          is-link
+          :to="`/report/${r.trade_date}?strategy=${strategy}`"
+        />
+      </van-cell-group>
+
+      <!-- 分页控件（总数超过一页时显示） -->
+      <div v-if="totalPages > 1" class="mt-4">
+        <van-pagination
+          v-model="page"
+          :total-items="total"
+          :items-per-page="pageSize"
+          @change="loadReports"
+        />
+      </div>
+    </div>
+  </div>
+</template>
+
 <style scoped>
+/* 页面背景渐变色（墨绿系） */
 .home-page {
   min-height: 100vh;
   background:

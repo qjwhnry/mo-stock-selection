@@ -1,7 +1,74 @@
+<script setup lang="ts">
+/**
+ * 登录页
+ *
+ * 功能：
+ * 1. 使用 HTTP Basic Auth 认证方式
+ * 2. 用户输入账号密码，前端构建 Basic Auth 字符串并发送给后端验证
+ * 3. 验证成功后保存认证信息到 localStorage（记住登录）或 sessionStorage（仅会话）
+ * 4. 验证成功后根据 redirect 参数或默认跳转到首页
+ */
+
+import { reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { showToast } from 'vant'
+import { verifyAuth } from '../api'
+import { buildBasicAuth, setAuthSession } from '../auth'
+
+const router = useRouter()
+const route = useRoute()
+
+// 是否显示密码明文
+const showPassword = ref(false)
+
+// 表单提交状态
+const submitting = ref(false)
+
+// 登录表单数据
+const form = reactive({
+  username: '',
+  password: '',
+  remember: true,   // 是否记住本机登录（持久化到 localStorage）
+})
+
+/**
+ * 表单提交处理：构建 Basic Auth 字符串，调用后端验证接口
+ * - 验证成功：保存认证会话并跳转
+ * - 验证失败：提示错误信息
+ */
+async function handleSubmit() {
+  if (!form.username || !form.password) {
+    showToast('请输入账号和密码')
+    return
+  }
+
+  submitting.value = true
+
+  try {
+    // 构建 Authorization 头值：'Basic base64(username:password)'
+    const authorization = buildBasicAuth(form.username, form.password)
+    // 调用 /api/health 验证认证信息（后端 Basic Auth 中间件校验）
+    await verifyAuth(authorization)
+    // 保存认证会话到本地存储
+    setAuthSession(form.username, authorization, form.remember)
+    // 根据 redirect 参数跳转（登录前访问的页面路径），默认为首页
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    router.push(redirect)
+  } catch {
+    showToast('账号或密码错误')
+  } finally {
+    submitting.value = false
+  }
+}
+</script>
+
 <template>
   <main class="login-page">
+
+    <!-- 左侧品牌展示区 -->
     <section class="login-shell">
       <div class="brand-panel">
+        <!-- 品牌标识 -->
         <div class="brand-mark">
           <span>MO</span>
           <strong>Stock Selection</strong>
@@ -11,6 +78,7 @@
           进入 A 股批量选股系统，查看策略报告、任务执行与 AI 分析结果。
         </p>
 
+        <!-- 系统状态标签 -->
         <div class="signal-grid" aria-label="系统状态">
           <div class="signal-item">
             <span>策略</span>
@@ -27,6 +95,7 @@
         </div>
       </div>
 
+      <!-- 右侧登录表单卡片 -->
       <form class="login-card" @submit.prevent="handleSubmit">
         <div class="card-heading">
           <div>
@@ -37,6 +106,7 @@
         </div>
 
         <div class="form-stack">
+          <!-- 用户名 -->
           <van-field
             v-model="form.username"
             label="账号"
@@ -44,6 +114,8 @@
             placeholder="请输入账号"
             autocomplete="username"
           />
+
+          <!-- 密码（支持明文/密文切换） -->
           <van-field
             v-model="form.password"
             :type="showPassword ? 'text' : 'password'"
@@ -60,6 +132,7 @@
             </template>
           </van-field>
 
+          <!-- 记住本机选项 -->
           <div class="form-options">
             <van-checkbox v-model="form.remember" icon-size="16px">
               记住本机
@@ -67,6 +140,7 @@
             <a href="javascript:void(0)">忘记密码</a>
           </div>
 
+          <!-- 提交按钮 -->
           <van-button
             block
             native-type="submit"
@@ -82,47 +156,8 @@
   </main>
 </template>
 
-<script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { showToast } from 'vant'
-import { verifyAuth } from '../api'
-import { buildBasicAuth, setAuthSession } from '../auth'
-
-const router = useRouter()
-const route = useRoute()
-const showPassword = ref(false)
-const submitting = ref(false)
-
-const form = reactive({
-  username: '',
-  password: '',
-  remember: true,
-})
-
-async function handleSubmit() {
-  if (!form.username || !form.password) {
-    showToast('请输入账号和密码')
-    return
-  }
-
-  submitting.value = true
-
-  try {
-    const authorization = buildBasicAuth(form.username, form.password)
-    await verifyAuth(authorization)
-    setAuthSession(form.username, authorization, form.remember)
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
-    router.push(redirect)
-  } catch {
-    showToast('账号或密码错误')
-  } finally {
-    submitting.value = false
-  }
-}
-</script>
-
 <style scoped>
+/* 背景：深色渐变 + 装饰圆形 */
 .login-page {
   min-height: 100vh;
   background:
@@ -133,6 +168,7 @@ async function handleSubmit() {
   color: #16231f;
 }
 
+/* 左右分栏布局 */
 .login-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 430px;
@@ -144,6 +180,7 @@ async function handleSubmit() {
   padding: 56px 0;
 }
 
+/* 左侧品牌区 */
 .brand-panel {
   display: flex;
   flex-direction: column;
@@ -193,6 +230,7 @@ async function handleSubmit() {
   line-height: 1.8;
 }
 
+/* 系统状态标签网格 */
 .signal-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -221,6 +259,7 @@ async function handleSubmit() {
   font-size: 15px;
 }
 
+/* 右侧登录卡片 */
 .login-card {
   border: 1px solid rgba(20, 38, 33, 0.1);
   border-radius: 8px;
@@ -284,6 +323,7 @@ async function handleSubmit() {
   text-decoration: none;
 }
 
+/* Vant 组件主题色覆盖 */
 :deep(.van-cell) {
   border: 1px solid #e3ece8;
   border-radius: 8px;
@@ -300,6 +340,7 @@ async function handleSubmit() {
   background: #1f8a7f;
 }
 
+/* 移动端响应式布局 */
 @media (max-width: 860px) {
   .login-page {
     background:
