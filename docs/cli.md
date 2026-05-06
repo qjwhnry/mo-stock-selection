@@ -151,7 +151,8 @@ mo-stock refresh-cal --start 2024-01-01 --end 2027-12-31
 
 ## backfill
 
-一次性回填历史数据到 PostgreSQL。会按顺序执行：
+一次性回填历史数据到 PostgreSQL。`--days N` 表示包含截止日在内的最近 N 个自然日窗口。
+会按顺序执行：
 1. `refresh_stock_basic`（确保股票基础表就绪）
 2. `refresh_trade_cal`（确保交易日历覆盖）
 3. 按日回填日频数据（K 线、涨停、资金流等）
@@ -163,7 +164,7 @@ mo-stock backfill --days 90 --end 2026-04-22
 ```
 
 **参数：**
-- `--days`（默认 `180`）：回填多少天
+- `--days`（默认 `180`）：回填多少天，包含截止日当天
 - `--end`（可选）：回填截止日 `YYYY-MM-DD`，**默认今日**
 
 **耗时参考：** 180 天约 30–60 分钟（受 Tushare 积分与限流影响）。

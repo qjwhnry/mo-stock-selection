@@ -204,21 +204,9 @@ def refresh_cal(start: str, end: str | None) -> None:
 @click.option("--end", default=None, help="补齐截止日 YYYY-MM-DD，默认今日")
 def refresh_index(days: int, end: str | None) -> None:
     """补齐指数日线（沪深 300 / 上证指数），不重跑个股日频接口。"""
-    from mo_stock.storage import repo
-
     end_d = _parse_date(end) if end else date.today()
-    start_d = end_d - timedelta(days=days)
-    ingestor = DailyIngestor()
-    ingestor.refresh_trade_cal(start_d, end_d + timedelta(days=30))
-
-    total = 0
-    current = start_d
-    while current <= end_d:
-        with get_session() as session:
-            is_open = repo.is_trade_date(session, current)
-        if is_open:
-            total += ingestor.ingest_index_daily(current)
-        current += timedelta(days=1)
+    start_d = end_d - timedelta(days=days - 1)
+    total = DailyIngestor().refresh_index_range(start_d, end_d)
     logger.info("refresh-index 完成 {} → {}，upsert {} 行", start_d, end_d, total)
     click.echo(f"[OK] refresh-index 完成：{start_d} → {end_d}，upsert {total} 行")
 
@@ -227,9 +215,9 @@ def refresh_index(days: int, end: str | None) -> None:
 @click.option("--days", default=180, show_default=True, type=int, help="回填多少天")
 @click.option("--end", default=None, help="回填截止日 YYYY-MM-DD，默认今日")
 def backfill(days: int, end: str | None) -> None:
-    """一次性回填 [end-days, end] 的历史数据。"""
+    """一次性回填包含截止日在内的最近 N 个自然日历史数据。"""
     end_d = _parse_date(end) if end else date.today()
-    start_d = end_d - timedelta(days=days)
+    start_d = end_d - timedelta(days=days - 1)
 
     logger.info("backfill 开始 {} → {} (共 {} 天)", start_d, end_d, days)
     # 先确保基础表就绪

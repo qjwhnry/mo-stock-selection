@@ -1,7 +1,11 @@
 """Pydantic response schema——API 返回结构定义。"""
 from __future__ import annotations
 
-from pydantic import BaseModel
+from datetime import date, datetime, timedelta
+from typing import Literal
+from zoneinfo import ZoneInfo
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class ReportListItem(BaseModel):
@@ -214,16 +218,73 @@ class RunTaskRequest(BaseModel):
     strategy: str = "short"
     trade_date: str | None = None
     skip_ai: bool = False
+    skip_enhanced: bool = False
     force: bool = False
+
+
+class SyncOneDayTaskRequest(BaseModel):
+    trade_date: str | None = None
+    skip_enhanced: bool = False
+
+
+class BackfillTaskRequest(BaseModel):
+    days: int = Field(default=180, ge=1, le=730)
+    end_date: str | None = None
+
+
+class RefreshIndexTaskRequest(BaseModel):
+    days: int = Field(default=180, ge=1, le=1825)
+    end_date: str | None = None
+
+
+class RefreshMetadataTaskRequest(BaseModel):
+    refresh_basics: bool = True
+    with_ths: bool = False
+    with_hm_list: bool = True
+    refresh_calendar: bool = False
+    calendar_start: str | None = None
+    calendar_end: str | None = None
+
+    @model_validator(mode="after")
+    def validate_refresh_options(self) -> RefreshMetadataTaskRequest:
+        """校验元数据刷新参数，防止空任务或过大日历范围。"""
+        if not any((
+            self.refresh_basics,
+            self.with_ths,
+            self.with_hm_list,
+            self.refresh_calendar,
+        )):
+            raise ValueError("至少需要启用一个刷新项")
+
+        if not self.refresh_calendar:
+            return self
+
+        if not self.calendar_start:
+            raise ValueError("refresh_calendar=true 时 calendar_start 必填")
+
+        start = _parse_iso_date(self.calendar_start, field_name="calendar_start")
+        end = (
+            _parse_iso_date(self.calendar_end, field_name="calendar_end")
+            if self.calendar_end else _today_cn() + timedelta(days=365)
+        )
+        if end < start:
+            raise ValueError("calendar_end 不能早于 calendar_start")
+        if (end - start).days > 365 * 5:
+            raise ValueError("交易日历刷新跨度不能超过 5 年")
+        return self
 
 
 class TaskStatusResponse(BaseModel):
     task_id: str | None = None
-    status: str  # running / idle / error
+    task_type: str | None = None
+    status: Literal["idle", "running", "success", "error"]
     strategy: str | None = None
     trade_date: str | None = None
     started_at: str | None = None
+    finished_at: str | None = None
     error: str | None = None
+    message: str | None = None
+    stats: dict[str, int] = Field(default_factory=dict)
 
 
 class SchedulerConfig(BaseModel):
@@ -234,7 +295,25 @@ class SchedulerConfig(BaseModel):
 
 
 class SchedulerStatusResponse(BaseModel):
-    status: str  # running / stopped
+    status: Literal["running", "stopped"]
     strategy: str | None = None
     cron: str | None = None
     next_run: str | None = None
+
+
+def _parse_iso_date(value: str, *, field_name: str) -> date:
+    """解析 YYYY-MM-DD 字符串。
+
+    注意：此版本抛 ValueError 供 Pydantic model_validator 使用。
+    tasks.py 有同名函数抛 HTTPException(400) 供 FastAPI 端点使用。
+    两处需保持解析逻辑一致但异常类型不同，因此刻意分离。
+    """
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError(f"{field_name} 格式错误，需 YYYY-MM-DD") from exc
+
+
+def _today_cn() -> date:
+    """取 A 股交易语义下的今天。"""
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()

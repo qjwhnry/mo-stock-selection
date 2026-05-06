@@ -441,11 +441,15 @@ export function fetchLhbSeats(tsCode: string, tradeDate: string) {
  */
 export interface TaskStatusResponse {
   task_id: string | null       // 任务 ID（运行中有值）
-  status: 'running' | 'idle' | 'error'  // 运行中 / 空闲 / 错误
-  strategy: string | null       // 当前策略类型
-  trade_date: string | null     // 当前任务针对的交易日期
-  started_at: string | null     // 任务开始时间
-  error: string | null          // 错误信息（如有）
+  task_type?: 'sync_one_day' | 'backfill' | 'refresh_index' | 'refresh_metadata' | 'run_pipeline' | null
+  status: 'running' | 'idle' | 'success' | 'error'  // 运行中 / 空闲 / 成功 / 错误
+  strategy?: string | null       // 当前策略类型
+  trade_date?: string | null     // 当前任务针对的交易日期
+  started_at?: string | null     // 任务开始时间
+  finished_at?: string | null    // 任务结束时间
+  error?: string | null          // 错误信息（如有）
+  message?: string | null        // 任务状态文案
+  stats?: Record<string, number> // 任务汇总结果
 }
 
 /**
@@ -469,6 +473,54 @@ export function runTask(strategy: string, tradeDate?: string, skipAi = false) {
     strategy,
     trade_date: tradeDate || null,
     skip_ai: skipAi,
+  })
+}
+
+export function runSyncOneDay(payload: {
+  tradeDate?: string
+  skipEnhanced?: boolean
+}) {
+  return api.post<TaskStatusResponse>('/tasks/sync-one-day', {
+    trade_date: payload.tradeDate || null,
+    skip_enhanced: payload.skipEnhanced ?? false,
+  })
+}
+
+export function runBackfill(payload: {
+  days: number
+  endDate?: string
+}) {
+  return api.post<TaskStatusResponse>('/tasks/backfill', {
+    days: payload.days,
+    end_date: payload.endDate || null,
+  })
+}
+
+export function runRefreshIndex(payload: {
+  days: number
+  endDate?: string
+}) {
+  return api.post<TaskStatusResponse>('/tasks/refresh-index', {
+    days: payload.days,
+    end_date: payload.endDate || null,
+  })
+}
+
+export function runRefreshMetadata(payload: {
+  refreshBasics: boolean
+  withThs: boolean
+  withHmList: boolean
+  refreshCalendar: boolean
+  calendarStart?: string
+  calendarEnd?: string
+}) {
+  return api.post<TaskStatusResponse>('/tasks/refresh-metadata', {
+    refresh_basics: payload.refreshBasics,
+    with_ths: payload.withThs,
+    with_hm_list: payload.withHmList,
+    refresh_calendar: payload.refreshCalendar,
+    calendar_start: payload.calendarStart || null,
+    calendar_end: payload.calendarEnd || null,
   })
 }
 

@@ -488,6 +488,27 @@ class DailyIngestor:
         logger.info("backfill {} → {} done: {}", start, end, total)
         return total
 
+    def refresh_index_range(self, start: date, end: date) -> int:
+        """补齐 [start, end] 区间内交易日的指数日线。
+
+        只调用 index_daily，不重跑全市场个股日频接口。用于补齐
+        swing 策略 market_regime 依赖的沪深 300 / 上证指数数据。
+        """
+        logger.info("=== refresh_index_range {} → {} ===", start, end)
+        self.refresh_trade_cal(start, end + timedelta(days=30))
+
+        total = 0
+        cursor = start
+        while cursor <= end:
+            with get_session() as s:
+                is_open = repo.is_trade_date(s, cursor)
+            if is_open:
+                total += self.ingest_index_daily(cursor)
+            cursor += timedelta(days=1)
+
+        logger.info("refresh_index_range {} → {} done: {} rows", start, end, total)
+        return total
+
 
 # ------------------------------------------------------------------------
 # 内部小工具：Tushare 字段值清洗
