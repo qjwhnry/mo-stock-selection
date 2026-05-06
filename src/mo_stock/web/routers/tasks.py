@@ -76,6 +76,13 @@ def _state_snapshot() -> dict:
         return dict(_task_state)
 
 
+def _update_progress(message: str) -> None:
+    """更新运行中任务的进度消息，供前端轮询展示。"""
+    with _task_lock:
+        if _task_state.get("status") == "running":
+            _task_state["message"] = message
+
+
 def _raise_if_task_running() -> None:
     """已有任务运行时直接拒绝，避免继续做 DB 校验等额外工作。"""
     with _task_lock:
@@ -195,13 +202,17 @@ def _refresh_metadata(req: RefreshMetadataTaskRequest) -> dict[str, int]:
     stats: dict[str, int] = {}
 
     if req.refresh_basics:
+        _update_progress("正在刷新股票基础信息")
         stats["stock_basic"] = ingestor.refresh_stock_basic()
+        _update_progress("正在刷新申万行业映射")
         stats["index_member"] = ingestor.refresh_index_member()
     if req.with_ths:
+        _update_progress("正在刷新同花顺概念（耗时约 3-4 分钟）")
         ths_index, ths_member = ingestor.refresh_ths_concept()
         stats["ths_index"] = ths_index
         stats["ths_member"] = ths_member
     if req.with_hm_list:
+        _update_progress("正在刷新游资名录")
         stats["hot_money_list"] = ingestor.refresh_hot_money_list()
     if req.refresh_calendar:
         start = _parse_iso_date(req.calendar_start, field_name="calendar_start")
@@ -209,6 +220,7 @@ def _refresh_metadata(req: RefreshMetadataTaskRequest) -> dict[str, int]:
             _parse_iso_date(req.calendar_end, field_name="calendar_end")
             if req.calendar_end else _today_cn() + timedelta(days=365)
         )
+        _update_progress("正在刷新交易日历")
         stats["trade_cal"] = ingestor.refresh_trade_cal(start, end)
 
     return stats
@@ -233,7 +245,9 @@ def _sync_one_day_target(trade_date: date, *, skip_enhanced: bool) -> dict[str, 
     """执行单日数据同步。"""
     from mo_stock.ingest.ingest_daily import DailyIngestor
 
-    return DailyIngestor().ingest_one_day(trade_date, skip_enhanced=skip_enhanced)
+    return DailyIngestor().ingest_one_day(
+        trade_date, skip_enhanced=skip_enhanced, progress_callback=_update_progress,
+    )
 
 
 def _backfill_target(start: date, end: date) -> dict[str, int]:
@@ -241,11 +255,12 @@ def _backfill_target(start: date, end: date) -> dict[str, int]:
     from mo_stock.ingest.ingest_daily import DailyIngestor
 
     ingestor = DailyIngestor()
+    _update_progress("正在刷新基础数据和交易日历")
     stats: dict[str, int] = {
         "stock_basic": ingestor.refresh_stock_basic(),
         "trade_cal": ingestor.refresh_trade_cal(start, end + timedelta(days=30)),
     }
-    stats.update(ingestor.backfill(start, end))
+    stats.update(ingestor.backfill(start, end, progress_callback=_update_progress))
     return stats
 
 
@@ -253,7 +268,9 @@ def _refresh_index_target(start: date, end: date) -> dict[str, int]:
     """执行指数区间补齐。"""
     from mo_stock.ingest.ingest_daily import DailyIngestor
 
-    return {"index_daily": DailyIngestor().refresh_index_range(start, end)}
+    return {"index_daily": DailyIngestor().refresh_index_range(
+        start, end, progress_callback=_update_progress,
+    )}
 
 
 @router.post("/tasks/run", response_model=TaskStatusResponse)

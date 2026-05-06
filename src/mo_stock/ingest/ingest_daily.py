@@ -413,6 +413,7 @@ class DailyIngestor:
 
     def ingest_one_day(
         self, trade_date: date, *, skip_enhanced: bool = False,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> dict[str, int]:
         """拉取指定交易日的全部数据。
 
@@ -427,6 +428,7 @@ class DailyIngestor:
         Args:
             trade_date: 目标交易日
             skip_enhanced: True 时只跑 CORE 步骤（调试或 Tushare 限速时）
+            progress_callback: 可选，每步完成后回调进度消息
         """
         logger.info(
             "=== ingest_one_day {} (skip_enhanced={}) ===",
@@ -452,7 +454,9 @@ class DailyIngestor:
         steps = core_steps if skip_enhanced else core_steps + enhanced_steps
 
         stats: dict[str, int] = {}
-        for name, fn in steps:
+        for i, (name, fn) in enumerate(steps, 1):
+            if progress_callback:
+                progress_callback(f"正在同步 {name}（{i}/{len(steps)}）")
             try:
                 stats[name] = fn(trade_date)
             except Exception as exc:  # noqa: BLE001
@@ -463,13 +467,15 @@ class DailyIngestor:
         logger.info("ingest_one_day {} done: {}", trade_date, stats)
         return stats
 
-    def backfill(self, start: date, end: date) -> dict[str, int]:
+    def backfill(self, start: date, end: date, *,
+                 progress_callback: Callable[[str], None] | None = None) -> dict[str, int]:
         """回填 [start, end] 区间的日频数据。
 
         按日逐天拉取，跳过非交易日，每天失败不影响整体（记录日志后继续）。
         """
         logger.info("=== backfill {} → {} ===", start, end)
         total: dict[str, int] = {}
+        trade_days = 0
 
         cursor = start
         while cursor <= end:
@@ -478,6 +484,9 @@ class DailyIngestor:
                     if not repo.is_trade_date(s, cursor):
                         cursor += timedelta(days=1)
                         continue
+                trade_days += 1
+                if progress_callback:
+                    progress_callback(f"正在回填 {cursor}（第 {trade_days} 个交易日）")
                 stats = self.ingest_one_day(cursor)
                 for k, v in stats.items():
                     total[k] = total.get(k, 0) + v
@@ -488,7 +497,8 @@ class DailyIngestor:
         logger.info("backfill {} → {} done: {}", start, end, total)
         return total
 
-    def refresh_index_range(self, start: date, end: date) -> int:
+    def refresh_index_range(self, start: date, end: date, *,
+                            progress_callback: Callable[[str], None] | None = None) -> int:
         """补齐 [start, end] 区间内交易日的指数日线。
 
         只调用 index_daily，不重跑全市场个股日频接口。用于补齐
@@ -503,6 +513,8 @@ class DailyIngestor:
             with get_session() as s:
                 is_open = repo.is_trade_date(s, cursor)
             if is_open:
+                if progress_callback:
+                    progress_callback(f"正在补齐指数日线 {cursor}")
                 total += self.ingest_index_daily(cursor)
             cursor += timedelta(days=1)
 
