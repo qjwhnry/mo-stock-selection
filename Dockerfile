@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml README.md ./
 # Create a dummy package so pip can resolve deps without real source code
 RUN mkdir -p src/mo_stock && touch src/mo_stock/__init__.py \
-    && pip install --no-cache-dir -e . \
+    && pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ --default-timeout=100 -e . \
     && rm -rf src/
 
 # --- Layer 2: copy real source code (changes often, but pip install is already cached) ---
