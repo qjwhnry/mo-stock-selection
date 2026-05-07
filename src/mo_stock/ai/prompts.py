@@ -128,8 +128,9 @@ def build_dynamic_stock_prompt(
 ) -> str:
     """段 4：当日规则层命中信号 + 行情快照。
 
-    dim_scores 只含"该股有信号"的维度；缺失维度不渲染，避免 AI 把空信号理解成
-    负面证据。当前 short 维度最多来自 limit / moneyflow / lhb / sector / theme。
+    dim_scores 只含"该股有信号"的维度，包含正向机会信号和负向风险信号；
+    缺失维度不渲染，避免 AI 把空信号理解成负面证据。当前 short 维度
+    最多来自 limit / moneyflow / lhb / sector / theme。
     """
     # 规则维度块（只渲染有命中的）
     dim_blocks: list[str] = []

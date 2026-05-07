@@ -77,6 +77,11 @@ class TestWeightedCombine:
     def test_zero_total_weight_returns_zero(self) -> None:
         assert _weighted_combine({"lhb": 80.0}, {"lhb": 0.0}) == 0.0
 
+    def test_negative_dimension_score_reduces_total(self) -> None:
+        dim_scores = {"limit": 50.0, "sector": -30.0}
+        # 50*0.25 + (-30)*0.15 = 8.0
+        assert _weighted_combine(dim_scores, _DEFAULT_WEIGHTS) == 8.0
+
 
 # ============================================================================
 # v2.1 plan Task 6：6 维度（新增 theme）总和 1.00 验证

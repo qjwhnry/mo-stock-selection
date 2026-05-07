@@ -230,6 +230,14 @@ def get_index_member_l1_map(session: Session) -> dict[str, str]:
     return {ts: l1 for ts, l1 in session.execute(stmt).all() if l1 is not None}
 
 
+def get_index_member_l2_map(session: Session) -> dict[str, str]:
+    """股票 → 申万二级行业代码映射 {ts_code: l2_code}。"""
+    stmt = select(IndexMember.ts_code, IndexMember.l2_code).where(
+        IndexMember.l2_code.isnot(None),
+    )
+    return {ts: l2 for ts, l2 in session.execute(stmt).all() if l2 is not None}
+
+
 def get_recent_lhb(
     session: Session,
     ts_code: str,
@@ -315,12 +323,13 @@ def upsert_rows(
     if not rows_list:
         return 0
 
+    table: Any = model.__table__
     target = set(conflict_cols)
-    pk_names = {col.name for col in list(model.__table__.primary_key)}
+    pk_names = {col.name for col in list(table.primary_key)}
     unique_keys: list[set[str]] = [pk_names]
     # 收集模型上所有 UniqueConstraint 的列集
     from sqlalchemy import UniqueConstraint
-    for c in model.__table__.constraints:
+    for c in table.constraints:
         if isinstance(c, UniqueConstraint):
             unique_keys.append({col.name for col in c.columns})
 

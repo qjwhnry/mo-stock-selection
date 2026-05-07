@@ -329,7 +329,13 @@ def _translate_sector(detail: dict[str, Any]) -> list[str]:
     avg = detail.get("sector_3d_avg")
     if avg is not None and detail.get("trend_bonus"):
         e.append(f"行业 3 日均涨 {avg}%（+{detail['trend_bonus']} 分）")
-    if detail.get("l1_code"):
+    if detail.get("leadership_factor"):
+        e.append("行业内领涨确认")
+    if detail.get("weak_sector_penalty"):
+        e.append(f"弱势行业扣分 {detail['weak_sector_penalty']}")
+    if detail.get("l2_code"):
+        e.append(f"行业代码 {detail['l2_code']}")
+    elif detail.get("l1_code"):
         e.append(f"行业代码 {detail['l1_code']}")
     return e
 

@@ -20,12 +20,23 @@ from mo_stock.storage.models import (
     ThsMember,
 )
 
-# 默认 weights（与 v2.1 plan §3.3 一致）
+# 默认 weights（与 config/weights.yaml: theme_filter 一致）
 DEFAULT_THEME_WEIGHTS = {
     "top_n_themes": 10,
-    "ths_rank_bonus": {1: 50, 2: 42, 3: 35, 4: 28, 5: 22, 10: 12},
-    "limit_concept_rank_bonus": {1: 50, 3: 35, 5: 22, 10: 12},
-    "concept_moneyflow_positive_bonus": 15,
+    "signal_discount": 0.3,
+    "ths_rank_bonus": {1: 50, 2: 42, 3: 35, 4: 28, 5: 22, 7: 14, 10: 8},
+    "limit_concept_rank_bonus": {1: 50, 3: 35, 5: 22, 7: 12, 10: 6},
+    "concept_moneyflow": {
+        "inflow_positive_rank_top_5": {"score": 20},
+        "inflow_positive_rank_top_10": {"score": 12},
+        "inflow_positive_rank_top_20": {"score": 5},
+        "outflow_negative_rank_bot_5": {"score": -15},
+        "outflow_negative_rank_bot_10": {"score": -8},
+    },
+    "concept_temporal_bonus": {
+        "yesterday_in_top_n": 5,
+        "rank_improvement": 5,
+    },
     "max_theme_bonus": 100,
 }
 
@@ -65,8 +76,8 @@ class TestThemeFilterScoring:
         f = ThemeFilter(weights=DEFAULT_THEME_WEIGHTS)
         assert f.score_all(session, date(2026, 4, 24)) == []
 
-    def test_full_signal_caps_at_100(self, session: Session) -> None:
-        """概念排第 1 + 涨停最强排第 1 + 资金净流入 → max bonus 100（封顶）。"""
+    def test_full_signal_uses_discounted_overlap(self, session: Session) -> None:
+        """概念排第 1 + 涨停最强排第 1 + 资金 TOP5 → 折扣叠加。"""
         td = date(2026, 4, 24)
         # ths_daily 唯一 1 条 → rank 1
         session.add(ThsDaily(ts_code="885806.TI", trade_date=td, name="华为", pct_change=8.0))
@@ -78,8 +89,8 @@ class TestThemeFilterScoring:
         f = ThemeFilter(weights=DEFAULT_THEME_WEIGHTS)
         results = f.score_all(session, td)
         by_code = {r.ts_code: r for r in results}
-        # 50 (ths rank 1) + 50 (limit rank 1) + 15 (moneyflow > 0) = 115 → clamp 100
-        assert by_code["600000.SH"].score == 100.0
+        # max(50, 50) + 0.3 * min(50, 50) + 20 = 85
+        assert by_code["600000.SH"].score == 85.0
         assert by_code["600000.SH"].detail["best_concept"] == "885806.TI"
 
     def test_multi_concept_takes_max(self, session: Session) -> None:
@@ -97,8 +108,8 @@ class TestThemeFilterScoring:
 
         f = ThemeFilter(weights=DEFAULT_THEME_WEIGHTS)
         score = next(r.score for r in f.score_all(session, td) if r.ts_code == "600000.SH")
-        # 概念 A: 50+50+0=100；概念 B: 22+0+0=22 → max 100
-        assert score == 100.0
+        # 概念 A: 50+0.3*50=65；概念 B: 42 → max 65
+        assert score == 65.0
 
     def test_limit_concept_only(self, session: Session) -> None:
         """没在 ths_daily 但在涨停最强榜的概念也算分（渐进降级）。"""
@@ -125,11 +136,11 @@ class TestThemeFilterScoring:
         f = ThemeFilter(weights=DEFAULT_THEME_WEIGHTS)
         results = f.score_all(session, td)
         score = next(r.score for r in results if r.ts_code == "600002.SH")
-        # limit rank 1 (50) + moneyflow > 0 (15) = 65
-        assert score == 65.0
+        # limit rank 1 (50) + moneyflow top5 (20) = 70
+        assert score == 70.0
 
-    def test_moneyflow_negative_no_bonus(self, session: Session) -> None:
-        """net_amount ≤ 0 → 不加 moneyflow_bonus。"""
+    def test_moneyflow_negative_applies_penalty(self, session: Session) -> None:
+        """net_amount < 0 → 资金流排名倒数 TOP5 扣 15 分。"""
         td = date(2026, 4, 24)
         session.add(ThsDaily(ts_code="885806.TI", trade_date=td, pct_change=5.0))
         session.add(ThsConceptMoneyflow(ts_code="885806.TI", trade_date=td, net_amount=-2.0))
@@ -138,5 +149,24 @@ class TestThemeFilterScoring:
 
         f = ThemeFilter(weights=DEFAULT_THEME_WEIGHTS)
         score = next(r.score for r in f.score_all(session, td) if r.ts_code == "600000.SH")
-        # ths rank 1 (50) + 0 + 0 = 50（无 moneyflow_bonus）
-        assert score == 50.0
+        # ths rank 1 (50) + moneyflow bottom5 (-15) = 35
+        assert score == 35.0
+
+    def test_temporal_bonus_for_yesterday_top_and_rank_improvement(
+        self, session: Session,
+    ) -> None:
+        """昨日上榜 + 今日排名改善 → 轻量时间加分。"""
+        td = date(2026, 4, 24)
+        prev = date(2026, 4, 23)
+        # 昨日 rank 2，今日 rank 1
+        session.add(ThsDaily(ts_code="885800.TI", trade_date=prev, pct_change=9.0))
+        session.add(ThsDaily(ts_code="885806.TI", trade_date=prev, pct_change=5.0))
+        session.add(ThsDaily(ts_code="885806.TI", trade_date=td, pct_change=8.0))
+        session.add(ThsMember(ts_code="885806.TI", con_code="600000.SH"))
+        session.flush()
+
+        f = ThemeFilter(weights=DEFAULT_THEME_WEIGHTS)
+        row = next(r for r in f.score_all(session, td) if r.ts_code == "600000.SH")
+        assert row.score == 60.0
+        assert row.detail["yesterday_in_top_n_bonus"] == 5
+        assert row.detail["rank_improvement_bonus"] == 5

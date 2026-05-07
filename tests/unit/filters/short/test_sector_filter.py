@@ -5,13 +5,18 @@ unit 层覆盖。这里只测易出 bug 的纯函数：板块涨幅 → rank →
 """
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
+from sqlalchemy.orm import Session
 
 from mo_stock.filters.short.sector_filter import (
+    SectorFilter,
     _rank_to_bonus,
     _three_day_avg_bonus,
     _top_n_l1_codes,
 )
+from mo_stock.storage.models import DailyKline, IndexMember, SwDaily
 
 
 class TestRankToBonus:
@@ -100,3 +105,119 @@ class TestTopNL1Codes:
         rows = [("801080.SI", 5.0)]
         result = _top_n_l1_codes(rows, n=10)
         assert result == {"801080.SI": 1}
+
+
+class TestSectorFilterScoring:
+    def test_l2_strength_only_scores_industry_leaders(
+        self, sqlite_session: Session,
+    ) -> None:
+        td = date(2026, 4, 24)
+        strong_l2 = "801081.SI"
+        weak_l2 = "801082.SI"
+        sqlite_session.add(SwDaily(sw_code=strong_l2, trade_date=td, pct_change=5.0))
+        sqlite_session.add(SwDaily(sw_code=weak_l2, trade_date=td, pct_change=1.0))
+
+        for i in range(6):
+            code = f"60000{i}.SH"
+            sqlite_session.add(IndexMember(ts_code=code, l2_code=strong_l2))
+            sqlite_session.add(DailyKline(
+                ts_code=code,
+                trade_date=td,
+                pct_chg=6.0 - i,
+                amount=6000.0 - i * 1000,
+                vol=1000.0,
+            ))
+        sqlite_session.flush()
+
+        f = SectorFilter(weights={"top_n_l2": 1, "bottom_n_l2": 0})
+        rows = f.score_all(sqlite_session, td)
+        by_code = {r.ts_code: r for r in rows}
+
+        assert by_code["600000.SH"].score == 70.0
+        assert by_code["600001.SH"].score == 70.0
+        assert by_code["600002.SH"].score == 70.0
+        assert "600003.SH" not in by_code
+
+    def test_bottom_l2_penalizes_only_weak_stock(
+        self, sqlite_session: Session,
+    ) -> None:
+        td = date(2026, 4, 24)
+        strong_l2 = "801081.SI"
+        bottom_l2 = "801099.SI"
+        sqlite_session.add(SwDaily(sw_code=strong_l2, trade_date=td, pct_change=3.0))
+        sqlite_session.add(SwDaily(sw_code=bottom_l2, trade_date=td, pct_change=-5.0))
+        sqlite_session.add(IndexMember(ts_code="600099.SH", l2_code=strong_l2))
+        sqlite_session.add(DailyKline(
+            ts_code="600099.SH",
+            trade_date=td,
+            pct_chg=2.0,
+            amount=1000.0,
+            vol=1000.0,
+        ))
+
+        # 6 只股票确保越过 min_l2_size_for_leadership=5 门槛
+        pct_values = [-3.0, -2.0, -1.0, 0.0, 0.5, 1.0]
+        for i, pct in enumerate(pct_values):
+            code = f"60001{i}.SH"
+            sqlite_session.add(IndexMember(ts_code=code, l2_code=bottom_l2))
+            sqlite_session.add(DailyKline(
+                ts_code=code,
+                trade_date=td,
+                pct_chg=pct,
+                amount=1000.0 + i,
+                vol=1000.0,
+            ))
+        sqlite_session.flush()
+
+        f = SectorFilter(weights={"top_n_l2": 1, "bottom_n_l2": 1})
+        rows = f.score_all(sqlite_session, td)
+        by_code = {r.ts_code: r for r in rows}
+
+        # 前 3 只 pct < 中位数(-0.5) 且 vol_ratio=1.0 < 1.5 → -30
+        assert by_code["600010.SH"].score == -30.0
+        assert by_code["600011.SH"].score == -30.0
+        assert by_code["600012.SH"].score == -30.0
+        # 第 4 只 pct=0.0 > 中位数 → -10
+        assert by_code["600013.SH"].score == -10.0
+
+    def test_bottom_l2_small_sample_gets_light_penalty(
+        self, sqlite_session: Session,
+    ) -> None:
+        """小样本 L2 进入弱势榜时只轻扣，避免分位排名噪音导致重罚。"""
+        td = date(2026, 4, 24)
+        strong_l2 = "801081.SI"
+        small_bottom_l2 = "801099.SI"
+        sqlite_session.add(SwDaily(sw_code=strong_l2, trade_date=td, pct_change=3.0))
+        sqlite_session.add(SwDaily(
+            sw_code=small_bottom_l2,
+            trade_date=td,
+            pct_change=-5.0,
+        ))
+        sqlite_session.add(IndexMember(ts_code="600099.SH", l2_code=strong_l2))
+        sqlite_session.add(DailyKline(
+            ts_code="600099.SH",
+            trade_date=td,
+            pct_chg=2.0,
+            amount=1000.0,
+            vol=1000.0,
+        ))
+
+        for i, pct in enumerate([-3.0, -1.0, 1.0, 2.0]):
+            code = f"60002{i}.SH"
+            sqlite_session.add(IndexMember(ts_code=code, l2_code=small_bottom_l2))
+            sqlite_session.add(DailyKline(
+                ts_code=code,
+                trade_date=td,
+                pct_chg=pct,
+                amount=1000.0 + i,
+                vol=1000.0,
+            ))
+        sqlite_session.flush()
+
+        f = SectorFilter(weights={"top_n_l2": 1, "bottom_n_l2": 1})
+        rows = f.score_all(sqlite_session, td)
+        by_code = {r.ts_code: r for r in rows}
+
+        for code in ("600020.SH", "600021.SH", "600022.SH", "600023.SH"):
+            assert by_code[code].score == -10.0
+            assert by_code[code].detail["small_l2_light_penalty"] is True

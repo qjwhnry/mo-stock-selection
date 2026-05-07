@@ -23,11 +23,12 @@ ingest → 5 个 filter 各自打分 (0-100) → combine 加权融合 → 硬规
 | `limit` 异动涨停 | 0.25 | `limit_list` 表 | ✓ [LimitFilter](../src/mo_stock/filters/short/limit_filter.py) |
 | `moneyflow` 主力资金流向 | 0.25 | `moneyflow` + `daily_kline.amount` | ✓ [MoneyflowFilter](../src/mo_stock/filters/short/moneyflow_filter.py) |
 | `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail`（v2.1） | ✓ [LhbFilter](../src/mo_stock/filters/short/lhb_filter.py) |
-| `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` | ✓ [SectorFilter](../src/mo_stock/filters/short/sector_filter.py) |
+| `sector` 申万二级行业 | 0.10 | `sw_daily` + `index_member` + `daily_kline` | ✓ [SectorFilter](../src/mo_stock/filters/short/sector_filter.py) |
 | `theme` 同花顺概念 + 涨停最强 + 资金流（v2.1 新增） | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` | ✓ [ThemeFilter](../src/mo_stock/filters/short/theme_filter.py) |
 | `sentiment` 新闻公告 | 0.10 | `news_raw` / `anns_raw` | ❌ 未实现 |
 
-每个维度独立打分，0-100 分，**只对该维度有信号的股 append 结果**（score=0 视为信号缺失，由综合分公式按 0 处理）。
+每个维度独立打分，多数维度为 0-100 分；`sector` 支持 -30 到 70。
+**只对该维度有非 0 信号的股 append 结果**（score=0 视为信号缺失，由综合分公式按 0 处理）。
 
 **v2.1 关键变化**：
 - 把"题材增强"从 sector 维度拆出独立 `theme` 维度，避免维度饱和（多数强势股触顶 100）
@@ -283,8 +284,8 @@ score = clamp(base + seat, 0, 100)
 
 ```
 score = 0
-+ rank_bonus    # 所属板块当日涨幅 TOP N 排名加分
-+ trend_bonus   # 板块近 3 日均涨幅
++ (rank_bonus + trend_bonus) × leadership_factor
++ weak_sector_penalty
 ```
 
 ### 加分细则
@@ -296,7 +297,7 @@ score = 0
 | 第 3 名 | **+35** |
 | 第 4 名 | **+28** |
 | 第 5 名 | **+22** |
-| TOP 5 之外 | +0 |
+| TOP N 之外 | +0 |
 
 | 板块近 3 日均涨幅 | 加分 |
 |---|---|
@@ -306,10 +307,10 @@ score = 0
 
 ### 实际上限
 
-**70 分**：rank #1 (+50) + 3 日均涨 ≥5% (+20) = 70。归一到 0-100。
+**70 分**：rank #1 (+50) + 3 日均涨 ≥5% (+20) = 70。弱势行业条件扣分最低 -30。
 
 代码：[filters/short/sector_filter.py](../src/mo_stock/filters/short/sector_filter.py)
-配置：`weights.yaml: sector_filter` （`top_n_sectors: 5` 可调）
+配置：`weights.yaml: sector_filter` （`top_n_l2` / `bottom_n_l2` 可调）
 
 ---
 
@@ -327,13 +328,15 @@ score = 0
 
 A 股一只票常同时挂在 5-20 个概念里。如果加分，沾边股会天然占优——题材轮动信号被噪音稀释。
 
-**v2.1 决策**：跨概念取 max，**同一概念内三类信号 sum**：
+**当前决策**：跨概念取 max；同一概念内，涨幅排名和涨停排名折扣叠加，
+资金流按当日概念净流入排名分位加减分，再加短线轻量时间确认：
 
 ```python
 score(stock) = max over concepts of:
-    ths_rank_bonus(rank in ths_daily TOP N) +
-    limit_concept_bonus(rank in limit_cpt_list) +
-    moneyflow_bonus(net_amount > 0)
+    max(ths_bonus, limit_bonus)
+    + 0.3 * min(ths_bonus, limit_bonus)
+    + moneyflow_rank_bonus
+    + temporal_bonus
 ```
 
 **渐进降级**：ths_daily 为空（接口故障 / 积分用尽）时仍跑 limit_concept + moneyflow 单点信号；只有三类全空才提前返回。
@@ -353,7 +356,8 @@ score = clamp(min(best, max_theme_bonus), 0, 100)
 | 第 3 名 | **+35** |
 | 第 4 名 | **+28** |
 | 第 5 名 | **+22** |
-| 6-10 名 | **+12** |
+| 6-7 名 | **+14** |
+| 8-10 名 | **+8** |
 | TOP 10 外 | +0 |
 
 | 涨停最强概念排名（limit_cpt_list rank） | 加分 |
@@ -361,19 +365,32 @@ score = clamp(min(best, max_theme_bonus), 0, 100)
 | 第 1 名 | **+50** |
 | 第 2-3 名 | **+35** |
 | 第 4-5 名 | **+22** |
-| 第 6-10 名 | **+12** |
+| 第 6-7 名 | **+12** |
+| 第 8-10 名 | **+6** |
 | 排名外 | +0 |
 
-| 概念资金净流入（ths_concept_moneyflow.net_amount） | 加分 |
+| 概念资金净流入排名（需 net_amount > 0） | 加分 |
 |---|---|
-| > 0（亿元） | **+15** |
-| ≤ 0 / NULL | +0 |
+| TOP 5 | **+20** |
+| TOP 6-10 | **+12** |
+| TOP 11-20 | **+5** |
+| 20 名外 / ≤ 0 / NULL | +0 |
+
+| 概念资金净流出排名（需 net_amount < 0） | 扣分 |
+|---|---|
+| 倒数 TOP 5 | **-15** |
+| 倒数 TOP 6-10 | **-8** |
+
+| 短线时间确认 | 加分 |
+|---|---|
+| 昨日也在 ths_daily TOP 10 | **+5** |
+| 今日排名较昨日提升 | **+5** |
 
 注：分档表查找策略是"找 ≥ rank 的最小 key"——rank=4 时若表里只有 1/2/3/5，返回 5 对应分数（保守）。
 
 ### 实际上限
 
-**100 分**：ths rank 1 (+50) + limit rank 1 (+50) + moneyflow > 0 (+15) = 115，clamp 到 100。
+**95 分**：ths rank 1 / limit rank 1 折扣叠加 65 + 资金流 TOP5 20 + 时间确认 10 = 95。
 
 代码：[filters/short/theme_filter.py](../src/mo_stock/filters/short/theme_filter.py)
 配置：`weights.yaml: theme_filter`（top_n_themes / 三档分值 / max_theme_bonus 全部可热调）
