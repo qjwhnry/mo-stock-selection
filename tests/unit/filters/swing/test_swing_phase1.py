@@ -5,6 +5,7 @@ from datetime import date, timedelta
 
 from mo_stock.filters.swing.catalyst_filter import CatalystFilter
 from mo_stock.filters.swing.market_regime_filter import MarketRegimeFilter
+from mo_stock.filters.swing.moneyflow_swing_filter import MoneyflowSwingFilter
 from mo_stock.filters.swing.pullback_filter import _recent_drawdown_pct
 from mo_stock.filters.swing.trend_filter import TrendFilter
 from mo_stock.scorer.combine import combine_scores
@@ -12,6 +13,7 @@ from mo_stock.storage.models import (
     DailyKline,
     FilterScoreDaily,
     LimitList,
+    Moneyflow,
     SelectionResult,
     StockBasic,
     TradeCal,
@@ -187,6 +189,86 @@ def test_combine_scores_applies_market_regime_top_n(sqlite_session) -> None:
     assert picked == 1
     assert sum(1 for r in rows if r.picked) == 1
     assert {r.ts_code for r in rows if r.picked} == {"600001.SH"}
+
+
+def test_moneyflow_swing_ignores_positive_inflow_without_price_confirmation(
+    sqlite_session,
+) -> None:
+    """连续下跌中的正净流入不推高波段资金分。"""
+    dates = _seed_trade_cal(sqlite_session, date(2026, 4, 20), 5)
+    ts_code = "600009.SH"
+    for i, d in enumerate(dates):
+        sqlite_session.add(DailyKline(
+            ts_code=ts_code,
+            trade_date=d,
+            open=10.0 - i * 0.1,
+            high=10.1 - i * 0.1,
+            low=9.5 - i * 0.1,
+            close=9.8 - i * 0.1,
+            pre_close=10.0 - i * 0.1,
+            pct_chg=-2.0,
+            vol=1000,
+            amount=100000,
+        ))
+        sqlite_session.add(Moneyflow(
+            ts_code=ts_code,
+            trade_date=d,
+            net_mf_amount=1_000.0,
+            buy_sm_amount=0.0,
+            sell_sm_amount=0.0,
+            buy_md_amount=0.0,
+            sell_md_amount=0.0,
+            buy_lg_amount=1_000.0,
+            sell_lg_amount=0.0,
+            buy_elg_amount=1_000.0,
+            sell_elg_amount=0.0,
+        ))
+    sqlite_session.commit()
+
+    results = MoneyflowSwingFilter().score_all(sqlite_session, dates[-1])
+
+    assert results == []
+
+
+def test_moneyflow_swing_counts_positive_inflow_with_price_confirmation(
+    sqlite_session,
+) -> None:
+    """上涨确认日的连续正净流入正常加分。"""
+    dates = _seed_trade_cal(sqlite_session, date(2026, 4, 20), 5)
+    ts_code = "600010.SH"
+    for i, d in enumerate(dates):
+        sqlite_session.add(DailyKline(
+            ts_code=ts_code,
+            trade_date=d,
+            open=10.0 + i * 0.1,
+            high=10.4 + i * 0.1,
+            low=9.9 + i * 0.1,
+            close=10.2 + i * 0.1,
+            pre_close=10.0 + i * 0.1,
+            pct_chg=2.0,
+            vol=1000,
+            amount=100000,
+        ))
+        sqlite_session.add(Moneyflow(
+            ts_code=ts_code,
+            trade_date=d,
+            net_mf_amount=1_000.0,
+            buy_sm_amount=0.0,
+            sell_sm_amount=0.0,
+            buy_md_amount=0.0,
+            sell_md_amount=0.0,
+            buy_lg_amount=1_000.0,
+            sell_lg_amount=0.0,
+            buy_elg_amount=1_000.0,
+            sell_elg_amount=0.0,
+        ))
+    sqlite_session.commit()
+
+    results = MoneyflowSwingFilter().score_all(sqlite_session, dates[-1])
+
+    assert len(results) == 1
+    assert results[0].score == 90.0
+    assert results[0].detail["positive_days_5d"] == 5
 
 
 # ---------------------------------------------------------------------------

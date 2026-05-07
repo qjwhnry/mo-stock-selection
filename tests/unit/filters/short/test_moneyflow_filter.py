@@ -186,6 +186,12 @@ class TestMoneyflowFilterScoring:
                 pre_close=10.0, pct_chg=0.5, vol=100_000.0, amount=1_000_000.0,
             ),
             # d1 大额净流入 → rolling_sum = 800 + 10 = 810 > 0
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d1,
+                open=9.7, high=10.1, low=9.6, close=10.0,
+                pre_close=9.7, pct_chg=3.0, vol=100_000.0, amount=1_000_000.0,
+            ),
             Moneyflow(
                 ts_code=ts_code,
                 trade_date=d1,
@@ -214,3 +220,110 @@ class TestMoneyflowFilterScoring:
         assert len(results) == 1
         assert results[0].score == 20.0  # rolling_bonus only
         assert "today_bonus" not in results[0].detail
+
+    def test_positive_inflow_on_down_day_is_excluded(self, sqlite_session) -> None:
+        """下跌日正净流入不视为短线主动建仓信号。"""
+        d1 = date(2026, 4, 22)
+        d2 = date(2026, 4, 23)
+        d3 = date(2026, 4, 24)
+        ts_code = "000004.SZ"
+
+        sqlite_session.add_all([
+            TradeCal(cal_date=d1, is_open=True, pretrade_date=date(2026, 4, 21)),
+            TradeCal(cal_date=d2, is_open=True, pretrade_date=d1),
+            TradeCal(cal_date=d3, is_open=True, pretrade_date=d2),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d3,
+                open=10.0, high=10.1, low=9.4, close=9.5,
+                pre_close=10.0, pct_chg=-5.0, vol=100_000.0, amount=1_000_000.0,
+            ),
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d1,
+                net_mf_amount=2_000.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=0.0, sell_lg_amount=0.0,
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d3,
+                net_mf_amount=5_000.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=5_000.0, sell_lg_amount=0.0,
+                buy_elg_amount=5_000.0, sell_elg_amount=0.0,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={"rolling_3d_bonus": 20}).score_all(
+            sqlite_session, d3,
+        )
+
+        assert results == []
+
+    def test_low_open_rebound_with_negative_pct_chg_is_kept(self, sqlite_session) -> None:
+        """低开高走即使收盘仍绿，也属于有效日内承接。"""
+        d = date(2026, 4, 24)
+        ts_code = "000005.SZ"
+
+        sqlite_session.add_all([
+            TradeCal(cal_date=d, is_open=True, pretrade_date=date(2026, 4, 23)),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d,
+                open=9.5, high=10.0, low=9.3, close=9.9,
+                pre_close=10.0, pct_chg=-1.0, vol=100_000.0, amount=1_000_000.0,
+            ),
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d,
+                net_mf_amount=1_000.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=0.0, sell_lg_amount=0.0,
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={"rolling_3d_bonus": 20}).score_all(
+            sqlite_session, d,
+        )
+
+        assert len(results) == 1
+        assert results[0].detail["intraday_pct"] == pytest.approx(4.21, abs=0.01)
+
+    def test_high_open_selloff_with_positive_pct_chg_is_excluded(self, sqlite_session) -> None:
+        """高开低走即使收盘仍红，也不作为有效资金确认。"""
+        d = date(2026, 4, 24)
+        ts_code = "000006.SZ"
+
+        sqlite_session.add_all([
+            TradeCal(cal_date=d, is_open=True, pretrade_date=date(2026, 4, 23)),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d,
+                open=10.3, high=10.5, low=10.0, close=10.05,
+                pre_close=10.0, pct_chg=0.5, vol=100_000.0, amount=1_000_000.0,
+            ),
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d,
+                net_mf_amount=5_000.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=5_000.0, sell_lg_amount=0.0,
+                buy_elg_amount=5_000.0, sell_elg_amount=0.0,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={"rolling_3d_bonus": 20}).score_all(
+            sqlite_session, d,
+        )
+
+        assert results == []

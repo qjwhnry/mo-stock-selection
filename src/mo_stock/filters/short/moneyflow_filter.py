@@ -29,12 +29,13 @@ from __future__ import annotations
 from datetime import date
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from mo_stock.filters.base import FilterBase, ScoreResult, clamp
+from mo_stock.filters.moneyflow_utils import confirmed_positive_net, has_price_confirmation
 from mo_stock.storage import repo
-from mo_stock.storage.models import DailyKline
+from mo_stock.storage.models import DailyKline, Moneyflow
 
 
 class MoneyflowFilter(FilterBase):
@@ -50,23 +51,27 @@ class MoneyflowFilter(FilterBase):
             logger.warning("MoneyflowFilter: {} 当日资金流为空", trade_date)
             return results
 
-        # 一次拉取当日全部 daily_kline.amount（千元），避免逐股 query
-        # SQL 已 filter NOT NULL，但 dict() 推导器内显式 if 也帮 mypy 收紧类型
-        kline_amount_map: dict[str, float] = {
-            ts: amt
-            for ts, amt in session.execute(
-                select(DailyKline.ts_code, DailyKline.amount)
+        # 一次拉取当日全部 daily_kline.amount（千元）和开收盘价，避免逐股 query。
+        kline_map: dict[str, tuple[float | None, float | None, float | None]] = {
+            ts: (amt, open_price, close_price)
+            for ts, amt, open_price, close_price in session.execute(
+                select(
+                    DailyKline.ts_code,
+                    DailyKline.amount,
+                    DailyKline.open,
+                    DailyKline.close,
+                )
                 .where(DailyKline.trade_date == trade_date)
-                .where(DailyKline.amount.isnot(None)),
             ).all()
-            if amt is not None
         }
 
         cfg = self.weights
         rolling_bonus = cfg.get("rolling_3d_bonus", 15)
         ratio_threshold = cfg.get("big_order_ratio_threshold", 0.4)
         small_up_big_down_penalty = cfg.get("small_up_big_down_penalty", 30)
-        rolling_sum_map = repo.get_moneyflow_rolling_sum_map(session, trade_date, days=3)
+        rolling_sum_map = _get_confirmed_moneyflow_rolling_sum_map(
+            session, trade_date, days=3,
+        )
 
         for row in today_rows:
             score = 0.0
@@ -75,12 +80,24 @@ class MoneyflowFilter(FilterBase):
             net_mf_wan = row.net_mf_amount or 0.0  # 万元
             detail["net_mf_wan"] = round(net_mf_wan, 2)
 
-            # 1. 主力净流入占当日成交比例 → 占比分档。净流出/缺失视为该维度信号缺失。
-            kline_amt_qy = kline_amount_map.get(row.ts_code)  # 千元
-            today_bonus = _today_bonus_tier(net_mf_wan, kline_amt_qy)
             if net_mf_wan <= 0:
                 # 净流出或缺失 → 无资金流信号，不入 results
                 continue
+            # 1. 主力净流入占当日成交比例 → 占比分档。净流入必须有价格确认。
+            kline_amt_qy, open_price, close_price = kline_map.get(
+                row.ts_code, (None, None, None),
+            )  # 千元, 元, 元
+            if (
+                open_price is None
+                or close_price is None
+                or not has_price_confirmation(open_price, close_price)
+            ):
+                # 日内收阴的正净流入常是承接卖盘，不当作短线主动建仓信号。
+                continue
+            detail["intraday_pct"] = round(
+                (close_price - open_price) / open_price * 100, 2,
+            )
+            today_bonus = _today_bonus_tier(net_mf_wan, kline_amt_qy)
             score += today_bonus
             if today_bonus > 0:
                 detail["today_bonus"] = round(today_bonus, 2)
@@ -162,3 +179,38 @@ def _today_bonus_tier(
     if ratio_pct >= 5.0:
         return 50.0
     return 5.0 + (ratio_pct - 0.3) / 4.7 * 40.0
+
+
+def _get_confirmed_moneyflow_rolling_sum_map(
+    session: Session,
+    end_date: date,
+    days: int = 3,
+) -> dict[str, float]:
+    """近 N 日资金净额：正净流入需要价格确认，净流出保留。"""
+    trade_dates = repo.get_recent_trade_dates(session, end_date, days)
+    if not trade_dates:
+        return {}
+
+    rows = session.execute(
+        select(
+            Moneyflow.ts_code,
+            Moneyflow.net_mf_amount,
+            DailyKline.open,
+            DailyKline.close,
+        )
+        .join(
+            DailyKline,
+            and_(
+                DailyKline.ts_code == Moneyflow.ts_code,
+                DailyKline.trade_date == Moneyflow.trade_date,
+            ),
+            isouter=True,
+        )
+        .where(Moneyflow.trade_date.in_(trade_dates))
+    ).all()
+    rolling: dict[str, float] = {}
+    for ts_code, net_mf_amount, open_price, close_price in rows:
+        rolling[ts_code] = rolling.get(ts_code, 0.0) + confirmed_positive_net(
+            net_mf_amount, open_price, close_price,
+        )
+    return rolling

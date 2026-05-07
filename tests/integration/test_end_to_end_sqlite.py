@@ -126,16 +126,17 @@ def populated_session(tmp_path):
     # amount 单位：千元（与 Tushare daily 接口一致）。MoneyflowFilter 用它作为 net_mf_amount
     # 占比的分母（ratio_pct = 1000 × net_mf_wan / amount_qy），fixture 必须给非空合理值，
     # 否则 _today_bonus_tier 返回 0 → 整只股 continue 跳过，results 为空、断言全挂。
-    for ts_code, close, amount in [
-        ("600519.SH", 1780.5, 985000.0),   # 9.85 亿元；配 net_mf=8000 万 → ratio≈8.12% → today_bonus=50
-        ("000001.SZ", 11.35, 200000.0),    # 仅供 LimitFilter，moneyflow 不到这只
-        ("300750.SZ", 285.0, 600000.0),    # 同上
-        ("601318.SH", 48.2, 300000.0),     # 3 亿元；配 net_mf=500 万 → ratio≈1.67% → today_bonus=35
-        ("002594.SZ", 220.0, 350000.0),    # net_mf<0 已被跳过，amount 任意
+    for ts_code, open_price, close, amount in [
+        ("600519.SH", 1760.0, 1780.5, 985000.0),   # 9.85 亿元；配 net_mf=8000 万 → ratio≈8.12% → today_bonus=50
+        ("000001.SZ", 11.1, 11.35, 200000.0),      # 仅供 LimitFilter，moneyflow 不到这只
+        ("300750.SZ", 280.0, 285.0, 600000.0),     # 同上
+        ("601318.SH", 47.9, 48.2, 300000.0),       # 3 亿元；配 net_mf=500 万 → ratio≈1.67% → today_bonus≈16.6
+        ("002594.SZ", 222.0, 220.0, 350000.0),     # net_mf<0 已被跳过，amount 任意
     ]:
         session.add(DailyKline(
             ts_code=ts_code,
             trade_date=trade_date,
+            open=open_price,
             close=close,
             pct_chg=5.0 if ts_code in ("300750.SZ", "000001.SZ") else 1.2,
             amount=amount,

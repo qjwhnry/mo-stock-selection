@@ -15,7 +15,7 @@ strategy:
 dimension_weights:
   trend: 0.27
   pullback: 0.13
-  moneyflow_swing: 0.20
+  moneyflow_swing: 0.20  # 正净流入必须有价格确认；日内收阴净流入不推高资金持续性分
   sector_swing: 0.13
   theme_swing: 0.09
   catalyst: 0.08

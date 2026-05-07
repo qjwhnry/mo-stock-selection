@@ -108,6 +108,10 @@ final_score = Σ(dim_score × weight) / Σ(全部权重)
 
 **数据源**：`moneyflow`（Tushare `moneyflow`，主动主力口径）+ `daily_kline.amount`（用于算占比）。
 
+**价格确认**：正净流入必须同时满足 `daily_kline.close > daily_kline.open`。日内收阴的正净流入
+常见于承接卖盘或被动吸筹，短线维度不再把它作为主动建仓信号；近 3 日累计里，正净流入也只有
+在对应交易日日内收阳时才计入正贡献，净流出仍保留为负贡献。
+
 ### 单位说明
 
 | 字段 | 单位 |
@@ -130,6 +134,7 @@ score = 0
 
 | 主力净流入占成交比例（%） | 加分 |
 |---|---|
+| `close ≤ open` | **不入榜**（日内收阴净流入不作为资金确认） |
 | ≥ 5% | **+50**（封顶） |
 | 0.3% - 5% | **线性 5 → 50**（≈每增加 1% 多 8.5 分） |
 | < 0.3% | **0**（today_bonus=0，但仍可叠加 rolling/ratio 信号入榜） |
@@ -147,7 +152,7 @@ score = 0
 
 | 近 3 日累计净流入 | 加分 |
 |---|---|
-| > 0 | **+20**（`rolling_3d_bonus`） |
+| 价格确认后的累计 > 0 | **+20**（`rolling_3d_bonus`） |
 | ≤ 0 | +0 |
 
 ### 扣分细则
@@ -637,7 +642,7 @@ sort key = (-final_score, -rule_score, -active_dim_count, ts_code)
 |------|------|------|
 | `trend` 趋势结构 | 0.27 | MA 多头排列 + 量价确认 |
 | `pullback` 回踩承接 | 0.13 | 趋势内健康回撤 + 重新转强 |
-| `moneyflow_swing` 波段资金 | 0.20 | 5/10 日资金持续性 |
+| `moneyflow_swing` 波段资金 | 0.20 | 5/10 日资金持续性，正净流入需价格确认 |
 | `sector_swing` 行业持续性 | 0.13 | 行业多日强度 + 派生资金聚合 |
 | `theme_swing` 题材持续性 | 0.09 | 题材多日排名 + 资金确认 |
 | `catalyst` 短线催化 | 0.08 | 断板反包 + 龙虎榜（低权重） |
@@ -650,6 +655,9 @@ sort key = (-final_score, -rule_score, -active_dim_count, ts_code)
 - 数据源：沪深 300 MA20 趋势 + 全市场涨跌家数
 - 根据分档动态调整 `top_n`、`position_scale`、`min_final_score`
 - 大盘弱势时自动缩减候选数量和仓位
+
+`moneyflow_swing` 的正净流入同样要求对应交易日 `close > open`；未通过价格确认的正净流入只记录为
+`unconfirmed_inflow_days_5d`，连续出现时扣分，避免承接卖盘被误判为资金持续流入。
 
 | 分档 | regime_score | top_n | position_scale |
 |------|---:|---:|---:|
