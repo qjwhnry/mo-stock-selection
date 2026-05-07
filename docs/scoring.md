@@ -27,8 +27,8 @@ ingest → 5 个 filter 各自打分 (0-100) → combine 加权融合 → 硬规
 | `theme` 同花顺概念 + 涨停最强 + 资金流（v2.1 新增） | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` | ✓ [ThemeFilter](../src/mo_stock/filters/short/theme_filter.py) |
 | `sentiment` 新闻公告 | 0.10 | `news_raw` / `anns_raw` | ❌ 未实现 |
 
-每个维度独立打分，多数维度为 0-100 分；`sector` 支持 -30 到 70。
-**只对该维度有非 0 信号的股 append 结果**（score=0 视为信号缺失，由综合分公式按 0 处理）。
+每个维度独立打分，0-100 分。
+**只对该维度有正向信号的股 append 结果**（score=0 视为信号缺失，由综合分公式按 0 处理）。
 
 **v2.1 关键变化**：
 - 把"题材增强"从 sector 维度拆出独立 `theme` 维度，避免维度饱和（多数强势股触顶 100）
@@ -284,8 +284,7 @@ score = clamp(base + seat, 0, 100)
 
 ```
 score = 0
-+ (rank_bonus + trend_bonus) × leadership_factor
-+ weak_sector_penalty
++ normalize_to_100((rank_bonus + trend_bonus) × leadership_factor)
 ```
 
 ### 加分细则
@@ -307,10 +306,11 @@ score = 0
 
 ### 实际上限
 
-**70 分**：rank #1 (+50) + 3 日均涨 ≥5% (+20) = 70。弱势行业条件扣分最低 -30。
+原始分最高 **70 分**：rank #1 (+50) + 3 日均涨 ≥5% (+20)。
+最终按 `raw / 70 × 100` 归一化，最高 **100 分**。
 
 代码：[filters/short/sector_filter.py](../src/mo_stock/filters/short/sector_filter.py)
-配置：`weights.yaml: sector_filter` （`top_n_l2` / `bottom_n_l2` 可调）
+配置：`weights.yaml: sector_filter` （`top_n_l2` 可调）
 
 ---
 

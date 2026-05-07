@@ -179,9 +179,9 @@ def get_sw_daily_for_codes(
 ) -> list[tuple[str, float | None]]:
     """获取指定 sw_code 集合在某交易日的涨跌幅 [(sw_code, pct_change), ...]。
 
-    SectorFilter 用此方法+ index_member.l1_code 集合精确取出一级板块涨幅。
-    （sw_daily 表里 sw_code LIKE '801%' 包含一/二/三级共 180 个，必须按
-    index_member 实际的 31 个 l1_code 白名单 filter，否则二三级板块会污染 TOP 排名。）
+    SectorFilter 传入 index_member 的行业代码白名单，精确取出对应层级的板块涨幅。
+    sw_daily 表里包含一/二/三级行业，调用方必须显式传入所需层级代码集合，避免
+    不同层级混排污染 TOP 排名。
     """
     if not sw_codes:
         return []
@@ -220,7 +220,7 @@ def get_sw_daily_3d_avg_for_codes(
 def get_index_member_l1_map(session: Session) -> dict[str, str]:
     """股票 → 申万一级板块代码映射 {ts_code: l1_code}。
 
-    SectorFilter 用此 map 把每只股关联到所属一级板块，再 join sw_daily 拿涨幅。
+    组合层板块 cap 用此 map 把每只股关联到所属一级板块。
     全表扫，5700 行，结果缓存在调用方进程内即可（板块归属慢变量）。
     """
     stmt = select(IndexMember.ts_code, IndexMember.l1_code).where(

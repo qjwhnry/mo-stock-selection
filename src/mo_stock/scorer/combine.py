@@ -224,15 +224,15 @@ def combine_scores(
         logger.warning("combine_scores: {} 无任何维度打分", trade_date)
         return 0
 
-    # stock_scores[ts_code][dim] = score （只记录非 0 的有效信号；
+    # stock_scores[ts_code][dim] = score （只记录 score > 0 的有效信号；
     # 缺失维度由 _weighted_combine 自动按 0 计入分子但分母不缩）
     stock_scores: dict[str, dict[str, float]] = defaultdict(dict)
-    # dim_scores_map 给 AI prompt 用，只保留非 0 信号维度（与 prompts.py
-    # build_dynamic_stock_prompt docstring 对齐：正向机会和负向风险都属于信号）；
+    # dim_scores_map 给 AI prompt 用，只保留有正向信号的维度（与 prompts.py
+    # build_dynamic_stock_prompt docstring 对齐）；
     # score=0 的兜底行（如 limit_filter 的 hard_fail）若塞给 AI 反而误导。
     dim_scores_map: dict[str, dict[str, ScoreResult]] = defaultdict(dict)
     for r in score_rows:
-        if r.score != 0:
+        if r.score > 0:
             stock_scores[r.ts_code][r.dim] = r.score
             dim_scores_map[r.ts_code][r.dim] = ScoreResult(
                 ts_code=r.ts_code,

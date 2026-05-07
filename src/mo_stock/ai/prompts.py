@@ -67,7 +67,7 @@ def build_methodology_prompt() -> str:
 | limit | 0.25 | limit_list | 异动涨停，含首板/连板/封单/反包 |
 | moneyflow | 0.25 | moneyflow + daily_kline | 主力资金净流入占比 + 大单结构 + 3 日累计 |
 | lhb | 0.20 | lhb + lhb_seat_detail | 龙虎榜 base 60 + 席位结构 40（机构/游资/北向） |
-| sector | 0.10 | sw_daily + index_member | 申万一级行业涨幅 TOP 5 |
+| sector | 0.10 | sw_daily + index_member + daily_kline | 申万二级行业涨幅 TOP N + 行业内领涨 |
 | theme | 0.10 | ths_daily + limit_concept + cmf | 同花顺概念涨幅 + 涨停最强概念 + 概念资金流 |
 
 未接通维度：sentiment（情绪，0.10 权重保留但当前没有 SentimentFilter 产出）。
@@ -128,9 +128,8 @@ def build_dynamic_stock_prompt(
 ) -> str:
     """段 4：当日规则层命中信号 + 行情快照。
 
-    dim_scores 只含"该股有信号"的维度，包含正向机会信号和负向风险信号；
-    缺失维度不渲染，避免 AI 把空信号理解成负面证据。当前 short 维度
-    最多来自 limit / moneyflow / lhb / sector / theme。
+    dim_scores 只含"该股有正向信号"的维度；缺失维度不渲染，避免 AI 把空信号
+    理解成负面证据。当前 short 维度最多来自 limit / moneyflow / lhb / sector / theme。
     """
     # 规则维度块（只渲染有命中的）
     dim_blocks: list[str] = []

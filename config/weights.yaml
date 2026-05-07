@@ -14,7 +14,7 @@ dimension_weights:
   limit: 0.25       # 异动涨停
   moneyflow: 0.25   # 主力资金流向
   lhb: 0.20         # 龙虎榜（base 60 + seat 40）
-  sector: 0.10      # 申万一级行业（v2.1：从 0.15 拆出 0.05 给 theme）
+  sector: 0.10      # 申万二级行业 + 行业内领涨确认
   theme: 0.10       # 同花顺概念 + 涨停最强 + 资金流（v2.1 新增独立维度）
   sentiment: 0.10   # 新闻公告 + 研报情绪（预留；当前未接入 SentimentFilter）
 
@@ -97,7 +97,6 @@ lhb_filter:
 # 板块维度细则（申万一级，v2.4 降档）
 sector_filter:
   top_n_l2: 10        # 申万二级行业当日涨幅 TOP N 加分
-  bottom_n_l2: 10     # 申万二级行业当日跌幅 BOTTOM N 条件扣分
   min_l2_size_for_leadership: 5
 
 # 题材维度细则（v2.1 新增，独立维度 dim=theme）
