@@ -519,6 +519,40 @@ psql 内：`\d+ daily_kline`
 查询隔离：始终带 `WHERE mode = 'backtest'` 或 `WHERE mode = 'live'`。
 回测清理：`DELETE WHERE mode='backtest' AND backtest_run_id = ?`
 
+## short_backtest_trade（短线回测交易记录）
+
+每个短线信号按持有期拆成多行：`signal_date + ts_code + holding_days`。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | SERIAL PK | 自增主键 |
+| backtest_run_id | VARCHAR(36) | 回测批次 UUID |
+| signal_date | DATE | 选股信号日 |
+| entry_date | DATE | T+1 买入日 |
+| ts_code | VARCHAR(12) | 股票代码 |
+| holding_days | INT | 计划持有交易日数 |
+| exit_date | DATE | 实际退出日（含止损 / 停牌顺延） |
+| exit_price | FLOAT | 实际退出价 |
+| rule_score | NUMERIC(5,2) | 信号日规则综合分 |
+| active_dims | INT | 命中维度数 |
+| dim_detail | JSONB | 各维度得分细节 |
+| rank_in_day | INT | 当日排名（含板块 cap 后） |
+| sector_l1 | VARCHAR(50) | 申万一级行业快照 |
+| entry_price | FLOAT | T+1 开盘买入价 |
+| raw_return_pct | FLOAT | 不止损自然持有收益 |
+| realized_return_pct | FLOAT | 执行止损后的真实收益 |
+| net_raw_return_pct | FLOAT | 扣费后自然持有收益 |
+| net_realized_return_pct | FLOAT | 扣费后真实收益 |
+| max_return_pct | FLOAT | 持有期内最大收益 |
+| max_drawdown_pct | FLOAT | 持有期内最大回撤 |
+| stop_hit | BOOLEAN | 是否触发止损 |
+| stop_day | INT | 止损触发日（1-based） |
+| exit_reason | VARCHAR(20) | time_exit / stop_loss / incomplete / skipped |
+| detail | JSONB | 成本、停牌、跌停锁仓等扩展信息 |
+
+唯一约束：`(backtest_run_id, signal_date, ts_code, holding_days)`。
+索引：`backtest_run_id`、`signal_date`、`ts_code`、`holding_days`、`exit_date`。
+
 ### v2.4 schema 变更说明
 
 Alembic migration: `alembic/versions/20260430_strategy_swing_phase0.py`

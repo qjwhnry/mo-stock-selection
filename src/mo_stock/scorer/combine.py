@@ -159,6 +159,78 @@ def _pick_ai_candidates(
     ][:ai_top_n]
 
 
+def apply_sector_cap(
+    session: Session,
+    scored: list[dict[str, Any]],
+    top_n: int,
+    cfg: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """按申万一级行业做 Top N 多样化限制，并分配 rank/picked。
+
+    输入 `scored` 必须已经按最终排序排好，并至少包含：
+    `ts_code`、`rule_score`、`reject_reason`。返回新列表，不原地修改。
+    """
+    cap_cfg = cfg or {}
+    max_per_sector = int(cap_cfg.get("max_stocks_per_sector", 4))
+    max_unknown = int(cap_cfg.get("max_unknown_sector_stocks", 0))
+
+    sector_map: dict[str, str] = repo.get_index_member_l1_map(session)
+    if not sector_map:
+        logger.warning(
+            "combine_scores: index_member 板块映射为空，板块 cap 将退化为 unknown 限额 "
+            "(max_unknown_sector_stocks={}). 请检查 refresh-basics 是否成功",
+            max_unknown,
+        )
+
+    sector_counts: dict[str, int] = {}
+    unknown_count = 0
+    picked_rank = 0
+    capped: list[dict[str, Any]] = []
+
+    for item in scored:
+        sector = sector_map.get(item["ts_code"])
+        if sector is not None:
+            sector_count = sector_counts.get(sector, 0)
+            over_sector_cap = max_per_sector > 0 and sector_count >= max_per_sector
+        else:
+            over_sector_cap = max_unknown > 0 and unknown_count >= max_unknown
+
+        reject_reason = item.get("reject_reason")
+        picked = (
+            reject_reason is None
+            and not over_sector_cap
+            and picked_rank < top_n
+        )
+        if picked:
+            picked_rank += 1
+            rank = picked_rank
+            if sector is not None:
+                sector_counts[sector] = sector_counts.get(sector, 0) + 1
+            else:
+                unknown_count += 1
+        else:
+            rank = 0
+
+        row_reject = reject_reason
+        if reject_reason is None and over_sector_cap:
+            row_reject = (
+                f"板块 {sector} 已达上限 {max_per_sector}"
+                if sector is not None
+                else f"无板块归属股已达上限 {max_unknown}"
+            )
+
+        next_item = dict(item)
+        next_item.update({
+            "rank": rank,
+            "picked": picked,
+            "reject_reason": row_reject,
+            "sector_l1": sector,
+        })
+        capped.append(next_item)
+
+    return capped
+
+
 def combine_scores(
     session: Session,
     trade_date: date,
@@ -324,70 +396,23 @@ def combine_scores(
     # ---------- 6. 板块多样化 cap（v2.3）----------
     # 板块映射直接走 index_member（不依赖 dim_scores_map["sector"]——非热点板块股
     # score=0 不会写入 FilterScoreDaily）。max_stocks_per_sector <= 0 时禁用 cap。
-    max_per_sector = int(cfg.get("max_stocks_per_sector", 4))
-    # max_unknown_sector_stocks：无行业映射的股票最多入选数（兜底；index_member
-    # 同步异常导致全市场都是 unknown 时，cap 不会静默失效）。0 = 不限。
-    max_unknown = int(cfg.get("max_unknown_sector_stocks", 0))
-    sector_map: dict[str, str] = repo.get_index_member_l1_map(session)
-    if not sector_map:
-        logger.warning(
-            "combine_scores {}: index_member 板块映射为空，板块 cap 将退化为 unknown 限额 "
-            "(max_unknown_sector_stocks={}). 请检查 refresh-basics 是否成功",
-            trade_date, max_unknown,
-        )
-    sector_counts: dict[str, int] = {}
-    unknown_count = 0
+    capped = apply_sector_cap(session, scored, effective_top_n, cfg)
 
     rows: list[dict[str, Any]] = []
-    picked_rank = 0
-
-    for item in scored:
-        reject_reason = item["reject_reason"]
-        sector = sector_map.get(item["ts_code"])
-
-        if sector is not None:
-            sector_count = sector_counts.get(sector, 0)
-            over_sector_cap = (
-                max_per_sector > 0 and sector_count >= max_per_sector
-            )
-        else:
-            over_sector_cap = max_unknown > 0 and unknown_count >= max_unknown
-
-        picked = (
-            reject_reason is None
-            and not over_sector_cap
-            and picked_rank < effective_top_n
-        )
-        if picked:
-            picked_rank += 1
-            rank = picked_rank
-            # 仅入选股消耗板块名额（修正：被淘汰 / Top N 外不应消耗）
-            if sector is not None:
-                sector_counts[sector] = sector_counts.get(sector, 0) + 1
-            else:
-                unknown_count += 1
-        else:
-            rank = 0
-
+    picked_rank = sum(1 for item in capped if item["picked"])
+    for item in capped:
         # 只落库入选的，或 rule_score > 0 的未入选项（避免表过度膨胀）
-        if picked or item["rule_score"] > 0:
-            row_reject = reject_reason
-            if reject_reason is None and over_sector_cap:
-                row_reject = (
-                    f"板块 {sector} 已达上限 {max_per_sector}"
-                    if sector is not None
-                    else f"无板块归属股已达上限 {max_unknown}"
-                )
+        if item["picked"] or item["rule_score"] > 0:
             rows.append({
                 "trade_date": trade_date,
                 "strategy": strategy,
                 "ts_code": item["ts_code"],
-                "rank": rank,
+                "rank": item["rank"],
                 "rule_score": item["rule_score"],
                 "ai_score": item["ai_score"],
                 "final_score": item["final_score"],
-                "picked": picked,
-                "reject_reason": row_reject,
+                "picked": item["picked"],
+                "reject_reason": item["reject_reason"],
             })
 
     # ---------- 5. 写入 selection_result（每日全量替换，避免旧入选残留）----------

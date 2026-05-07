@@ -648,6 +648,76 @@ class SwingPosition(Base):
     )
 
 
+class ShortBacktestTrade(Base):
+    """短线策略回测单笔记录（每个信号 × 每个持有期一行）。"""
+
+    __tablename__ = "short_backtest_trade"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="自增主键",
+    )
+    backtest_run_id: Mapped[str] = mapped_column(
+        String(36), index=True, comment="回测批次 UUID",
+    )
+    signal_date: Mapped[date] = mapped_column(Date, index=True, comment="选股信号日 T")
+    entry_date: Mapped[date | None] = mapped_column(Date, comment="买入日 T+1")
+    ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
+    holding_days: Mapped[int] = mapped_column(Integer, index=True, comment="计划持有交易日数")
+    exit_date: Mapped[date | None] = mapped_column(
+        Date, index=True, comment="实际退出日（含止损/停牌顺延）",
+    )
+    exit_price: Mapped[float | None] = mapped_column(Float, comment="实际退出价")
+    rule_score: Mapped[float | None] = mapped_column(
+        Numeric(5, 2), comment="信号日规则综合分",
+    )
+    active_dims: Mapped[int] = mapped_column(Integer, default=0, nullable=False, comment="命中维度数")
+    dim_detail: Mapped[dict | None] = mapped_column(JSONB, comment="各维度得分细节")
+    rank_in_day: Mapped[int | None] = mapped_column(Integer, comment="当日排名（含 cap 后）")
+    sector_l1: Mapped[str | None] = mapped_column(
+        String(50), comment="申万一级行业（信号日快照）",
+    )
+    entry_price: Mapped[float | None] = mapped_column(Float, comment="买入价（T+1 open）")
+    raw_return_pct: Mapped[float | None] = mapped_column(
+        Float, comment="自然持有收益 %（不止损，扣费前）",
+    )
+    realized_return_pct: Mapped[float | None] = mapped_column(
+        Float, comment="真实收益 %（执行止损后，扣费前）",
+    )
+    net_raw_return_pct: Mapped[float | None] = mapped_column(
+        Float, comment="自然持有收益 %（不止损，扣费后）",
+    )
+    net_realized_return_pct: Mapped[float | None] = mapped_column(
+        Float, comment="真实收益 %（执行止损后，扣费后）",
+    )
+    max_return_pct: Mapped[float | None] = mapped_column(
+        Float, comment="持有期内最大收益 %",
+    )
+    max_drawdown_pct: Mapped[float | None] = mapped_column(
+        Float, comment="持有期内最大回撤 %",
+    )
+    stop_hit: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="本持有期内是否触发止损",
+    )
+    stop_day: Mapped[int | None] = mapped_column(Integer, comment="止损触发在第几天")
+    exit_reason: Mapped[str | None] = mapped_column(
+        String(20), comment="time_exit / stop_loss / incomplete / skipped",
+    )
+    detail: Mapped[dict | None] = mapped_column(JSONB, comment="扩展信息")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "backtest_run_id", "signal_date", "ts_code", "holding_days",
+            name="uq_short_bt_signal_hold",
+        ),
+        Index("ix_short_bt_run", "backtest_run_id"),
+        Index("ix_short_bt_signal", "signal_date"),
+        Index("ix_short_bt_code", "ts_code"),
+        Index("ix_short_bt_hold", "holding_days"),
+        Index("ix_short_bt_exit", "exit_date"),
+        {"comment": "短线回测交易记录（每信号 × 每持有期一行）"},
+    )
+
+
 # ========================================================================
 # 题材增强表：同花顺概念行情 / 涨停概念 / 概念资金流
 # ========================================================================

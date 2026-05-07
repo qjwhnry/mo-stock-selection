@@ -11,6 +11,18 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from mo_stock.backtest.metrics import compute_trade_metrics
+from mo_stock.backtest.utils import (
+    future_trade_dates as _future_trade_dates,
+)
+from mo_stock.backtest.utils import (
+    limit_up_gap_threshold as _limit_up_gap_threshold,
+)
+from mo_stock.backtest.utils import (
+    next_trade_date as _next_trade_date,
+)
+from mo_stock.backtest.utils import (
+    trade_dates_between as _trade_dates_between,
+)
 from mo_stock.filters.base import ScoreResult
 from mo_stock.filters.swing.catalyst_filter import CatalystFilter
 from mo_stock.filters.swing.market_regime_filter import MarketRegimeFilter
@@ -22,17 +34,7 @@ from mo_stock.filters.swing.theme_swing_filter import ThemeSwingFilter
 from mo_stock.filters.swing.trend_filter import TrendFilter
 from mo_stock.scorer.combine import _build_hard_reject_map, _weighted_combine
 from mo_stock.storage import repo
-from mo_stock.storage.models import DailyKline, SwingPosition, TradeCal
-
-
-def _limit_up_gap_threshold(ts_code: str) -> float:
-    """根据板块涨跌幅限制返回涨停高开跳过阈值（%）。"""
-    if ts_code.endswith(".BJ"):
-        return 29.5
-    prefix = ts_code[:3]
-    if prefix in {"300", "301", "688", "689"}:
-        return 19.5
-    return 9.5
+from mo_stock.storage.models import DailyKline, SwingPosition
 
 
 def run_swing_backtest(
@@ -237,9 +239,12 @@ def _atr_pct(session: Session, ts_code: str, entry_date: date, cfg: dict[str, An
         return 4.0
     trs: list[float] = []
     for prev, cur in zip(rows, rows[1:], strict=False):
-        if None in (cur.high, cur.low, prev.close):
+        if cur.high is None or cur.low is None or prev.close is None:
             continue
-        trs.append(max(cur.high - cur.low, abs(cur.high - prev.close), abs(cur.low - prev.close)))
+        high = float(cur.high)
+        low = float(cur.low)
+        prev_close = float(prev.close)
+        trs.append(max(high - low, abs(high - prev_close), abs(low - prev_close)))
     if not trs or rows[-1].close is None or rows[-1].close <= 0:
         return 4.0
     return sum(trs[-period:]) / min(len(trs), period) / rows[-1].close * 100
@@ -250,39 +255,6 @@ def _stop_loss_pct(atr_pct: float, cfg: dict[str, Any]) -> float:
     min_pct = float(cfg.get("min_stop_pct", 0.04)) * 100
     max_pct = float(cfg.get("max_stop_pct", 0.10)) * 100
     return max(min_pct, min(multiplier * atr_pct, max_pct))
-
-
-def _trade_dates_between(session: Session, start: date, end: date) -> list[date]:
-    stmt = (
-        select(TradeCal.cal_date)
-        .where(TradeCal.is_open.is_(True))
-        .where(TradeCal.cal_date >= start)
-        .where(TradeCal.cal_date <= end)
-        .order_by(TradeCal.cal_date)
-    )
-    return list(session.execute(stmt).scalars().all())
-
-
-def _next_trade_date(session: Session, current: date) -> date | None:
-    stmt = (
-        select(TradeCal.cal_date)
-        .where(TradeCal.is_open.is_(True))
-        .where(TradeCal.cal_date > current)
-        .order_by(TradeCal.cal_date)
-        .limit(1)
-    )
-    return session.execute(stmt).scalar_one_or_none()
-
-
-def _future_trade_dates(session: Session, start: date, days: int) -> list[date]:
-    stmt = (
-        select(TradeCal.cal_date)
-        .where(TradeCal.is_open.is_(True))
-        .where(TradeCal.cal_date >= start)
-        .order_by(TradeCal.cal_date)
-        .limit(days)
-    )
-    return list(session.execute(stmt).scalars().all())
 
 
 def _effective_top_n(regime_score: float, cfg: dict[str, Any], fallback: int) -> int:

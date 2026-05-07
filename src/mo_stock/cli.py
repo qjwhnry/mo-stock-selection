@@ -32,7 +32,7 @@ from loguru import logger
 
 from config.settings import settings
 from mo_stock.analyzer import analyze_stock
-from mo_stock.backtest import run_swing_backtest
+from mo_stock.backtest import run_short_backtest, run_swing_backtest
 from mo_stock.filters.base import load_weights_yaml
 from mo_stock.filters.short.lhb_filter import LhbFilter
 from mo_stock.filters.short.limit_filter import LimitFilter
@@ -394,15 +394,22 @@ def analyze(ts_code: str, date_str: str | None, as_json: bool, force: bool) -> N
 
 
 @cli.command("backtest")
-@click.option("--strategy", default="swing", show_default=True, help="策略：当前支持 swing")
+@click.option("--strategy", default="swing", show_default=True, help="策略：short / swing")
 @click.option("--start", required=True, help="开始日期 YYYY-MM-DD")
 @click.option("--end", required=True, help="结束日期 YYYY-MM-DD")
 @click.option("--top-n", default=20, show_default=True, type=int, help="每日候选数量上限")
-def backtest(strategy: str, start: str, end: str, top_n: int) -> None:
+@click.option("--stop-loss-pct", default=None, type=float, help="short 固定止损百分比")
+@click.option("--holding-days", default=None, help="short 持有期列表，如 1,2,3,5")
+def backtest(
+    strategy: str,
+    start: str,
+    end: str,
+    top_n: int,
+    stop_loss_pct: float | None,
+    holding_days: str | None,
+) -> None:
     """运行策略回测。"""
     strategy = _validate_strategy(strategy)
-    if strategy != "swing":
-        raise click.UsageError("当前 backtest 仅支持 swing")
     start_d = _parse_date(start)
     end_d = _parse_date(end)
     cfg = load_weights_yaml(_weights_path_for_strategy(strategy))
@@ -410,15 +417,36 @@ def backtest(strategy: str, start: str, end: str, top_n: int) -> None:
     cfg["hard_reject"] = cfg.get("hard_reject", base_cfg.get("hard_reject", {}))
 
     with get_session() as session:
-        result = run_swing_backtest(session, start_d, end_d, cfg, top_n=top_n)
+        if strategy == "short":
+            parsed_holding = _parse_holding_days(holding_days) if holding_days else None
+            result = run_short_backtest(
+                session,
+                start_d,
+                end_d,
+                cfg,
+                top_n=top_n,
+                stop_loss_pct=stop_loss_pct,
+                holding_days=parsed_holding,
+            )
+        else:
+            result = run_swing_backtest(session, start_d, end_d, cfg, top_n=top_n)
 
     metrics = result["metrics"]
-    click.echo(f"[OK] swing backtest 完成：run_id={result['backtest_run_id']}")
-    click.echo(
-        "trades={total_trades} win_rate={win_rate:.2f}% "
-        "avg_pnl={avg_pnl_pct:.2f}% payoff={payoff_ratio:.2f} max_loss={max_loss_pct:.2f}%"
-        .format(**metrics)
-    )
+    click.echo(f"[OK] {strategy} backtest 完成：run_id={result['backtest_run_id']}")
+    if strategy == "short":
+        click.echo(f"报告：{result['report_path']}")
+        for days, item in metrics["by_holding_days"].items():
+            click.echo(
+                f"{days}d trades={item['valid_trades']}/{item['total_trades']} "
+                f"win_rate={item['win_rate']:.2f}% avg={item['avg_return']:.2f}% "
+                f"payoff={item['payoff_ratio']:.2f}"
+            )
+    else:
+        click.echo(
+            "trades={total_trades} win_rate={win_rate:.2f}% "
+            "avg_pnl={avg_pnl_pct:.2f}% payoff={payoff_ratio:.2f} max_loss={max_loss_pct:.2f}%"
+            .format(**metrics)
+        )
 
 
 @cli.command("scheduler")
@@ -431,6 +459,16 @@ def scheduler(skip_enhanced: bool, skip_ai: bool, strategy: str) -> None:
 
     strategy = _validate_strategy(strategy)
     start_scheduler(skip_enhanced=skip_enhanced, skip_ai=skip_ai, strategy=strategy)
+
+
+def _parse_holding_days(value: str) -> list[int]:
+    try:
+        days = [int(part.strip()) for part in value.split(",") if part.strip()]
+    except ValueError as exc:
+        raise click.BadParameter("holding-days 需为逗号分隔整数，如 1,2,3,5") from exc
+    if not days or any(day <= 0 for day in days):
+        raise click.BadParameter("holding-days 至少包含一个正整数")
+    return days
 
 
 def main() -> None:

@@ -148,3 +148,13 @@ theme_filter:
     rank_improvement: 5     # 今日排名较昨日上升 → +5
 
   max_theme_bonus: 100  # 信号合成上限
+
+# 短线回测参数
+short_backtest:
+  stop_loss_pct: 5.0
+  holding_days: [1, 2, 3, 5]
+  skip_limit_up_gap: true
+  buy_slippage_pct: 0.0
+  sell_slippage_pct: 0.0
+  commission_pct: 0.0
+  tax_pct: 0.0

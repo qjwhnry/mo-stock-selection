@@ -27,6 +27,7 @@
 | [`analyze`](#analyze) | 单股规则层分析 | 即席查询 / 调试 | ✗ |
 | [`scheduler`](#scheduler) | 启动常驻定时调度 | 生产部署 | ✓ |
 | [`scheduler --strategy swing`](#swing-策略命令) | 波段定时任务 | 波段策略生产部署 | ✓ |
+| [`backtest --strategy short`](#短线回测) | 短线规则层回测 | 校准短线阈值 / 持有期 / 止损 | ✓ |
 | [`backtest --strategy swing`](#swing-策略命令) | 波段回测 | 波段策略回测验证 | ✓ |
 
 ---
@@ -367,6 +368,17 @@ mo-stock run-once --date 2026-04-22
 ---
 
 ## swing 策略命令
+
+### 短线回测
+
+    mo-stock backtest --strategy short --start 2026-01-01 --end 2026-04-30 --top-n 20 --holding-days 1,2,3,5
+
+回测复刻 `run-once --skip-ai` 的规则层口径：5 个短线维度、硬规则、排序 tie-breaker 和板块 cap。
+结果写入 `short_backtest_trade`，并生成 `data/reports/short-backtest-*.md`。
+
+可选参数：
+- `--stop-loss-pct`：固定止损百分比，默认读取 `config/weights.yaml.short_backtest.stop_loss_pct`
+- `--holding-days`：逗号分隔持有期，默认 `1,2,3,5`
 
 ### 波段选股
 
