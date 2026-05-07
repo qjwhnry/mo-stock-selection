@@ -20,22 +20,25 @@ from mo_stock.storage.models import DailyKline, IndexMember, SwDaily
 
 
 class TestRankToBonus:
-    """板块在当日涨幅榜的排名 → 加分。TOP 5 加分，之外不加。"""
+    """板块在当日涨幅榜的排名 → 加分。TOP 10 加分，之外不加。"""
 
     @pytest.mark.parametrize(
         ("rank", "expected"),
         [
-            (1, 50),    # v2.4 降档后
+            (1, 50),
             (2, 40),
             (3, 35),
             (4, 28),
-            (5, 22),    # 第 5 名最低门槛
-            (6, 0),     # 出 TOP 5 不加分
-            (10, 0),
+            (5, 22),
+            (6, 14),    # rank 6-7 → 14
+            (7, 14),
+            (8, 8),     # rank 8-10 → 8
+            (10, 8),
+            (11, 0),    # 出 TOP 10 不加分
             (0, 0),     # 防御无效输入
         ],
     )
-    def test_top5_decreasing(self, rank: int, expected: int) -> None:
+    def test_top10_decreasing(self, rank: int, expected: int) -> None:
         assert _rank_to_bonus(rank) == expected
 
 

@@ -94,44 +94,57 @@ lhb_filter:
     min_net_buy_yuan: 30000000
     bonus: 8
 
-# 板块维度细则（申万一级，v2.4 降档）
+# 板块维度细则
+# 数据源：sw_daily（板块涨幅）+ index_member（股票→行业映射）+ daily_kline（个股领涨判断）
+# 打分流程：L2 TOP N 行业 → 行业内领涨过滤 → rank_bonus + trend_bonus → leadership_factor 乘 → 归一化 0-100
+# rank_bonus 分档表在代码 _rank_to_bonus 中：{1:50, 2:40, 3:35, 4:28, 5:22, 7:14, 10:8}
 sector_filter:
-  top_n_l2: 10        # 申万二级行业当日涨幅 TOP N 加分
-  min_l2_size_for_leadership: 5
+  top_n_l2: 10        # 申万二级行业当日涨幅 TOP N（~100 个 L2 行业取前 10，覆盖率 ~10%）
+  min_l2_size_for_leadership: 5  # 成分股 <5 的 L2 行业跳过领涨判断，直接给 leadership_factor=1.0
 
-# 题材维度细则（v2.1 新增，独立维度 dim=theme）
+# 题材维度细则
+# 数据源：ths_daily（概念涨幅）+ limit_concept_daily（涨停最强）+ ths_concept_moneyflow（资金流）
+# 打分流程：涨幅/涨停折扣叠加 + 资金流排名分位 + 时间确认 → 跨概念取 max → clamp 0-100
 theme_filter:
-  top_n_themes: 10
-  signal_discount: 0.3
-  # 同花顺概念涨幅排名 → 加分（找 ≥ rank 的最小 key）
+  top_n_themes: 10    # ths_daily 概念涨幅取 TOP N
+  signal_discount: 0.3  # 涨幅排名和涨停排名折扣叠加系数：max(rb, lb) + 0.3 × min(rb, lb)
+
+  # 同花顺概念涨幅排名 → 加分（找 ≥ rank 的最小 key，保守策略）
   ths_rank_bonus:
     1: 50
     2: 42
     3: 35
     4: 28
     5: 22
-    7: 14
-    10: 8
-  # 涨停最强概念排名 → 加分
+    7: 14    # rank 6-7
+    10: 8    # rank 8-10
+
+  # 涨停最强概念排名 → 加分（数据源：limit_concept_daily.rank）
   limit_concept_rank_bonus:
     1: 50
     3: 35
     5: 22
-    7: 12
-    10: 6
-  # 概念资金流排名分位，必须满足正负号门槛
+    7: 12    # rank 6-7
+    10: 6    # rank 8-10
+
+  # 概念资金流排名分位打分（数据源：ths_concept_moneyflow.net_amount，单位亿元）
+  # 正向需 net_amount > 0 门槛（防止全市场净流出时给"流出最少"的概念错误加分）
+  # 负向需 net_amount < 0 门槛（只有真正净流出才扣分）
   concept_moneyflow:
     inflow_positive_rank_top_5:
-      score: 20
+      score: 20   # 净流入排名前 5
     inflow_positive_rank_top_10:
-      score: 12
+      score: 12   # 净流入排名前 10
     inflow_positive_rank_top_20:
-      score: 5
+      score: 5    # 净流入排名前 20
     outflow_negative_rank_bot_5:
-      score: -15
+      score: -15  # 净流出排名倒数前 5
     outflow_negative_rank_bot_10:
-      score: -8
+      score: -8   # 净流出排名倒数前 10
+
+  # 短线轻量时间确认（克制设计，不做大权重持续性加成，避免与 swing ThemeSwingFilter 职责重叠）
   concept_temporal_bonus:
-    yesterday_in_top_n: 5
-    rank_improvement: 5
-  max_theme_bonus: 100  # 三类信号合成上限
+    yesterday_in_top_n: 5   # 概念昨日也在 ths_daily TOP 10 → +5
+    rank_improvement: 5     # 今日排名较昨日上升 → +5
+
+  max_theme_bonus: 100  # 信号合成上限

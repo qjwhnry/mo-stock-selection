@@ -1,23 +1,20 @@
 """题材/概念维度打分（与 sector 平级独立维度）。
 
 **思路**：
-- 数据源：ths_daily（概念涨幅）+ limit_concept_daily（涨停最强）+
-  ths_concept_moneyflow（资金确认）
+- 数据源：ths_daily（概念涨幅排名）+ limit_concept_daily（涨停最强排名）+
+  ths_concept_moneyflow（资金净流入，亿元）
 - 多概念股**取最高**概念加分，不累加（避免沾边股霸榜）
-- 同一概念内：涨幅/涨停信号折扣叠加，资金流按排名分位加减分，
-  再叠加短线轻量时间信号；跨概念取 max：
+- 同一概念内，三类信号合成：
+  1. 涨幅排名 + 涨停排名：折扣叠加 max(rb, lb) + 0.3 × min(rb, lb)
+     （二者高度共线，直接 sum 会放大赢家通吃，折扣保留双确认额外信息）
+  2. 资金流：按当日全概念排名分位加减分（正负号门槛防全面退潮误判）
+  3. 时间确认：昨日上榜 +5，排名改善 +5（轻量设计，不与 swing 职责重叠）
+- 跨概念取 max → clamp 0-100
 
-```
-score(stock) = max over concepts of:
-    max(ths_bonus, limit_bonus) + discount * min(ths_bonus, limit_bonus)
-    + moneyflow_rank_bonus
-    + temporal_bonus
-```
-
-**渐进降级**（v2.1 修法）：ths_daily 为空时仍跑 limit_concept + moneyflow，
+**渐进降级**：ths_daily 为空时仍跑 limit_concept + moneyflow，
 只有三类信号都空才提前返回。
 
-得分输出：0-100。
+得分输出：0-100。理论上限 95（折扣叠加 65 + 资金 TOP5 20 + 时间 10）。
 """
 from __future__ import annotations
 
@@ -153,8 +150,13 @@ def _moneyflow_bonus_map(
 ) -> dict[str, int]:
     """概念资金流排名分位 → 加减分。
 
-    新配置使用 concept_moneyflow；缺失时兼容旧配置
-    concept_moneyflow_positive_bonus。
+    新配置使用 concept_moneyflow 排名分位方案；缺失时兼容旧配置
+    concept_moneyflow_positive_bonus（二元 15/0）。
+
+    排名逻辑：
+    1. 正值概念按 net_amount 降序排名，正向排名前 N 加分（需 net_amount > 0 门槛）
+    2. 负值概念按 net_amount 升序排名（最负排最前），倒数前 N 扣分（需 net_amount < 0 门槛）
+    3. 排名 20 名开外的视为无显著资金信号
     """
     if not moneyflow_map:
         return {}
@@ -203,7 +205,13 @@ def _rank_score_from_config(
     prefix: str,
     rank: int,
 ) -> int:
-    """读取形如 inflow_positive_rank_top_5 的配置，rank 落在最小可覆盖档位。"""
+    """读取形如 inflow_positive_rank_top_5 的配置，rank 落在最小可覆盖档位。
+
+    例：table 含 top_5(20) + top_10(12) + top_20(5)
+      rank=3 → 命中 top_5 → 20
+      rank=7 → 命中 top_10 → 12
+      rank=21 → 无命中 → 0
+    """
     tiers: list[tuple[int, int]] = []
     for key, value in table.items():
         if not key.startswith(prefix):
@@ -227,7 +235,11 @@ def _temporal_bonus(
     prev_rank_map: dict[str, int],
     cfg: dict[str, Any],
 ) -> tuple[int, dict[str, Any]]:
-    """昨日上榜和排名改善的小额短线确认。"""
+    """昨日上榜和排名改善的小额短线确认（最多 +10）。
+
+    yesterday_in_top_n: 概念昨日也在 ths_daily TOP N → 确认不是一日游脉冲
+    rank_improvement: 今日排名较昨日上升 → 动量改善信号
+    """
     table = cfg.get("concept_temporal_bonus", {})
     today_rank = today_rank_map.get(concept_code)
     prev_rank = prev_rank_map.get(concept_code)
@@ -246,7 +258,7 @@ def _temporal_bonus(
 
 
 def _previous_trade_date(session: Session, trade_date: date) -> date | None:
-    """优先用交易日历取昨日；测试库无交易日历时退化为自然日前一日。"""
+    """获取前一个交易日。优先用交易日历；测试库无交易日历时退化为自然日前一日。"""
     dates = repo.get_recent_trade_dates(session, trade_date, 2)
     if len(dates) >= 2:
         return dates[1]

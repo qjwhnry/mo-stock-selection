@@ -1,20 +1,23 @@
 """板块/行业维度打分。
 
 **思路**：
-- 下沉到申万二级行业，找当日强势 L2 TOP N
-- 强势行业只给行业内领涨股加分，过滤无交易价值的跟涨股
+- 从申万一级（31 个）下沉到申万二级（~100 个），粒度更精细
+- 找当日强势 L2 TOP N，只给行业内**领涨股**加分，过滤跟涨股
+- 领涨条件（满足 ≥2 项）：涨幅前 30% / 成交额前 30% / 量比 ≥ 1.5
+- 小样本 L2（成分 <5）跳过领涨判断，行业强弱本身已足够作为信号
+- 原始分（rank 0-50 + trend 0-20 = 最高 70）归一化到 0-100
 
 数据源：
-- sw_daily（板块当日 + 近 3 日涨幅）
-- index_member（股票 → 申万二级板块映射）
-- daily_kline（个股行业内涨幅/成交额分位 + 量比）
+- sw_daily（板块当日涨跌幅 + 近 3 日均涨幅）
+- index_member（股票 → L2 板块映射，l2_code 字段）
+- daily_kline（个股当日涨幅 pct_chg / 成交额 amount / 成交量 vol）
 
-得分输出：0-100。原始分上限 70（rank 50 + trend 20），再归一化到 100。
+得分输出：0-100。原始分上限 70（rank 50 + trend 20），经 _normalize_sector_score 归一化。
 
 性能注意：
 - index_member 是慢变量（月度刷新），map 一次拉全（5700 行）放进内存
-- sw_daily 一级板块当日只有 31 行
-- 每只股 O(1) 查 map → 算分。全市场 5500 只 → 几毫秒级
+- sw_daily L2 板块当日约 100 行
+- daily_kline 查 21 日数据计算量比（1 次批量查询）
 """
 from __future__ import annotations
 
@@ -115,6 +118,13 @@ class SectorFilter(FilterBase):
 # ---------------------------------------------------------------------------
 
 class _SectorContext:
+    """预计算的个股行业内上下文，避免逐股重复查询。
+
+    leadership_factor: {ts_code: 1.0 或 0.0}，领涨=1.0，跟涨=0.0
+    stock_detail: {ts_code: {pct_leader, amount_leader, volume_ratio_leader, ...}}
+    vol_ratio_by_stock: {ts_code: 当日量 / 20日均量}
+    """
+
     def __init__(
         self,
         leadership_factor: dict[str, float],
@@ -146,10 +156,17 @@ def _top_n_codes(
 
 
 def _rank_to_bonus(rank: int) -> int:
-    """板块涨幅排名 → 加分。TOP 5 加分，之外 0。
-    v2.4 降档：降低板块级加分幅度，缓解 Top N 板块集中。"""
-    rank_table = {1: 50, 2: 40, 3: 35, 4: 28, 5: 22}
-    return rank_table.get(rank, 0)
+    """板块涨幅排名 → 加分。TOP 10 加分，之外 0。
+
+    分档策略：找 ≥ rank 的最小 key（保守，与 theme_filter._bonus_from_table 一致）。
+    """
+    rank_table = {1: 50, 2: 40, 3: 35, 4: 28, 5: 22, 7: 14, 10: 8}
+    if rank <= 0:
+        return 0
+    for k in sorted(rank_table):
+        if k >= rank:
+            return rank_table[k]
+    return 0
 
 
 def _three_day_avg_bonus(avg_pct: float) -> int:
@@ -167,6 +184,17 @@ def _build_stock_sector_context(
     member_map: dict[str, str],
     cfg: dict[str, Any],
 ) -> _SectorContext:
+    """预计算个股在 L2 行业内的领涨因子。
+
+    步骤：
+    1. 查当日 daily_kline，按 L2 行业分组
+    2. 查近 21 日 daily_kline 计算每只股的 20 日均量比
+    3. 对每个 L2 行业，判断每只股是否满足领涨条件（≥2 项）：
+       a. 涨幅在行业内前 30%
+       b. 成交额在行业内前 30%
+       c. 量比 ≥ 1.5（相对自身 20 日均量）
+    4. 小样本行业（成分 < min_l2_size_for_leadership）跳过，全部给 1.0
+    """
     today_rows = session.execute(
         select(
             DailyKline.ts_code,
@@ -261,15 +289,21 @@ def _build_stock_sector_context(
 
 
 def _top_count(size: int) -> int:
+    """行业内前 30% 的数量，最少 1 只。"""
     return max(1, ceil(size * 0.3))
 
 
 def _top_stock_set(rows: Sequence[tuple[str, float | None]], n: int) -> set[str]:
+    """从 [(ts_code, value), ...] 取 value 最高的 N 只股票代码集合。"""
     valid = [(ts, value) for ts, value in rows if value is not None]
     valid.sort(key=lambda item: (-item[1], item[0]))
     return {ts for ts, _value in valid[:n]}
 
 
 def _normalize_sector_score(raw_score: float) -> float:
-    """原始分 0-70 归一化到 0-100。"""
+    """原始分 0-70 归一化到 0-100。
+
+    保持内部 bonus 表为整数（rank 0-50 + trend 0-20），输出层统一缩放，
+    使得 sector 权重 0.10 的满贡献 = 10.0 分（与其他 filter 对齐）。
+    """
     return max(0.0, min(100.0, raw_score / 70.0 * 100.0))

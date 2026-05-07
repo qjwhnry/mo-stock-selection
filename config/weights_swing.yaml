@@ -1,32 +1,43 @@
 # ==============================================================
-# 波段策略权重配置。
+# 波段策略权重配置（可热调，无需改代码）
 #
 # 当前状态：
 # - 7 个 swing filter 已接入 run-once / scheduler / backtest。
 # - market_regime_control 不作为单股维度入库，而是在 combine 阶段调整 top_n、
 #   position_scale 和最低 final_score。
 # - swing AI prompt 已接入，final_score = rule × 0.6 + ai × 0.4。
+#
+# 与短线策略（weights.yaml）的区别：
+# - 短线 5 维度 + sentiment 预留，权重总和 1.00
+# - 波段 7 维度，无 sentiment 预留，权重总和 1.00
+# - 波段额外有 market_regime 组合层控制 + ATR 自适应止损
+# - 三表（selection_result / filter_score_daily / ai_analysis）通过 strategy 字段隔离
 # ==============================================================
 
 strategy:
   name: swing
-  holding_days: [5, 20]
+  holding_days: [5, 20]    # 目标持仓天数范围
 
+# 7 个波段维度权重，总和 1.00
 dimension_weights:
-  trend: 0.27
-  pullback: 0.13
-  moneyflow_swing: 0.20  # 正净流入必须有价格确认；日内收阴净流入不推高资金持续性分
-  sector_swing: 0.13
-  theme_swing: 0.09
-  catalyst: 0.08
-  risk_liquidity: 0.10
+  trend: 0.27            # 趋势结构 + 量价确认：MA 多头排列 + 放量突破 + 缩量回踩
+  pullback: 0.13         # 回踩承接：趋势内健康回撤 + 重新转强
+  moneyflow_swing: 0.20  # 波段资金：5/10 日资金持续性；正净流入必须有价格确认
+  sector_swing: 0.13     # 行业持续性：行业多日强度 + 派生资金聚合
+  theme_swing: 0.09      # 题材持续性：题材多日排名 + 资金确认
+  catalyst: 0.08         # 短线催化：断板反包 + 龙虎榜机构（低权重）
+  risk_liquidity: 0.10   # 风险流动性：流动性、波动率、透支度质量分
 
+# 规则分 vs AI 分 的融合权重
 combine:
-  rule_weight: 0.6
-  ai_weight: 0.4
+  rule_weight: 0.6       # 规则分权重
+  ai_weight: 0.4         # AI 分权重
+  # 板块多样化 cap —— 最终 Top N 中同一板块（申万一级）最多入选数
   max_stocks_per_sector: 4
+  # 无板块映射的股票最多入选数（兜底）。0 = 不限
   max_unknown_sector_stocks: 0
 
+# 硬规则：触发任一则直接淘汰（不入 selection_result.picked）
 hard_reject:
   negative_announcement_keywords:
     - "立案调查"
@@ -35,33 +46,38 @@ hard_reject:
     - "财务造假"
     - "暂停上市"
     - "退市风险警示"
-  exclude_today_limit_up: true
-  exclude_today_limit_down: true
-  exclude_suspended: true
-  min_list_days: 60
-  exclude_st: true
+  exclude_today_limit_up: true     # 当日涨停不推荐（避免追高）
+  exclude_today_limit_down: true   # 当日跌停不推荐（避免抄底）
+  exclude_suspended: true          # 当日停牌排除（amount=0 / NULL）
+  min_list_days: 60                # 上市不满 N 日的次新过滤
+  exclude_st: true                 # ST / *ST 直接排除
 
+# 大盘环境组合层控制（不进入单股权重）
+# 根据市场整体强弱分档，动态调整仓位和入选数
 market_regime_control:
   tiers:
-    - min_score: 70
-      top_n: 20
-      position_scale: 1.0
-    - min_score: 50
+    - min_score: 70      # 强势市场
+      top_n: 20          # 入选数上限
+      position_scale: 1.0  # 仓位比例
+    - min_score: 50      # 偏强市场
       top_n: 15
       position_scale: 0.7
-    - min_score: 30
+    - min_score: 30      # 弱势市场
       top_n: 8
       position_scale: 0.4
-    - min_score: 0
+    - min_score: 0       # 极弱市场
       top_n: 3
       position_scale: 0.2
-  min_final_score: 30.0
+  min_final_score: 30.0  # final_score 低于此值的股票直接淘汰
 
+# ATR 自适应止损参数
+# 止损线 = clamp(1.5 × ATR_pct, 4%, 10%)
 stop_loss:
-  atr_period: 20
-  atr_multiplier: 1.5
-  min_stop_pct: 0.04
-  max_stop_pct: 0.10
+  atr_period: 20        # ATR 计算周期（交易日）
+  atr_multiplier: 1.5   # ATR 倍数
+  min_stop_pct: 0.04    # 止损下限 4%
+  max_stop_pct: 0.10    # 止损上限 10%
 
-max_positions: 8
-position_per_stock_pct: 0.15
+# 仓位管理
+max_positions: 8              # 最大同时持仓数
+position_per_stock_pct: 0.15  # 单只股票占总资金比例（15%）
