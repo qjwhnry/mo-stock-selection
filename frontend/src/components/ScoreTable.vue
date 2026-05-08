@@ -19,6 +19,7 @@ import AiSummary from './AiSummary.vue'
 const props = defineProps<{
   stocks: StockItem[]       // 股票列表数据
   strategy: string           // 当前策略（short/swing）
+  tradeDate: string          // 当前报告日期
   currentSort: string       // 当前排序列名
   currentOrder: string      // 当前排序方向（desc/asc）
 }>()
@@ -117,21 +118,29 @@ function toggleOrder() {
         :label="`${stock.ts_code} · ${stock.industry}`"
         :name="stock.ts_code"
       >
-        <!-- 卡片头部右侧：综合分 + 排名 -->
+        <!-- 卡片头部右侧：综合分 + 排名 + 规则分/AI分 -->
         <template #value>
-          <span class="text-blue-600 font-medium">{{ stock.final_score }}</span>
-          <span class="text-gray-400 text-xs ml-1">排名{{ stock.rank }}</span>
+          <div class="flex flex-col items-end">
+            <div class="flex items-center gap-1">
+              <span class="text-blue-600 font-medium">{{ stock.final_score }}</span>
+              <span class="text-gray-400 text-xs">排名{{ stock.rank }}</span>
+            </div>
+            <span class="text-xs text-gray-400">
+              规则{{ stock.rule_score }}
+              <template v-if="stock.ai_score != null"> · AI{{ stock.ai_score }}</template>
+            </span>
+          </div>
         </template>
 
-        <!-- 展开内容：维度评分柱状图 -->
-        <DimensionBar :scores="stock.scores" :strategy="strategy" />
+        <!-- 展开内容：维度评分柱状图（含打分详情） -->
+        <DimensionBar :scores="stock.scores" :score-details="stock.score_details" :strategy="strategy" />
         <!-- 展开内容：AI 摘要提示条 -->
         <AiSummary :summary="stock.ai_summary" />
 
         <!-- 跳转个股详情页 -->
         <div class="mt-2">
           <router-link
-            :to="`/stock/${stock.ts_code}?strategy=${strategy}`"
+            :to="`/stock/${stock.ts_code}?strategy=${strategy}&trade_date=${tradeDate}`"
             class="text-blue-600 text-sm"
           >
             查看详情 →

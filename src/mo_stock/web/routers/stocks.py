@@ -1,6 +1,7 @@
 """个股相关 API。"""
 from __future__ import annotations
 
+from datetime import date as date_type
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,17 +25,19 @@ def get_stock_detail(
     ts_code: str,
     db: Annotated[Session, Depends(get_db)],
     strategy: Literal["short", "swing"] = Query(default="short", description="策略类型: short 或 swing"),
+    trade_date: date_type | None = Query(default=None, description="指定日期查询；不传则取最新"),
     days: int = Query(default=10, ge=1, le=100, description="查询最近 N 天的选股记录"),
 ) -> StockDetailResponse:
-    """获取单股详情：基础信息、最新维度分、AI 分析、最近选股记录。
+    """获取单股详情：基础信息、维度分、AI 分析、最近选股记录。
 
     Args:
         ts_code: 股票代码，如 600519.SH
         strategy: 策略类型，short（默认）或 swing
+        trade_date: 指定日期查询维度分和 AI 分析；不传则自动取最新
         days: 返回最近几天的选股记录，默认 10，范围 1-100
 
     Returns:
-        StockDetailResponse: 包含基础信息、最新维度分、AI 分析、最近选股记录
+        StockDetailResponse: 包含基础信息、维度分、AI 分析、最近选股记录
 
     Raises:
         404: 股票代码不存在
@@ -48,44 +51,62 @@ def get_stock_detail(
     index_member = db.query(IndexMember).filter(IndexMember.ts_code == ts_code).first()
     industry = index_member.l1_name if index_member and index_member.l1_name else (stock.industry or "未知")
 
-    # 4. 获取最新维度分
-    # 找最近有评分记录的交易日
-    latest_score_record = (
-        db.query(FilterScoreDaily.trade_date)
-        .filter(
-            FilterScoreDaily.ts_code == ts_code,
-            FilterScoreDaily.strategy == strategy,
+    # 4. 获取维度分（含 detail）
+    # 如果指定了 trade_date 则直接用，否则取最新有评分的日期
+    if trade_date:
+        target_date = trade_date
+    else:
+        latest_score_record = (
+            db.query(FilterScoreDaily.trade_date)
+            .filter(
+                FilterScoreDaily.ts_code == ts_code,
+                FilterScoreDaily.strategy == strategy,
+            )
+            .order_by(FilterScoreDaily.trade_date.desc())
+            .first()
         )
-        .order_by(FilterScoreDaily.trade_date.desc())
-        .first()
-    )
+        target_date = latest_score_record.trade_date if latest_score_record else None
 
     latest_scores: dict[str, int] = {}
-    if latest_score_record:
-        latest_date = latest_score_record.trade_date
+    latest_details: dict[str, dict] = {}
+    if target_date:
         score_rows = (
             db.query(FilterScoreDaily)
             .filter(
                 FilterScoreDaily.ts_code == ts_code,
                 FilterScoreDaily.strategy == strategy,
-                FilterScoreDaily.trade_date == latest_date,
+                FilterScoreDaily.trade_date == target_date,
             )
             .all()
         )
         latest_scores = {row.dim: int(row.score) for row in score_rows}
+        latest_details = {row.dim: row.detail or {} for row in score_rows}
 
-    # 5. 获取最新 AI 分析
-    ai_analysis_row = (
-        db.query(AiAnalysis)
-        .filter(
-            AiAnalysis.ts_code == ts_code,
-            AiAnalysis.strategy == strategy,
+    # 5. 获取 AI 分析：优先取 target_date 当天，没有则 fallback 到最新
+    ai_analysis_row = None
+    if target_date:
+        ai_analysis_row = (
+            db.query(AiAnalysis)
+            .filter(
+                AiAnalysis.ts_code == ts_code,
+                AiAnalysis.strategy == strategy,
+                AiAnalysis.trade_date == target_date,
+            )
+            .first()
         )
-        .order_by(AiAnalysis.trade_date.desc())
-        .first()
-    )
+    if not ai_analysis_row:
+        ai_analysis_row = (
+            db.query(AiAnalysis)
+            .filter(
+                AiAnalysis.ts_code == ts_code,
+                AiAnalysis.strategy == strategy,
+            )
+            .order_by(AiAnalysis.trade_date.desc())
+            .first()
+        )
 
     ai_analysis: AiAnalysisData | None = None
+    ai_score: float | None = None
     if ai_analysis_row:
         ai_analysis = AiAnalysisData(
             thesis=ai_analysis_row.thesis,
@@ -94,6 +115,7 @@ def get_stock_detail(
             suggested_entry=ai_analysis_row.suggested_entry,
             stop_loss=ai_analysis_row.stop_loss,
         )
+        ai_score = round(float(ai_analysis_row.ai_score), 1) if ai_analysis_row.ai_score is not None else None
 
     # 6. 获取最近选股记录
     selection_rows = (
@@ -121,6 +143,8 @@ def get_stock_detail(
         name=stock.name,
         industry=industry,
         latest_scores=latest_scores,
+        score_details=latest_details,
+        ai_score=ai_score,
         ai_analysis=ai_analysis,
         recent_picks=recent_picks,
     )

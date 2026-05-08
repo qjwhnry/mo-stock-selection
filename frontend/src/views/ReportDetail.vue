@@ -175,6 +175,7 @@ onMounted(() => loadDetail())
             <ScoreTable
               :stocks="data.stocks"
               :strategy="strategy"
+              :trade-date="date"
               :current-sort="sortBy"
               :current-order="order"
               @sort="onSort"

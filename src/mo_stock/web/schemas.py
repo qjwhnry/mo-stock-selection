@@ -43,6 +43,7 @@ class StockItem(BaseModel):
     rule_score: float
     ai_score: float | None = None
     scores: dict[str, int]
+    score_details: dict[str, dict] = {}
     ai_summary: str | None = None
     picked: bool
 
@@ -74,6 +75,8 @@ class StockDetailResponse(BaseModel):
     name: str
     industry: str
     latest_scores: dict[str, int]
+    score_details: dict[str, dict] = {}
+    ai_score: float | None = None
     ai_analysis: AiAnalysisData | None = None
     recent_picks: list[RecentPick]
 

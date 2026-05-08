@@ -232,8 +232,9 @@ async def get_report_detail(
     results = db.execute(query).scalars().all()
     ts_codes = [r.ts_code for r in results]
 
-    # 批量查询维度分
+    # 批量查询维度分（含 detail）
     scores_map: dict[str, dict[str, int]] = {}
+    details_map: dict[str, dict[str, dict]] = {}
     if ts_codes:
         score_rows = db.execute(
             select(FilterScoreDaily)
@@ -244,7 +245,9 @@ async def get_report_detail(
         for row in score_rows:
             if row.ts_code not in scores_map:
                 scores_map[row.ts_code] = {}
+                details_map[row.ts_code] = {}
             scores_map[row.ts_code][row.dim] = int(row.score)
+            details_map[row.ts_code][row.dim] = row.detail or {}
 
     # 批量查询 AI 分析
     thesis_map: dict[str, str] = {}
@@ -296,6 +299,7 @@ async def get_report_detail(
                 rule_score=round(float(r.rule_score), 1),
                 ai_score=round(float(r.ai_score), 1) if r.ai_score is not None else None,
                 scores=scores_map.get(r.ts_code, {}),
+                score_details=details_map.get(r.ts_code, {}),
                 ai_summary=thesis_map.get(r.ts_code),
                 picked=r.picked,
             )

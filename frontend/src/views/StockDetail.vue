@@ -16,9 +16,10 @@ import DimensionBar from '../components/DimensionBar.vue'
 
 const route = useRoute()
 
-// 从 URL 获取股票代码和策略参数
+// 从 URL 获取股票代码、策略和可选的日期参数
 const code = route.params.code as string
 const strategy = (route.query.strategy as string) || 'short'
+const tradeDate = (route.query.trade_date as string) || ''
 
 // 股票详情数据
 const data = ref<StockDetailResponse | null>(null)
@@ -49,7 +50,7 @@ async function loadDetail() {
   loading.value = true
   error.value = ''
   try {
-    const { data: resp } = await fetchStockDetail(code, strategy)
+    const { data: resp } = await fetchStockDetail(code, strategy, 10, tradeDate || undefined)
     data.value = resp
     await loadSignals(resp)
   } catch (e: any) {
@@ -101,12 +102,13 @@ onMounted(loadDetail)
         <!-- 基本信息卡片 -->
         <van-cell-group inset>
           <van-cell title="行业" :value="data.industry" />
+          <van-cell title="AI 评分" :value="data.ai_score != null ? String(data.ai_score) : '暂无'" />
         </van-cell-group>
 
-        <!-- 各维度评分柱状图 -->
+        <!-- 各维度评分柱状图（含打分详情） -->
         <van-cell-group inset title="维度打分">
           <van-cell>
-            <DimensionBar :scores="data.latest_scores" :strategy="strategy" />
+            <DimensionBar :scores="data.latest_scores" :score-details="data.score_details" :strategy="strategy" />
           </van-cell>
         </van-cell-group>
 

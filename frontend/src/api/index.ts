@@ -74,6 +74,165 @@ export function dimLabel(key: string): string {
   return zh ? `${zh} (${key})` : key
 }
 
+/**
+ * 维度打分 detail 字段的中文标签映射
+ * 与后端 filters/short/ 和 filters/swing/ 各 filter 的 detail key 保持同步
+ */
+export const DETAIL_LABELS: Record<string, string> = {
+  // limit 维度
+  limit_times: '连板数',
+  open_times: '炸板次数',
+  fd_amount_yi: '封单额(亿)',
+  board_bonus: '连板加分',
+  seal_bonus: '封单加分',
+  first_time: '首封时间',
+  first_time_bonus: '封板时间加分',
+  break_board_rebound: '断板反包',
+  yesterday_limit_up: '昨日涨停',
+  today_pct_chg: '今日涨跌%',
+  hard_fail: '淘汰原因',
+  open_penalty: '炸板扣分',
+  // moneyflow 维度
+  net_mf_wan: '主力净流入(万)',
+  intraday_pct: '日内涨跌%',
+  net_mf_ratio_pct: '主力占比%',
+  big_ratio: '大单净比',
+  rolling_3d_wan: '3日净流入(万)',
+  today_bonus: '当日加分',
+  ratio_bonus: '大单比加分',
+  rolling_bonus: '3日滚动加分',
+  small_up_big_down_penalty: '小入大出扣分',
+  rolling_3d_outflow_penalty: '3日流出扣分',
+  // lhb 维度
+  net_rate_pct: '净买占比%',
+  amount_rate_pct: '成交占比%',
+  reason: '上榜原因',
+  net_rate_tier_bonus: '净买比例加分',
+  purity_bonus: '纯度加分',
+  reason_bonus: '原因加分',
+  institution_net_buy: '机构净买(万)',
+  institution_bonus: '机构加分',
+  hot_money_net_buy: '游资净买(万)',
+  hot_money_bonus: '游资加分',
+  northbound_net_buy: '北向净买(万)',
+  northbound_bonus: '北向加分',
+  hot_money_sell_penalty: '游资卖出扣分',
+  // sector 维度
+  l2_code: '二级行业',
+  sector_rank: '行业排名',
+  rank_bonus: '排名加分',
+  leadership_factor: '领涨因子',
+  sector_3d_avg: '3日均涨%',
+  trend_bonus: '趋势加分',
+  pct_leader: '涨幅领涨',
+  amount_leader: '成交额领涨',
+  volume_ratio_leader: '量比领涨',
+  leadership_hits: '领涨条件数',
+  stock_pct_chg: '个股涨跌%',
+  volume_ratio_20d: '20日量比',
+  // theme 维度
+  best_concept: '最佳概念',
+  ths_rank: '同花顺排名',
+  limit_rank: '涨停概念排名',
+  concept_net_amount_yi: '概念资金(亿)',
+  ths_bonus: '同花顺加分',
+  limit_bonus: '涨停排名加分',
+  moneyflow_bonus: '资金流加分',
+  temporal_bonus: '时间确认加分',
+  prev_ths_rank: '昨日排名',
+  yesterday_in_top_n_bonus: '昨日TOP加分',
+  rank_improvement_bonus: '排名提升加分',
+  // swing trend 维度
+  close: '收盘价',
+  ma5: 'MA5',
+  ma10: 'MA10',
+  ma20: 'MA20',
+  ma60: 'MA60',
+  above_ma20: '站上20日线',
+  ma_bullish: 'MA多头',
+  ma20_slope_positive: 'MA20上翘',
+  above_ma60_or_cross: '站上60日线',
+  pct_20d: '20日涨幅%',
+  pct_20d_bonus: '20日涨幅加分',
+  volume_trend_up: '量能向上',
+  breakout_volume_bonus: '放量突破加分',
+  pullback_volume_shrink_bonus: '缩量回踩加分',
+  volume_stall_penalty: '量能停滞扣分',
+  overheated_penalty: '过热扣分',
+  // swing pullback 维度
+  drawdown_5d_pct: '5日回撤%',
+  healthy_pullback: '健康回踩',
+  near_ma10_or_ma20: '靠近均线',
+  distance_ma10_pct: '距MA10%',
+  distance_ma20_pct: '距MA20%',
+  pullback_volume_shrunk: '回踩缩量',
+  recovered_ma5_or_ma10: '收复均线',
+  long_upper_shadow_penalty: '上影线扣分',
+  // swing moneyflow_swing 维度
+  net_mf_5d_wan: '5日净流入(万)',
+  net_mf_10d_wan: '10日净流入(万)',
+  positive_days_5d: '5日正流入天数',
+  unconfirmed_inflow_days_5d: '未确认天数',
+  net_mf_5d_positive: '5日净流入为正',
+  net_mf_10d_positive: '10日净流入为正',
+  big_order_positive_days: '大单正天数',
+  small_up_big_down: '小入大出',
+  unconfirmed_inflow_penalty: '未确认扣分',
+  // swing sector_swing 维度
+  l1_code: '一级行业',
+  sector_5d_rank: '5日行业排名',
+  sector_10d_rank: '10日行业排名',
+  sector_5d_pct_sum: '5日涨幅和%',
+  sector_10d_pct_sum: '10日涨幅和%',
+  sector_pullback_stable: '回踩稳定',
+  sector_moneyflow_5d_wan: '5日行业资金(万)',
+  // swing theme_swing 维度
+  theme_5d_rank: '5日题材排名',
+  theme_rank_points: '题材排名分',
+  theme_avg_pct_5d: '5日均涨%',
+  theme_moneyflow_positive: '题材资金为正',
+  theme_net_amount_yi: '题材资金(亿)',
+  theme_rank_improving: '排名改善',
+  // swing catalyst 维度
+  // swing risk_liquidity 维度
+  avg_amount_20d_yi: '20日均成交(亿)',
+  liquidity_bonus: '流动性加分',
+  low_liquidity_penalty: '低流动性扣分',
+  amplitude_20d_pct: '20日振幅%',
+  healthy_volatility_bonus: '健康波动加分',
+  high_volatility_penalty: '高波动扣分',
+  pct_3d: '3日涨幅%',
+  short_term_overheat_penalty: '短热扣分',
+  ma20_distance_bonus: '均线距离加分',
+  far_above_ma20_penalty: '远离均线扣分',
+  turnover_rate: '换手率%',
+  turnover_bonus: '换手率加分',
+}
+
+/**
+ * 获取 detail key 的中文标签
+ */
+export function detailLabel(key: string): string {
+  return DETAIL_LABELS[key] || key
+}
+
+/**
+ * 格式化 detail 值为可读字符串
+ */
+export function formatDetailValue(value: unknown): string {
+  if (value === null || value === undefined) return '-'
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  if (typeof value === 'number') {
+    if (Number.isInteger(value)) return String(value)
+    return value.toFixed(2)
+  }
+  if (Array.isArray(value)) {
+    // board_bonus 等 tuple 格式化为字符串
+    return value.join(', ')
+  }
+  return String(value)
+}
+
 // ============================ TypeScript 类型定义 ============================
 
 /**
@@ -126,6 +285,7 @@ export interface StockItem {
   rule_score: number            // 规则维度综合分
   ai_score: number | null        // AI 评分（可能为 null 尚未分析）
   scores: Record<string, number> // 各维度原始得分
+  score_details: Record<string, Record<string, any>> // 各维度打分详情
   ai_summary: string | null     // AI 论点摘要（由后端截断生成）
   picked: boolean               // 是否进入当日报告入选列表
 }
@@ -169,6 +329,8 @@ export interface StockDetailResponse {
   name: string                  // 股票名称
   industry: string              // 所属行业
   latest_scores: Record<string, number>  // 各维度最新得分
+  score_details: Record<string, Record<string, any>>  // 各维度打分详情
+  ai_score: number | null                 // AI 评分
   ai_analysis: AiAnalysisData | null     // AI 深度分析结果
   recent_picks: RecentPick[]    // 最近 N 天该股的选股记录
 }
@@ -361,10 +523,11 @@ export function fetchReportDetail(
  * @param tsCode 股票代码，如 600519.SH
  * @param strategy 策略类型
  * @param days 查询最近 N 天的历史数据
+ * @param tradeDate 指定日期查询维度分和 AI 分析（从报告页跳转时传入）
  */
-export function fetchStockDetail(tsCode: string, strategy: string, days = 10) {
+export function fetchStockDetail(tsCode: string, strategy: string, days = 10, tradeDate?: string) {
   return api.get<StockDetailResponse>(`/stocks/${tsCode}`, {
-    params: { strategy, days },
+    params: { strategy, days, trade_date: tradeDate || undefined },
   })
 }
 
