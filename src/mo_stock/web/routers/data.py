@@ -433,14 +433,14 @@ def get_stock_signals(
         select(Moneyflow)
         .where(Moneyflow.ts_code == ts_code)
         .where(Moneyflow.trade_date.in_(dates))
-        .order_by(Moneyflow.trade_date.asc())
+        .order_by(Moneyflow.trade_date.desc())
     ).scalars().all() if dates else []
 
     lhb_rows = db.execute(
         select(Lhb)
         .where(Lhb.ts_code == ts_code)
         .where(Lhb.trade_date.in_(dates))
-        .order_by(Lhb.trade_date.asc())
+        .order_by(Lhb.trade_date.desc())
     ).scalars().all() if dates else []
 
     score_rows = db.execute(
