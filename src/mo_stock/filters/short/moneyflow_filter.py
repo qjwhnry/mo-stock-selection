@@ -32,8 +32,10 @@ from loguru import logger
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
+from mo_stock.data_sources.calendar import previous_trading_day
 from mo_stock.filters.base import FilterBase, ScoreResult, clamp
 from mo_stock.filters.moneyflow_utils import confirmed_positive_net, has_price_confirmation
+from mo_stock.filters.short.limit_context import get_prev_limit_times_map
 from mo_stock.storage import repo
 from mo_stock.storage.models import DailyKline, Moneyflow
 
@@ -70,9 +72,28 @@ class MoneyflowFilter(FilterBase):
         rolling_3d_outflow_penalty = cfg.get("rolling_3d_outflow_penalty", 15)
         ratio_threshold = cfg.get("big_order_ratio_threshold", 0.4)
         small_up_big_down_penalty = cfg.get("small_up_big_down_penalty", 30)
+        double_penalty_for_rebound = cfg.get(
+            "double_penalty_for_multi_board_rebound", True,
+        )
         rolling_sum_map = _get_confirmed_moneyflow_rolling_sum_map(
             session, trade_date, days=3,
         )
+
+        # 连板后断板出货信号加重惩罚（依赖 limit_list 表，跨 filter 数据依赖）
+        today_limit_codes = repo.get_limit_up_codes(session, trade_date)
+        if double_penalty_for_rebound:
+            prev_trade_date = previous_trading_day(session, trade_date)
+            if prev_trade_date is None:
+                multi_board_rebound_codes: set[str] = set()
+            else:
+                prev_limit_times_map = get_prev_limit_times_map(
+                    session, prev_trade_date,
+                )
+                multi_board_rebound_codes = {
+                    ts for ts, times in prev_limit_times_map.items() if times >= 2
+                }
+        else:
+            multi_board_rebound_codes = set()
 
         for row in today_rows:
             score = 0.0
@@ -130,13 +151,18 @@ class MoneyflowFilter(FilterBase):
                 score -= rolling_3d_outflow_penalty
                 detail["rolling_3d_outflow_penalty"] = -rolling_3d_outflow_penalty
 
-            # 4. 负信号：小单净流入但大单净流出
+            # 4. 负信号：小单净流入但大单净流出（连板后断板场景加倍惩罚）
             buy_sm = row.buy_sm_amount or 0
             sell_sm = row.sell_sm_amount or 0
             small_net = buy_sm - sell_sm
             if small_net > 0 and big_net < 0:
-                score -= small_up_big_down_penalty
-                detail["small_up_big_down_penalty"] = -small_up_big_down_penalty
+                penalty = small_up_big_down_penalty
+                if (row.ts_code in multi_board_rebound_codes
+                        and row.ts_code not in today_limit_codes):
+                    penalty *= 2
+                    detail["doubled_penalty_reason"] = "二连板+断板出货信号叠加"
+                score -= penalty
+                detail["small_up_big_down_penalty"] = -penalty
 
             final_score = clamp(score)
             if final_score <= 0:

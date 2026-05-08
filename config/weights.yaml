@@ -72,6 +72,7 @@ moneyflow_filter:
   rolling_3d_outflow_penalty: 15  # 近 3 日累计净流出时扣分
   big_order_ratio_threshold: 0.4  # 大单+超大单净流入占比阈值（上限 0-30）
   small_up_big_down_penalty: 30   # 小单流入大单流出惩罚
+  double_penalty_for_multi_board_rebound: true  # 二连板+断板出货信号加倍惩罚（30→60）
   # 价格确认规则写在代码中：正净流入必须满足 daily_kline.close > daily_kline.open。
   # 日内收阴的正净流入常是承接卖盘，不作为主动建仓信号。
   # today_bonus 连续公式在 _today_bonus_tier 代码中：ratio<0.3%→0, 0.3%~5%→线性5~50, ≥5%→50

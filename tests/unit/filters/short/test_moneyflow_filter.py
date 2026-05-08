@@ -9,7 +9,7 @@ from datetime import date
 import pytest
 
 from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter, _today_bonus_tier
-from mo_stock.storage.models import DailyKline, Moneyflow, TradeCal
+from mo_stock.storage.models import DailyKline, LimitList, Moneyflow, TradeCal
 
 
 class TestTodayBonusTier:
@@ -430,4 +430,137 @@ class TestMoneyflowFilterScoring:
         # final = 50 - 15 - 30 = 5.0
         assert results[0].score == 5.0
         assert results[0].detail["rolling_3d_outflow_penalty"] == -15
+        assert results[0].detail["small_up_big_down_penalty"] == -30
+
+
+class TestMultiBoardReboundDoublePenalty:
+    """改进 B：二连板+断板出货信号加倍惩罚（30→60）。
+
+    四条件：multi_board_rebound + not in today_limit_codes + small_net > 0 + big_net < 0
+    """
+
+    @staticmethod
+    def _setup_base_data(session, d2: date, d3: date, ts_code: str) -> None:
+        """写入交易日历 + K 线 + d3 资金流（小单买大单卖）。"""
+        session.add_all([
+            TradeCal(cal_date=d2, is_open=True, pretrade_date=date(2026, 4, 21)),
+            TradeCal(cal_date=d3, is_open=True, pretrade_date=d2),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d3,
+                open=10.0, high=10.5, low=9.8, close=10.2,
+                pre_close=10.0, pct_chg=2.0, vol=100_000.0, amount=1_000_000.0,
+            ),
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d3,
+                net_mf_amount=5_000.0,
+                buy_sm_amount=5000.0, sell_sm_amount=1000.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=1000.0, sell_lg_amount=5000.0,
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+        ])
+
+    def test_second_board_rebound_doubled(self, sqlite_session) -> None:
+        """昨日二板 + 今日断板 + 小单买大单卖 → 惩罚加倍 30→60。"""
+        d2 = date(2026, 4, 22)
+        d3 = date(2026, 4, 24)
+        ts_code = "002158.SZ"
+
+        self._setup_base_data(sqlite_session, d2, d3, ts_code)
+        sqlite_session.add(LimitList(
+            ts_code=ts_code, trade_date=d2, limit_type="U",
+            fd_amount=50_000_000.0, first_time="10:00:00",
+            last_time="14:55:00", open_times=0,
+            up_stat="2/2", limit_times=2,
+        ))
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={
+            "small_up_big_down_penalty": 30,
+            "double_penalty_for_multi_board_rebound": True,
+        }).score_all(sqlite_session, d3)
+
+        assert len(results) == 1
+        assert results[0].detail["small_up_big_down_penalty"] == -60
+        assert results[0].detail["doubled_penalty_reason"] == "二连板+断板出货信号叠加"
+
+    def test_first_board_not_doubled(self, sqlite_session) -> None:
+        """昨日仅首板 → 不加倍，仍为 -30。"""
+        d2 = date(2026, 4, 22)
+        d3 = date(2026, 4, 24)
+        ts_code = "002158.SZ"
+
+        self._setup_base_data(sqlite_session, d2, d3, ts_code)
+        sqlite_session.add(LimitList(
+            ts_code=ts_code, trade_date=d2, limit_type="U",
+            fd_amount=100_000_000.0, first_time="09:45:00",
+            last_time="14:55:00", open_times=0,
+            up_stat="1/1", limit_times=1,
+        ))
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={
+            "small_up_big_down_penalty": 30,
+            "double_penalty_for_multi_board_rebound": True,
+        }).score_all(sqlite_session, d3)
+
+        assert len(results) == 1
+        assert results[0].detail["small_up_big_down_penalty"] == -30
+        assert "doubled_penalty_reason" not in results[0].detail
+
+    def test_today_continues_limit_not_doubled(self, sqlite_session) -> None:
+        """昨日二板 + 今日继续涨停 → 不加倍（排除"连板延续"误判）。"""
+        d2 = date(2026, 4, 22)
+        d3 = date(2026, 4, 24)
+        ts_code = "002158.SZ"
+
+        self._setup_base_data(sqlite_session, d2, d3, ts_code)
+        sqlite_session.add_all([
+            LimitList(
+                ts_code=ts_code, trade_date=d2, limit_type="U",
+                fd_amount=50_000_000.0, first_time="10:00:00",
+                last_time="14:55:00", open_times=0,
+                up_stat="2/2", limit_times=2,
+            ),
+            LimitList(
+                ts_code=ts_code, trade_date=d3, limit_type="U",
+                fd_amount=30_000_000.0, first_time="09:30:00",
+                last_time="14:55:00", open_times=0,
+                up_stat="3/3", limit_times=3,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={
+            "small_up_big_down_penalty": 30,
+            "double_penalty_for_multi_board_rebound": True,
+        }).score_all(sqlite_session, d3)
+
+        assert len(results) == 1
+        assert results[0].detail["small_up_big_down_penalty"] == -30
+        assert "doubled_penalty_reason" not in results[0].detail
+
+    def test_config_disabled_no_double(self, sqlite_session) -> None:
+        """配置关闭 → 二板断板也不加倍。"""
+        d2 = date(2026, 4, 22)
+        d3 = date(2026, 4, 24)
+        ts_code = "002158.SZ"
+
+        self._setup_base_data(sqlite_session, d2, d3, ts_code)
+        sqlite_session.add(LimitList(
+            ts_code=ts_code, trade_date=d2, limit_type="U",
+            fd_amount=50_000_000.0, first_time="10:00:00",
+            last_time="14:55:00", open_times=0,
+            up_stat="2/2", limit_times=2,
+        ))
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={
+            "small_up_big_down_penalty": 30,
+            "double_penalty_for_multi_board_rebound": False,
+        }).score_all(sqlite_session, d3)
+
+        assert len(results) == 1
         assert results[0].detail["small_up_big_down_penalty"] == -30
