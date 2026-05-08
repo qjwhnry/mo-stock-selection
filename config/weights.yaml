@@ -69,6 +69,7 @@ limit_filter:
 # 资金流维度细则（满分 100：today 0-50 + ratio 0-30 + rolling 0-20）
 moneyflow_filter:
   rolling_3d_bonus: 20            # 近 3 日累计为正再加（上限 0-20）
+  rolling_3d_outflow_penalty: 15  # 近 3 日累计净流出时扣分
   big_order_ratio_threshold: 0.4  # 大单+超大单净流入占比阈值（上限 0-30）
   small_up_big_down_penalty: 30   # 小单流入大单流出惩罚
   # 价格确认规则写在代码中：正净流入必须满足 daily_kline.close > daily_kline.open。

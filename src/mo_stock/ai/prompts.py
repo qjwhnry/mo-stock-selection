@@ -65,7 +65,7 @@ def build_methodology_prompt() -> str:
 | 维度 | 权重 | 数据源 | 含义 |
 |------|------|--------|------|
 | limit | 0.25 | limit_list | 异动涨停，含首板/连板/封单/反包 |
-| moneyflow | 0.25 | moneyflow + daily_kline | 主力资金净流入占比 + 大单结构 + 3 日累计 |
+| moneyflow | 0.25 | moneyflow + daily_kline | 主力资金净流入占比 + 大单结构 + 3 日累计（正加/负扣） |
 | lhb | 0.20 | lhb + lhb_seat_detail | 龙虎榜 base 60 + 席位结构 40（机构/游资/北向） |
 | sector | 0.10 | sw_daily + index_member + daily_kline | 申万二级行业涨幅 TOP N + 行业内领涨 |
 | theme | 0.10 | ths_daily + limit_concept + cmf | 同花顺概念涨幅 + 涨停最强概念 + 概念资金流 |

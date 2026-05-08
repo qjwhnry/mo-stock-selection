@@ -327,3 +327,107 @@ class TestMoneyflowFilterScoring:
         )
 
         assert results == []
+
+    def test_rolling_3d_outflow_penalty_applied(self, sqlite_session) -> None:
+        """3 日净流出 + 当日正流入 → today_bonus 得分被 rolling_outflow_penalty 扣减。"""
+        d1 = date(2026, 4, 22)
+        d2 = date(2026, 4, 23)
+        d3 = date(2026, 4, 24)
+        ts_code = "000007.SZ"
+
+        sqlite_session.add_all([
+            TradeCal(cal_date=d1, is_open=True, pretrade_date=date(2026, 4, 21)),
+            TradeCal(cal_date=d2, is_open=True, pretrade_date=d1),
+            TradeCal(cal_date=d3, is_open=True, pretrade_date=d2),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d3,
+                open=10.0, high=10.5, low=9.8, close=10.2,
+                pre_close=10.0, pct_chg=2.0, vol=100_000.0, amount=1_000_000.0,
+            ),
+            # d1 大额净流出 → rolling_sum = -20000 + 5000 = -15000 < 0
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d1,
+                net_mf_amount=-20000.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=0.0, sell_lg_amount=0.0,
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+            # d3 当日强净流入 → today_bonus = 50（ratio = 5%）
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d3,
+                net_mf_amount=5_000.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=0.0, sell_lg_amount=0.0,
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={
+            "rolling_3d_bonus": 20,
+            "rolling_3d_outflow_penalty": 15,
+        }).score_all(sqlite_session, d3)
+
+        assert len(results) == 1
+        # today_bonus=50, rolling_sum=-15000<0 → -15, final=35
+        assert results[0].score == 35.0
+        assert results[0].detail["rolling_3d_outflow_penalty"] == -15
+        assert "rolling_bonus" not in results[0].detail
+
+    def test_rolling_3d_outflow_penalty_with_small_up_big_down(self, sqlite_session) -> None:
+        """3 日净流出 + 小单买大单卖 → 双重惩罚叠加。"""
+        d1 = date(2026, 4, 22)
+        d2 = date(2026, 4, 23)
+        d3 = date(2026, 4, 24)
+        ts_code = "000008.SZ"
+
+        sqlite_session.add_all([
+            TradeCal(cal_date=d1, is_open=True, pretrade_date=date(2026, 4, 21)),
+            TradeCal(cal_date=d2, is_open=True, pretrade_date=d1),
+            TradeCal(cal_date=d3, is_open=True, pretrade_date=d2),
+            DailyKline(
+                ts_code=ts_code,
+                trade_date=d3,
+                open=10.0, high=10.5, low=9.8, close=10.2,
+                pre_close=10.0, pct_chg=2.0, vol=100_000.0, amount=1_000_000.0,
+            ),
+            # d1 净流出 → rolling 负（-20000 + 5000 = -15000 < 0）
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d1,
+                net_mf_amount=-20000.0,
+                buy_sm_amount=0.0, sell_sm_amount=0.0,
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=0.0, sell_lg_amount=0.0,
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+            # d3 当日正流入 + 小单买大单卖
+            Moneyflow(
+                ts_code=ts_code,
+                trade_date=d3,
+                net_mf_amount=5_000.0,       # ratio=5% → today_bonus=50
+                buy_sm_amount=5000.0, sell_sm_amount=1000.0,   # small_net > 0
+                buy_md_amount=0.0, sell_md_amount=0.0,
+                buy_lg_amount=1000.0, sell_lg_amount=5000.0,   # big_net < 0
+                buy_elg_amount=0.0, sell_elg_amount=0.0,
+            ),
+        ])
+        sqlite_session.commit()
+
+        results = MoneyflowFilter(weights={
+            "rolling_3d_bonus": 20,
+            "rolling_3d_outflow_penalty": 15,
+            "small_up_big_down_penalty": 30,
+        }).score_all(sqlite_session, d3)
+
+        assert len(results) == 1
+        # today_bonus=50, rolling_3d_outflow_penalty=-15, small_up_big_down_penalty=-30
+        # final = 50 - 15 - 30 = 5.0
+        assert results[0].score == 5.0
+        assert results[0].detail["rolling_3d_outflow_penalty"] == -15
+        assert results[0].detail["small_up_big_down_penalty"] == -30

@@ -296,6 +296,10 @@ def _translate_moneyflow(detail: dict[str, Any]) -> list[str]:
         if v > 0:
             unit = f"{v / 10000:.2f} 亿" if abs(v) >= 10000 else f"{v:.0f} 万"
             e.append(f"近 3 日累计 +{unit}")
+    if "rolling_3d_outflow_penalty" in detail:
+        v = detail.get("rolling_3d_wan", 0)
+        unit = f"{abs(v) / 10000:.2f} 亿" if abs(v) >= 10000 else f"{abs(v):.0f} 万"
+        e.append(f"⚠️ 近 3 日累计净流出 {unit}（扣 {abs(detail['rolling_3d_outflow_penalty'])} 分）")
     if "small_up_big_down_penalty" in detail:
         e.append(f"⚠️ 小单买大单卖（扣 {abs(detail['small_up_big_down_penalty'])} 分）")
     return e

@@ -67,6 +67,7 @@ class MoneyflowFilter(FilterBase):
 
         cfg = self.weights
         rolling_bonus = cfg.get("rolling_3d_bonus", 15)
+        rolling_3d_outflow_penalty = cfg.get("rolling_3d_outflow_penalty", 15)
         ratio_threshold = cfg.get("big_order_ratio_threshold", 0.4)
         small_up_big_down_penalty = cfg.get("small_up_big_down_penalty", 30)
         rolling_sum_map = _get_confirmed_moneyflow_rolling_sum_map(
@@ -125,6 +126,9 @@ class MoneyflowFilter(FilterBase):
             if rolling_sum > 0:
                 score += rolling_bonus
                 detail["rolling_bonus"] = rolling_bonus
+            elif rolling_sum < 0:
+                score -= rolling_3d_outflow_penalty
+                detail["rolling_3d_outflow_penalty"] = -rolling_3d_outflow_penalty
 
             # 4. 负信号：小单净流入但大单净流出
             buy_sm = row.buy_sm_amount or 0
