@@ -238,7 +238,7 @@ def _render_one_stock_section(
 # ---------------------------------------------------------------------------
 
 def _translate_lhb(detail: dict[str, Any]) -> list[str]:
-    """LhbFilter detail（v2.1 base + seat 双层）→ 人友好证据。"""
+    """LhbFilter detail（v2.1 base + seat 双层）→ 报告用中文描述。"""
     e: list[str] = []
     if detail.get("net_rate_pct"):
         e.append(f"龙虎榜净买入率 {detail['net_rate_pct']}%")
@@ -258,7 +258,7 @@ def _translate_lhb(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_theme(detail: dict[str, Any]) -> list[str]:
-    """ThemeFilter detail → 人友好证据。"""
+    """ThemeFilter detail → 报告用中文描述。"""
     e: list[str] = []
     concept = detail.get("best_concept")
     ths_rank = detail.get("ths_rank") or 0
@@ -278,7 +278,7 @@ def _translate_theme(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_moneyflow(detail: dict[str, Any]) -> list[str]:
-    """MoneyflowFilter detail → 人友好证据。"""
+    """MoneyflowFilter detail → 报告用中文描述。"""
     e: list[str] = []
     net_mf_wan = detail.get("net_mf_wan")
     if net_mf_wan and net_mf_wan > 0:
@@ -306,7 +306,7 @@ def _translate_moneyflow(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_limit(detail: dict[str, Any]) -> list[str]:
-    """LimitFilter detail → 人友好证据。
+    """LimitFilter detail → 报告用中文描述。
 
     LimitFilter detail 结构灵活；通用做法：把含 _bonus 的 key 翻译成"+N 分"。
     """
@@ -325,7 +325,7 @@ def _translate_limit(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_sector(detail: dict[str, Any]) -> list[str]:
-    """SectorFilter detail → 人友好证据。"""
+    """SectorFilter detail → 报告用中文描述。"""
     e: list[str] = []
     rank = detail.get("sector_rank")
     if rank:
@@ -343,7 +343,7 @@ def _translate_sector(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_trend(detail: dict[str, Any]) -> list[str]:
-    """TrendFilter detail → 人友好证据。"""
+    """TrendFilter detail → 报告用中文描述。"""
     e: list[str] = []
     if detail.get("above_ma20"):
         e.append("收盘站上 MA20")
@@ -369,7 +369,7 @@ def _translate_trend(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_pullback(detail: dict[str, Any]) -> list[str]:
-    """PullbackFilter detail → 人友好证据。"""
+    """PullbackFilter detail → 报告用中文描述。"""
     e: list[str] = []
     if "drawdown_5d_pct" in detail:
         e.append(f"近 5 日回撤 {detail['drawdown_5d_pct']}%")
@@ -387,7 +387,7 @@ def _translate_pullback(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_moneyflow_swing(detail: dict[str, Any]) -> list[str]:
-    """MoneyflowSwingFilter detail → 人友好证据。"""
+    """MoneyflowSwingFilter detail → 报告用中文描述。"""
     e: list[str] = []
     net5 = detail.get("net_mf_5d_wan")
     net10 = detail.get("net_mf_10d_wan")
@@ -407,7 +407,7 @@ def _translate_moneyflow_swing(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_sector_swing(detail: dict[str, Any]) -> list[str]:
-    """SectorSwingFilter detail → 人友好证据。"""
+    """SectorSwingFilter detail → 报告用中文描述。"""
     e: list[str] = []
     if detail.get("sector_5d_rank"):
         e.append(
@@ -431,7 +431,7 @@ def _translate_sector_swing(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_theme_swing(detail: dict[str, Any]) -> list[str]:
-    """ThemeSwingFilter detail → 人友好证据。"""
+    """ThemeSwingFilter detail → 报告用中文描述。"""
     e: list[str] = []
     if detail.get("best_concept"):
         e.append(f"命中题材 {detail['best_concept']}")
@@ -449,7 +449,7 @@ def _translate_theme_swing(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_catalyst(detail: dict[str, Any]) -> list[str]:
-    """CatalystFilter detail → 人友好证据。"""
+    """CatalystFilter detail → 报告用中文描述。"""
     e: list[str] = []
     if detail.get("break_board_rebound"):
         e.append(f"断板反包（+{detail['break_board_rebound']} 分）")
@@ -461,7 +461,7 @@ def _translate_catalyst(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_exhaustion(detail: dict[str, Any]) -> list[str]:
-    """ExhaustionFilter detail → 人友好证据。"""
+    """ExhaustionFilter detail → 报告用中文描述。"""
     e: list[str] = []
     if detail.get("freshness_score") is not None:
         e.append(f"新鲜度 {detail['freshness_score']:.0f}/100")
@@ -484,7 +484,7 @@ def _translate_exhaustion(detail: dict[str, Any]) -> list[str]:
 
 
 def _translate_risk_liquidity(detail: dict[str, Any]) -> list[str]:
-    """RiskLiquidityFilter detail → 人友好证据。"""
+    """RiskLiquidityFilter detail → 报告用中文描述。"""
     e: list[str] = []
     if detail.get("avg_amount_20d_yi") is not None:
         e.append(f"20 日均成交额 {detail['avg_amount_20d_yi']} 亿")
