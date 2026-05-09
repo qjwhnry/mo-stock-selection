@@ -54,6 +54,7 @@ export const DIM_LABELS: Record<string, string> = {
   lhb: '龙虎榜',
   sector: '板块',
   theme: '题材',
+  exhaustion: '动量质量',
   // swing 维度
   trend: '趋势结构',
   pullback: '回踩承接',
@@ -207,6 +208,22 @@ export const DETAIL_LABELS: Record<string, string> = {
   far_above_ma20_penalty: '远离均线扣分',
   turnover_rate: '换手率%',
   turnover_bonus: '换手率加分',
+  // exhaustion 维度
+  freshness_score: '动量质量分',
+  penalty_5d_return: '5日涨幅扣分',
+  penalty_ma5_deviation: 'MA5偏离扣分',
+  ma5_penalty_discounted: 'MA5惩罚已打折',
+  penalty_upper_shadow: '冲高回落扣分',
+  upper_shadow_ratio: '上影线占比',
+  close_position: '收盘位置',
+  high_return_from_pre_close: '盘中冲高%',
+  intraday_amplitude_pct: '日内振幅%',
+  penalty_volume_divergence: '量价背离扣分',
+  penalty_consecutive_up: '连涨扣分',
+  penalty_momentum_decay: '动量衰减扣分',
+  ret_5d_pct: '5日涨幅%',
+  ma5_deviation_pct: 'MA5偏离%',
+  consecutive_up_days: '连涨天数',
 }
 
 /**

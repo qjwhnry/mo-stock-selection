@@ -3,15 +3,15 @@
  * 维度评分柱状图 + 打分详情组件
  *
  * 功能：展示一只股票各维度的得分进度条，展开可查看打分细节
- * - short 策略展示 5 个维度：limit、moneyflow、lhb、sector、theme
+ * - short 策略展示 6 个维度：limit、moneyflow、lhb、sector、theme、exhaustion
  * - swing 策略展示 7 个维度：trend、pullback、moneyflow_swing、sector_swing、theme_swing、catalyst、risk_liquidity
  */
 
 import { computed } from 'vue'
 import { dimLabel, detailLabel, formatDetailValue } from '../api'
 
-// short 策略的 5 个维度
-const SHORT_DIMS = ['limit', 'moneyflow', 'lhb', 'sector', 'theme']
+// short 策略的 6 个维度
+const SHORT_DIMS = ['limit', 'moneyflow', 'lhb', 'sector', 'theme', 'exhaustion']
 // swing 策略的 7 个维度
 const SWING_DIMS = ['trend', 'pullback', 'moneyflow_swing', 'sector_swing', 'theme_swing', 'catalyst', 'risk_liquidity']
 
