@@ -1,7 +1,7 @@
 # mo-stock-selection 架构与调用链路
 
 > 当前版本：**v2.4**（2026-04-30 波段策略 Phase 0-2 已实现）
-> 双策略：**short**（5 个已实现短线维度 + sentiment 预留权重）+ **swing**（7 维波段 + market_regime 组合层控制）
+> 双策略：**short**（6 个已实现短线维度）+ **swing**（7 维波段 + market_regime 组合层控制）
 > 数据库表：**24 张**（+ swing_position；结果三表加 strategy 字段隔离）
 
 ---
@@ -29,7 +29,7 @@
 │                  └─ ENHANCED 5 步 (ths/limit_concept/cmf/inst/hm)  │
 │                                                                    │
 │  2. score     → 按 strategy 选择 filter 集合                      │
-│                  short: Limit/Moneyflow/Lhb/Sector/Theme (5 维)    │
+│                  short: Limit/Moneyflow/Lhb/Sector/Theme/Exhaustion (6 维) │
 │                  swing: Trend/Pullback/MoneyflowSwing/SectorSwing/ │
 │                        ThemeSwing/Catalyst/RiskLiquidity (7 维)    │
 │                  swing 额外: MarketRegimeFilter → regime_score     │
@@ -107,17 +107,18 @@ cli.py:run_once()
 │
 ├─ load_weights_yaml("config/weights.yaml")
 │
-├─ 5 个 Filter 并行（逻辑独立，只读 DB）
+├─ 6 个 Filter 并行（逻辑独立，只读 DB）
 │  ├─ LimitFilter.score_all()    ──→ ScoreResult[] (limit)
 │  ├─ MoneyflowFilter.score_all()──→ ScoreResult[] (moneyflow)
 │  ├─ LhbFilter.score_all()      ──→ ScoreResult[] (lhb)  ★base 60 + seat 40
 │  │                                   读 lhb + lhb_seat_detail，调
 │  │                                   _seat_structure_score(seats, cfg)
 │  ├─ SectorFilter.score_all()   ──→ ScoreResult[] (sector)
-│  └─ ThemeFilter.score_all()    ──→ ScoreResult[] (theme) ★v2.1 新维度
-│                                      多概念取最高 + 渐进降级
+│  ├─ ThemeFilter.score_all()    ──→ ScoreResult[] (theme) ★v2.1 新维度
+│  │                                   多概念取最高 + 渐进降级
+│  └─ ExhaustionFilter.score_all()──→ ScoreResult[] (exhaustion) ★风险修饰维度
 │
-├─ replace_filter_scores(td, dims=[limit/moneyflow/lhb/sector/theme], all_scores)
+├─ replace_filter_scores(td, dims=[limit/moneyflow/lhb/sector/theme/exhaustion], all_scores)
 │  └─ DELETE WHERE trade_date AND dim IN (...) → INSERT 本轮结果
 │      （v2.3：避免旧维度脏数据残留，如旧版 sector_heat_bonus）
 │
@@ -146,7 +147,7 @@ cli.py:run_once()
 | `refresh-basics [--with-ths] [--with-hm-list]` | cli.refresh_basics | refresh_stock_basic / refresh_index_member / refresh_ths_concept / refresh_hot_money_list |
 | `refresh-cal --start ...` | cli.refresh_cal | refresh_trade_cal（年度刷一次） |
 | `backfill --days 180` | cli.backfill | DailyIngestor.backfill 按日循环跑 ingest_one_day |
-| `analyze 600519.SH` | cli.analyze → analyzer.analyze_stock | 复用 5 个 Filter.score_all 单股提取 |
+| `analyze 600519.SH` | cli.analyze → analyzer.analyze_stock | 复用 6 个 Filter.score_all 单股提取 |
 | `scheduler [--skip-enhanced]` | cli.scheduler → start_scheduler | APScheduler cron 每周一至五 15:30 触发 run_daily_pipeline |
 
 ---
@@ -173,7 +174,7 @@ cli.py:run_once()
 
 ## 4. 权重融合（核心评分公式）
 
-### short 策略（5 个已实现维度 + sentiment 预留权重，`config/weights.yaml`）
+### short 策略（6 个已实现维度，`config/weights.yaml`）
 
 ```
 final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
@@ -186,10 +187,11 @@ final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
 | `lhb` 龙虎榜 | 0.20 | lhb + lhb_seat_detail | base 60 + seat 40 |
 | `sector` 申万行业 | 0.10 | sw_daily + index_member | 0-100 |
 | `theme` 题材 | 0.10 | ths_daily + limit_concept + cmf | 0-100 |
-| `sentiment` 情绪 | 0.10 | （未实现）| — |
+| `exhaustion` 短线透支 | 0.10 | daily_kline（近 11 日 OHLCV） | 100 − Σpenalties |
 
-说明：`dimension_weights` 保留 6 个权重项且总和为 1.0；当前 `run_once` 只运行前 5 个
-filter，`sentiment` 缺失时按 0 分进入固定分母公式，因此 short 纯规则理论上限为 90。
+说明：`exhaustion` 是风险修饰维度（不是入场信号），检测短期过度透支信号（5 日涨幅、MA5 偏离、
+量价背离、连涨天数、动量衰减）。得分 = 100 − Σpenalties（100 = 无透支，0 = 严重透支）。
+候选股需至少命中 limit/moneyflow/lhb/sector/theme 之一。6 维全部运行，纯规则理论上限为 100。
 
 ### swing 策略（7 维度，`config/weights_swing.yaml`）
 

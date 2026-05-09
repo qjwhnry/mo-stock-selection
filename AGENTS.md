@@ -1,6 +1,6 @@
 # mo-stock-selection — 项目约定
 
-A 股批量选股系统：**短线（short）** 5 个已实现规则维度 + `sentiment` 预留权重，
+A 股批量选股系统：**短线（short）** 6 个已实现规则维度（limit / moneyflow / lhb / sector / theme / exhaustion），
 以及 **波段（swing）** 7 维度趋势选股
 + **Codex AI 深度分析**。仅做选股与报告，**不接券商、不自动下单**。
 
@@ -10,7 +10,7 @@ A 股批量选股系统：**短线（short）** 5 个已实现规则维度 + `se
 
 | 策略 | 周期 | 维度数 | 权重文件 |
 |------|------|--------|---------|
-| `short`（默认） | 1-3 交易日 | 5 个已实现维度（limit / moneyflow / lhb / sector / theme）+ sentiment 预留权重 | `config/weights.yaml` |
+| `short`（默认） | 1-3 交易日 | 6 个已实现维度（limit / moneyflow / lhb / sector / theme / exhaustion） | `config/weights.yaml` |
 | `swing` | 5-20 交易日 | 7 维 + market_regime 组合层控制 | `config/weights_swing.yaml` |
 
 三表（`selection_result` / `filter_score_daily` / `ai_analysis`）通过 `strategy` 字段隔离。
@@ -36,10 +36,7 @@ A 股批量选股系统：**短线（short）** 5 个已实现规则维度 + `se
 | `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail` |
 | `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` |
 | `theme` 同花顺概念 + 涨停最强 + 资金流 | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` |
-| `sentiment` 新闻公告 | 0.10 | 预留权重，当前未实现 SentimentFilter，综合分里按缺失维度 0 分处理 |
-
-注意：`config/weights.yaml` 仍保留 6 个权重项，是为了固定分母和未来接入 sentiment 时保持
-权重迁移简单；当前 `run_once` 实际只运行前 5 个短线 filter。
+| `exhaustion` 短期透支检测 | 0.10 | `daily_kline`（OHLCV 多日窗口）—— 替代原 sentiment 预留位 |
 
 ## swing 策略 7 维度
 
@@ -126,7 +123,7 @@ mo-stock scheduler [--strategy short|swing]  # 生产常驻
 
 | 路径 | 作用 |
 |------|------|
-| `src/mo_stock/filters/` | 短线 5 维 + 波段 7 维规则打分 |
+| `src/mo_stock/filters/` | 短线 6 维 + 波段 7 维规则打分 |
 | `src/mo_stock/filters/swing_utils.py` | 波段工具函数（MA / ATR / 量比计算） |
 | `src/mo_stock/scorer/combine.py` | 综合分（固定分母）+ 硬规则 + strategy 路由 + regime 控制 |
 | `src/mo_stock/data_sources/tushare_client.py` | Tushare 接口封装（含 `index_daily` 指数日线） |

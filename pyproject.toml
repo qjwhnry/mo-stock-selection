@@ -84,6 +84,7 @@ warn_unused_ignores = true
 warn_return_any = true
 disallow_untyped_defs = false
 ignore_missing_imports = true  # tushare / anthropic 等第三方缺类型时不报错
+disable_error_code = ["import-untyped"]  # PyYAML 等第三方包未装 stub 时不阻断本地检查
 
 [tool.ruff]
 line-length = 120

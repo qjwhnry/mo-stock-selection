@@ -1,8 +1,8 @@
 """把 selection_result 渲染成 Markdown 日报 + JSON 产出。
 
 报告按 strategy 隔离输出：
-- short 报告默认写到 data/reports/，展示 5 个已实现短线维度；sentiment 尚未接入时会提示
-  当前规则满分为 90。
+- short 报告默认写到 data/reports/，展示 6 个已实现短线维度；exhaustion 是风险修正
+  维度，不单独作为候选准入信号。
 - swing 报告写到 data/reports/swing/，展示 7 个波段维度；当前 swing AI 自动跳过，因此
   AI 章节通常为空，但规则证据仍完整。
 - AI 缺失时优雅降级：不渲染 AI 章节，仍展示维度 detail 翻译后的中文证据。
@@ -99,8 +99,9 @@ def render_daily_report(
         f"> 产出时间：{trade_date} 15:30 收盘后",
         f"> TOP {len(selections)}，按 `final_score` 排序",
         *(
-            ["> 注：当前规则层仅 5 个维度有效（sentiment 待接入），理论满分为 90。"]
-            if not any("sentiment" in scores for scores in scores_by_stock.values())
+            ["> 注：本次未读取到 exhaustion 维度，规则层该权重按 0 计。"]
+            if strategy == "short"
+            and not any("exhaustion" in scores for scores in scores_by_stock.values())
             else []
         ),
         "",
@@ -209,9 +210,8 @@ def _render_one_stock_section(
             evidences = _translate_dim_detail(dim, r.detail or {})
             evidence_str = "；".join(evidences) if evidences else "—"
             lines.append(f"| {_DIM_LABELS.get(dim, dim)} | {r.score:.1f} | {evidence_str} |")
-        # 未命中维度不渲染，避免报告被空信号淹没：
-        # - short 当前有 5 个已实现维度，sentiment 是预留权重，通常不会出现；
-        # - swing 有 7 个维度，只有该股真正命中的维度才展示证据。
+        # 未命中维度不渲染，避免报告被空信号淹没。
+        # short 当前 6 个维度全部实现，只有该股真正命中的维度才展示证据。
     lines.append("")
 
     # 操作建议（AI 给出 entry/stop_loss 时才渲染）
@@ -460,6 +460,29 @@ def _translate_catalyst(detail: dict[str, Any]) -> list[str]:
     return e
 
 
+def _translate_exhaustion(detail: dict[str, Any]) -> list[str]:
+    """ExhaustionFilter detail → 人友好证据。"""
+    e: list[str] = []
+    if detail.get("freshness_score") is not None:
+        e.append(f"新鲜度 {detail['freshness_score']:.0f}/100")
+    if detail.get("ret_5d_pct") is not None:
+        e.append(f"5 日涨幅 {detail['ret_5d_pct']:.1f}%")
+    if detail.get("ma5") is not None:
+        e.append(f"MA5 {detail['ma5']:.2f}，偏离 {detail.get('ma5_deviation_pct', 0):.1f}%")
+    if detail.get("consecutive_up_days", 0) >= 3:
+        e.append(f"连涨 {detail['consecutive_up_days']} 天")
+    for key, label in (
+        ("penalty_5d_return", "5 日涨幅偏大"),
+        ("penalty_ma5_deviation", "偏离 MA5 过远"),
+        ("penalty_volume_divergence", "量价背离"),
+        ("penalty_consecutive_up", "连涨天数偏多"),
+        ("penalty_momentum_decay", "动量衰减"),
+    ):
+        if detail.get(key):
+            e.append(f"⚠️ {label}（扣 {abs(detail[key])} 分）")
+    return e
+
+
 def _translate_risk_liquidity(detail: dict[str, Any]) -> list[str]:
     """RiskLiquidityFilter detail → 人友好证据。"""
     e: list[str] = []
@@ -485,7 +508,7 @@ def _translate_risk_liquidity(detail: dict[str, Any]) -> list[str]:
 
 
 _DIM_ORDER = [
-    "limit", "moneyflow", "lhb", "sector", "theme", "sentiment",
+    "limit", "moneyflow", "lhb", "sector", "theme", "exhaustion",
     "trend", "pullback", "moneyflow_swing", "sector_swing",
     "theme_swing", "catalyst", "risk_liquidity",
 ]
@@ -496,7 +519,7 @@ _DIM_LABELS = {
     "lhb": "龙虎榜",
     "sector": "行业强度",
     "theme": "题材强度",
-    "sentiment": "情绪",
+    "exhaustion": "透支风险",
     "trend": "趋势结构",
     "pullback": "回踩承接",
     "moneyflow_swing": "资金持续性",
@@ -521,6 +544,7 @@ _DIM_TRANSLATORS = {
     "lhb": _translate_lhb,
     "sector": _translate_sector,
     "theme": _translate_theme,
+    "exhaustion": _translate_exhaustion,
     "trend": _translate_trend,
     "pullback": _translate_pullback,
     "moneyflow_swing": _translate_moneyflow_swing,

@@ -34,6 +34,7 @@ from config.settings import settings
 from mo_stock.analyzer import analyze_stock
 from mo_stock.backtest import run_short_backtest, run_swing_backtest
 from mo_stock.filters.base import load_weights_yaml
+from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
 from mo_stock.filters.short.lhb_filter import LhbFilter
 from mo_stock.filters.short.limit_filter import LimitFilter
 from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
@@ -268,8 +269,9 @@ def run_once(
             LhbFilter(weights=cfg.get("lhb_filter", {})),
             SectorFilter(weights=cfg.get("sector_filter", {})),
             ThemeFilter(weights=cfg.get("theme_filter", {})),
+            ExhaustionFilter(weights=cfg.get("exhaustion_filter", {})),
         ]
-        dims = ["limit", "moneyflow", "lhb", "sector", "theme"]
+        dims = ["limit", "moneyflow", "lhb", "sector", "theme", "exhaustion"]
         regime_score = None
     else:
         filters = [

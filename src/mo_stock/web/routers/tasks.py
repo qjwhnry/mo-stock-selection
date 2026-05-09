@@ -215,7 +215,10 @@ def _refresh_metadata(req: RefreshMetadataTaskRequest) -> dict[str, int]:
         _update_progress("正在刷新游资名录")
         stats["hot_money_list"] = ingestor.refresh_hot_money_list()
     if req.refresh_calendar:
-        start = _parse_iso_date(req.calendar_start, field_name="calendar_start")
+        calendar_start = req.calendar_start
+        if calendar_start is None:
+            raise HTTPException(status_code=400, detail="refresh_calendar=true 时 calendar_start 必填")
+        start = _parse_iso_date(calendar_start, field_name="calendar_start")
         end = (
             _parse_iso_date(req.calendar_end, field_name="calendar_end")
             if req.calendar_end else _today_cn() + timedelta(days=365)

@@ -21,6 +21,7 @@ from mo_stock.backtest.utils import (
     trade_dates_between,
 )
 from mo_stock.filters.base import ScoreResult
+from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
 from mo_stock.filters.short.lhb_filter import LhbFilter
 from mo_stock.filters.short.limit_filter import LimitFilter
 from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
@@ -28,6 +29,8 @@ from mo_stock.filters.short.sector_filter import SectorFilter
 from mo_stock.filters.short.theme_filter import ThemeFilter
 from mo_stock.scorer.combine import (
     _build_hard_reject_map,
+    _has_admission_signal,
+    _should_keep_dim_score,
     _weighted_combine,
     apply_sector_cap,
 )
@@ -159,20 +162,29 @@ def _rank_short_candidates(
         LhbFilter(weights=cfg.get("lhb_filter", {})),
         SectorFilter(weights=cfg.get("sector_filter", {})),
         ThemeFilter(weights=cfg.get("theme_filter", {})),
+        ExhaustionFilter(weights=cfg.get("exhaustion_filter", {})),
     ]
     dim_results: dict[str, dict[str, ScoreResult]] = {}
     for filter_obj in filters:
         for result in filter_obj.score_all(session, trade_date):
-            if result.score > 0:
+            if _should_keep_dim_score("short", result.dim, result.score):
                 dim_results.setdefault(result.ts_code, {})[result.dim] = result
 
     weights = cfg.get("dimension_weights", {})
     hard_reject = cfg.get("hard_reject", {})
-    reject_map = _build_hard_reject_map(session, trade_date, hard_reject, list(dim_results))
+    admitted_codes = [
+        ts_code for ts_code, scores in dim_results.items()
+        if _has_admission_signal(
+            "short", {dim: result.score for dim, result in scores.items()},
+        )
+    ]
+    reject_map = _build_hard_reject_map(session, trade_date, hard_reject, admitted_codes)
 
     scored: list[dict[str, Any]] = []
     for ts_code, scores in dim_results.items():
         dim_scores = {dim: result.score for dim, result in scores.items()}
+        if not _has_admission_signal("short", dim_scores):
+            continue
         rule_score = round(_weighted_combine(dim_scores, weights), 2)
         dim_detail = {
             dim: {"score": round(result.score, 2), "detail": result.detail or {}}

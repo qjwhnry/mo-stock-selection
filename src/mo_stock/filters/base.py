@@ -20,7 +20,7 @@ class ScoreResult:
 
     ts_code: str
     trade_date: date
-    dim: str                               # limit / moneyflow / lhb / sector / sentiment
+    dim: str                               # limit / moneyflow / lhb / sector / theme / exhaustion
     score: float                           # 0-100
     detail: dict[str, Any] = field(default_factory=dict)
 

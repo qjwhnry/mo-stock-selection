@@ -18,7 +18,7 @@
 
 | 策略 | 周期 | 当前执行维度 | 说明 |
 |------|------|--------------|------|
-| `short` | 1-3 交易日 | 5 个已实现维度：`limit` / `moneyflow` / `lhb` / `sector` / `theme` | `sentiment` 权重仍保留在配置中，但 SentimentFilter 尚未接入，因此当前按 0 分处理 |
+| `short` | 1-3 交易日 | 6 个已实现维度：`limit` / `moneyflow` / `lhb` / `sector` / `theme` / `exhaustion` | `exhaustion` 替代原 `sentiment` 预留位，检测短期透支风险 |
 | `swing` | 5-20 交易日 | 7 个维度：`trend` / `pullback` / `moneyflow_swing` / `sector_swing` / `theme_swing` / `catalyst` / `risk_liquidity` | 额外使用 `market_regime` 做组合层仓位与入选数量控制 |
 
 ## 架构概览
@@ -72,7 +72,7 @@ src/mo_stock/
 ├── data_sources/     # Tushare + GTHT 客户端封装
 ├── storage/          # SQLAlchemy models + repo
 ├── ingest/           # 数据采集 → 落 PG
-├── filters/          # short 5 个已实现维度 + swing 7 维规则打分
+├── filters/          # short 6 个已实现维度 + swing 7 维规则打分
 ├── ai/               # Claude 分析 + prompt cache
 ├── scorer/           # 规则 + AI 融合
 ├── report/           # Markdown / JSON 输出
@@ -105,7 +105,7 @@ pylint src               # 质量检查
 
 ## 当前缺口
 
-- `short` 的 `sentiment` 维度仍是预留权重，尚未实现独立 SentimentFilter。
+- `short` 的 `exhaustion` 维度已实现（替代原 `sentiment` 预留位），用于检测短期透支风险。
 - `swing` 规则层和回测已接入，AI prompt 仍未接入；CLI / scheduler 会自动跳过 swing AI。
 - 波段阈值仍需用历史回测继续校准，再决定是否进入实盘提示和 AI 增强阶段。
 

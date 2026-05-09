@@ -2,21 +2,20 @@
 # 短线选股权重配置（可热调，无需改代码）
 #
 # 当前执行口径：
-# - run-once 实际运行 5 个已实现短线维度：limit / moneyflow / lhb / sector / theme。
-# - sentiment 是预留维度，SentimentFilter 尚未接入；固定分母会把缺失维度按 0 分处理。
-# - 保留 sentiment=0.10 的目的，是让未来接入新闻/公告情绪后不用重新迁移结果表结构。
-# - 因此当前纯规则 rule_score 的理论上限是 90，而不是 100。
+# - run-once 实际运行 6 个短线维度：limit / moneyflow / lhb / sector / theme / exhaustion。
+# - exhaustion 是 v2.6 新增的短期透支检测维度，替代原 sentiment 预留位。
+# - 所有维度均会出分，固定分母 = 1.00，纯规则 rule_score 理论上限 100。
 # dimension_weights 总和保持 1.00，便于 rule_score 与 AI 分处在稳定的 0-100 量纲。
 # ==============================================================
 
-# 6 个权重项；其中前 5 个已实现，sentiment 暂按缺失维度处理。
+# 6 个权重项；全部已实现。
 dimension_weights:
   limit: 0.25       # 异动涨停
   moneyflow: 0.25   # 主力资金流向
   lhb: 0.20         # 龙虎榜（base 60 + seat 40）
   sector: 0.10      # 申万二级行业 + 行业内领涨确认
   theme: 0.10       # 同花顺概念 + 涨停最强 + 资金流（v2.1 新增独立维度）
-  sentiment: 0.10   # 新闻公告 + 研报情绪（预留；当前未接入 SentimentFilter）
+  exhaustion: 0.10  # 短期透支检测（v2.6 替代 sentiment 预留位）
 
 # 规则分 vs AI 分 的融合权重。
 # enable_ai=false、swing 自动跳过 AI、或 Claude 调用失败时，final_score 直接等于 rule_score；
@@ -52,6 +51,14 @@ hard_reject:
   min_list_days: 60
   # ST / *ST 直接排除
   exclude_st: true
+  # 极端短期透支硬淘汰（v2.6）
+  # 5 日累计涨幅超过此阈值直接淘汰（与 exhaustion_filter 梯度惩罚互补）
+  # 25%：约 2.5 个涨停，连板股在此阈值以上风险显著升高
+  max_5d_return_pct: 25
+  # 5 日涨幅 > 20% 且连涨 ≥ 此天数直接淘汰
+  max_consecutive_up_with_5d_return:
+    ret_5d_pct: 20
+    min_consecutive_days: 5
 
 # 涨停维度细则
 limit_filter:
@@ -150,6 +157,42 @@ theme_filter:
     rank_improvement: 5     # 今日排名较昨日上升 → +5
 
   max_theme_bonus: 100  # 信号合成上限
+
+# 短期透支维度细则（v2.6 新增，替代 sentiment 预留位）
+# 打分逻辑：100 - Σ(各项惩罚) → clamp 0-100，即"新鲜度"分。
+# 100 = 完全无透支信号，0 = 严重透支。
+exhaustion_filter:
+  # 5 日累计涨幅惩罚（主信号）
+  penalty_5d_return_max: 35
+  threshold_5d_return_low: 5.0    # ≤此值不罚
+  threshold_5d_return_high: 25.0  # ≥此值满罚
+
+  # MA5 偏离度惩罚（均线回归压力）
+  # 当 5 日涨幅惩罚已触发时，MA5 偏离惩罚自动 ×0.5（去共线性）
+  penalty_ma5_deviation_max: 25
+  threshold_ma5_deviation_low: 2.0   # ≤此值不罚
+  threshold_ma5_deviation_high: 8.0  # ≥此值满罚
+
+  # 量价背离惩罚
+  penalty_volume_divergence_max: 20
+  threshold_shrink_vol_ratio: 0.6    # 缩量上涨：今日量 < 均量×此值
+  threshold_shrink_3d_return: 5.0    # 缩量上涨：近 3 日涨幅 > 此值
+  threshold_blowoff_vol_ratio: 2.0   # 放量滞涨：今日量 > 均量×此值
+  threshold_blowoff_pct_chg: 2.0     # 放量滞涨：相对昨收涨幅 < 此值
+
+  # 连涨天数惩罚（收阳线连续天数）
+  # low~mid 轻罚 ratio_low；mid~high 中罚 ratio_mid；≥high 满罚
+  penalty_consecutive_up_max: 10
+  threshold_consecutive_up_low: 3
+  threshold_consecutive_up_mid: 5
+  threshold_consecutive_up_high: 7
+  ratio_consecutive_up_low: 0.35
+  ratio_consecutive_up_mid: 0.7
+
+  # 动量衰减惩罚
+  penalty_momentum_decay_max: 10
+  threshold_decay_5d_return: 10.0    # 5 日涨幅 > 此值才检查衰减
+  threshold_decay_2d_ratio: 0.2      # 近 2 日涨幅占 5 日涨幅 < 此比例则触发
 
 # 短线回测参数
 short_backtest:

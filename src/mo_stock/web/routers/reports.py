@@ -107,16 +107,18 @@ async def list_reports(
     rows = db.execute(grouped).all()
 
     # 组装响应
-    items = [
-        ReportListItem(
-            trade_date=str(row.trade_date),
-            strategy=strategy,
-            count=row.count,
-            avg_score=float(row.avg_score),
-            max_score=float(row.max_score),
+    items: list[ReportListItem] = []
+    for row in rows:
+        row_map = row._mapping
+        items.append(
+            ReportListItem(
+                trade_date=str(row_map["trade_date"]),
+                strategy=strategy,
+                count=int(row_map["count"]),
+                avg_score=float(row_map["avg_score"] or 0),
+                max_score=float(row_map["max_score"] or 0),
+            )
         )
-        for row in rows
-    ]
 
     return ReportListResponse(
         items=items,
@@ -242,12 +244,12 @@ async def get_report_detail(
             .where(FilterScoreDaily.strategy == strategy)
             .where(FilterScoreDaily.ts_code.in_(ts_codes))
         ).scalars().all()
-        for row in score_rows:
-            if row.ts_code not in scores_map:
-                scores_map[row.ts_code] = {}
-                details_map[row.ts_code] = {}
-            scores_map[row.ts_code][row.dim] = int(row.score)
-            details_map[row.ts_code][row.dim] = row.detail or {}
+        for score_row in score_rows:
+            if score_row.ts_code not in scores_map:
+                scores_map[score_row.ts_code] = {}
+                details_map[score_row.ts_code] = {}
+            scores_map[score_row.ts_code][score_row.dim] = int(score_row.score)
+            details_map[score_row.ts_code][score_row.dim] = score_row.detail or {}
 
     # 批量查询 AI 分析
     thesis_map: dict[str, str] = {}
@@ -258,12 +260,12 @@ async def get_report_detail(
             .where(AiAnalysis.strategy == strategy)
             .where(AiAnalysis.ts_code.in_(ts_codes))
         ).scalars().all()
-        for row in ai_rows:
-            if row.thesis:
-                thesis = row.thesis
+        for ai_row in ai_rows:
+            if ai_row.thesis:
+                thesis = ai_row.thesis
                 if len(thesis) > 100:
                     thesis = thesis[:100] + "..."
-                thesis_map[row.ts_code] = thesis
+                thesis_map[ai_row.ts_code] = thesis
 
     # 批量查询行业
     industry_map: dict[str, str] = {}
@@ -272,9 +274,9 @@ async def get_report_detail(
             select(IndexMember)
             .where(IndexMember.ts_code.in_(ts_codes))
         ).scalars().all()
-        for row in idx_rows:
-            if row.l1_name:
-                industry_map[row.ts_code] = row.l1_name
+        for idx_row in idx_rows:
+            if idx_row.l1_name:
+                industry_map[idx_row.ts_code] = idx_row.l1_name
 
     # 批量查询股票名称
     name_map: dict[str, str] = {}
@@ -283,8 +285,8 @@ async def get_report_detail(
             select(StockBasic)
             .where(StockBasic.ts_code.in_(ts_codes))
         ).scalars().all()
-        for row in stock_rows:
-            name_map[row.ts_code] = row.name
+        for stock_row in stock_rows:
+            name_map[stock_row.ts_code] = stock_row.name
 
     # 组装 StockItem 列表
     stocks = []

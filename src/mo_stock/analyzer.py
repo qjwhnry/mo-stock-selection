@@ -19,12 +19,18 @@ from sqlalchemy.orm import Session
 
 from config.settings import PROJECT_ROOT
 from mo_stock.filters.base import load_weights_yaml
+from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
 from mo_stock.filters.short.lhb_filter import LhbFilter
 from mo_stock.filters.short.limit_filter import LimitFilter
 from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
 from mo_stock.filters.short.sector_filter import SectorFilter
 from mo_stock.filters.short.theme_filter import ThemeFilter
-from mo_stock.scorer.combine import _build_hard_reject_map, _weighted_combine
+from mo_stock.scorer.combine import (
+    _SHORT_ADMISSION_DIMS,
+    _build_hard_reject_map,
+    _should_keep_dim_score,
+    _weighted_combine,
+)
 from mo_stock.storage import repo
 from mo_stock.storage.models import DailyBasic, DailyKline
 
@@ -91,6 +97,7 @@ def analyze_stock(
     lhb_filter = LhbFilter(weights=cfg.get("lhb_filter", {}))
     sector_filter = SectorFilter(weights=cfg.get("sector_filter", {}))
     theme_filter = ThemeFilter(weights=cfg.get("theme_filter", {}))
+    exhaustion_filter = ExhaustionFilter(weights=cfg.get("exhaustion_filter", {}))
 
     all_results = [
         *limit_filter.score_all(session, trade_date),
@@ -98,16 +105,22 @@ def analyze_stock(
         *lhb_filter.score_all(session, trade_date),
         *sector_filter.score_all(session, trade_date),
         *theme_filter.score_all(session, trade_date),
+        *exhaustion_filter.score_all(session, trade_date),
     ]
 
     dim_out: dict[str, dict[str, Any]] = {}
     for r in all_results:
-        if r.ts_code == ts_code:
+        if r.ts_code == ts_code and _should_keep_dim_score("short", r.dim, r.score):
             dim_out[r.dim] = {"score": round(r.score, 2), "detail": r.detail}
 
     # 5. 综合分：复用 combine._weighted_combine（固定分母 = 全部权重之和）
     dim_scores_only = {d: info["score"] for d, info in dim_out.items() if info["score"] > 0}
     rule_score = _weighted_combine(dim_scores_only, dim_weights)
+
+    # 候选准入判断：必须有至少一个正向短线催化维度（与 combine 层口径一致）
+    has_admission = any(
+        dim_scores_only.get(dim, 0.0) > 0 for dim in _SHORT_ADMISSION_DIMS
+    )
 
     # 6. 硬规则（复用 combine 层的私有实现，传入 candidates=[ts_code]）
     reject_map = _build_hard_reject_map(
@@ -132,6 +145,7 @@ def analyze_stock(
         "daily_basic": _daily_basic_dict(daily_basic),
         "dimensions": dim_out,
         "rule_score": round(rule_score, 2),
+        "admitted": has_admission,
         "hard_reject": {
             "rejected": reject_reason is not None,
             "reason": reject_reason,
@@ -172,4 +186,3 @@ def _daily_basic_dict(b: DailyBasic | None) -> dict[str, Any] | None:
         "total_mv": b.total_mv,
         "circ_mv": b.circ_mv,
     }
-

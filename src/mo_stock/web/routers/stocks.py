@@ -24,9 +24,18 @@ router = APIRouter(tags=["stocks"])
 def get_stock_detail(
     ts_code: str,
     db: Annotated[Session, Depends(get_db)],
-    strategy: Literal["short", "swing"] = Query(default="short", description="策略类型: short 或 swing"),
-    trade_date: date_type | None = Query(default=None, description="指定日期查询；不传则取最新"),
-    days: int = Query(default=10, ge=1, le=100, description="查询最近 N 天的选股记录"),
+    strategy: Annotated[
+        Literal["short", "swing"],
+        Query(description="策略类型: short 或 swing"),
+    ] = "short",
+    trade_date: Annotated[
+        date_type | None,
+        Query(description="指定日期查询；不传则取最新"),
+    ] = None,
+    days: Annotated[
+        int,
+        Query(ge=1, le=100, description="查询最近 N 天的选股记录"),
+    ] = 10,
 ) -> StockDetailResponse:
     """获取单股详情：基础信息、维度分、AI 分析、最近选股记录。
 
@@ -53,6 +62,7 @@ def get_stock_detail(
 
     # 4. 获取维度分（含 detail）
     # 如果指定了 trade_date 则直接用，否则取最新有评分的日期
+    target_date: date_type | None
     if trade_date:
         target_date = trade_date
     else:

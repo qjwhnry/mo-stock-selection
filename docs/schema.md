@@ -399,8 +399,8 @@ Tushare `anns_d`。硬规则负面关键词命中源（`"立案调查"`/`"退市
 ### `filter_score_daily` — 规则层逐维度打分
 
 每天每股每个 strategy 最多 1 行/维度。short 当前实际写入
-`limit`/`moneyflow`/`lhb`/`sector`/`theme` 这 5 个已实现维度；`sentiment` 是预留维度，
-SentimentFilter 尚未接入时不会产生行。swing 写入 7 个 `*_swing` / 趋势类维度。
+`limit`/`moneyflow`/`lhb`/`sector`/`theme`/`exhaustion` 这 6 个已实现维度。
+swing 写入 7 个 `*_swing` / 趋势类维度。
 
 | 字段 | 类型 | NULL | 说明 |
 |------|------|:---:|------|
@@ -408,7 +408,7 @@ SentimentFilter 尚未接入时不会产生行。swing 写入 7 个 `*_swing` / 
 | `trade_date` | DATE | ✗ | 评分对应的交易日 |
 | `ts_code` | VARCHAR(12) | ✗ | 股票代码 |
 | `strategy` | VARCHAR(20) | ✗ | 策略标识（**v2.4 新增**，server default `'short'`） |
-| `dim` | VARCHAR(20) | ✗ | 维度标识；short 使用 limit/moneyflow/lhb/sector/theme（sentiment 预留），swing 使用 trend/pullback/moneyflow_swing/sector_swing/theme_swing/catalyst/risk_liquidity |
+| `dim` | VARCHAR(20) | ✗ | 维度标识；short 使用 limit/moneyflow/lhb/sector/theme/exhaustion，swing 使用 trend/pullback/moneyflow_swing/sector_swing/theme_swing/catalyst/risk_liquidity |
 | `score` | FLOAT | ✗ | 本维度得分 0-100 |
 | `detail` | JSONB | ✓ | 打分细节 JSON，供报告/复盘 |
 

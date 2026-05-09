@@ -8,7 +8,7 @@
 # - swing AI prompt 已接入，final_score = rule × 0.6 + ai × 0.4。
 #
 # 与短线策略（weights.yaml）的区别：
-# - 短线 5 维度 + sentiment 预留，权重总和 1.00
+# - 短线 6 维度（limit/moneyflow/lhb/sector/theme/exhaustion），权重总和 1.00
 # - 波段 7 维度，无 sentiment 预留，权重总和 1.00
 # - 波段额外有 market_regime 组合层控制 + ATR 自适应止损
 # - 三表（selection_result / filter_score_daily / ai_analysis）通过 strategy 字段隔离

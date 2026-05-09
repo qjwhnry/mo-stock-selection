@@ -25,7 +25,7 @@ class TestClamp:
         assert clamp(90, lo=60, hi=80) == 80
 
 
-# 5 维度权重，跟 weights.yaml 默认值一致，加起来 1.00
+# 旧版 5 维度权重（回归测试用，当前 weights.yaml 已是 6 维 + exhaustion）
 _DEFAULT_WEIGHTS = {
     "limit": 0.25,
     "moneyflow": 0.25,
@@ -78,11 +78,33 @@ class TestWeightedCombine:
         assert _weighted_combine({"lhb": 80.0}, {"lhb": 0.0}) == 0.0
 
 
+class TestShortExhaustionAdmission:
+    """exhaustion 是风险修正维度，不是短线候选准入信号。"""
+
+    def test_exhaustion_only_does_not_admit_short_candidate(self) -> None:
+        from mo_stock.scorer.combine import _has_admission_signal
+
+        assert not _has_admission_signal("short", {"exhaustion": 100.0})
+
+    def test_positive_catalyst_admits_even_with_zero_exhaustion(self) -> None:
+        from mo_stock.scorer.combine import _has_admission_signal
+
+        assert _has_admission_signal(
+            "short", {"moneyflow": 30.0, "exhaustion": 0.0},
+        )
+
+    def test_keeps_zero_exhaustion_for_ai_and_report(self) -> None:
+        from mo_stock.scorer.combine import _should_keep_dim_score
+
+        assert _should_keep_dim_score("short", "exhaustion", 0.0)
+        assert not _should_keep_dim_score("short", "moneyflow", 0.0)
+
+
 # ============================================================================
 # v2.1 plan Task 6：6 维度（新增 theme）总和 1.00 验证
 # ============================================================================
 
-# 与 weights.yaml v2.1 一致
+# v2.1 时期 6 维权重（回归测试用；当前 weights.yaml 用 exhaustion 替代 sentiment）
 _V2_1_DIMENSION_WEIGHTS = {
     "limit": 0.25,
     "moneyflow": 0.25,
@@ -103,7 +125,7 @@ class TestV21SixDimensionWeights:
 
         题材维度无信号时（旧数据回测 / theme ingest 失败），不影响其它维度结果。
         """
-        # 4 维有分，theme 与 sentiment 缺失
+        # 4 维有分，theme 与 sentiment(现为 exhaustion) 缺失
         dim_scores = {"limit": 50.0, "moneyflow": 50.0, "lhb": 60.0, "sector": 30.0}
         final = _weighted_combine(dim_scores, _V2_1_DIMENSION_WEIGHTS)
         # (50*0.25 + 50*0.25 + 60*0.20 + 30*0.10) / 1.0 = 12.5+12.5+12+3 = 40.0

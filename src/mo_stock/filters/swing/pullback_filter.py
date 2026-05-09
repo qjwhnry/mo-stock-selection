@@ -117,10 +117,14 @@ def _long_upper_shadow_with_volume(rows) -> bool:
     if not all(v is not None for v in (today.open, today.high, today.close, today.vol)):
         return False
     avg20 = sma([r.vol for r in rows], 20)
-    if avg20 is None or avg20 <= 0 or today.vol <= 2 * avg20:
+    open_ = float(today.open)
+    high = float(today.high)
+    close = float(today.close)
+    vol = float(today.vol)
+    if avg20 is None or avg20 <= 0 or vol <= 2 * avg20:
         return False
-    body_top = max(today.open, today.close)
-    if today.close <= 0:
+    body_top = max(open_, close)
+    if close <= 0:
         return False
-    upper_shadow_pct = (today.high - body_top) / today.close * 100
+    upper_shadow_pct = (high - body_top) / close * 100
     return upper_shadow_pct >= 3

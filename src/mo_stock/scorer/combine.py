@@ -44,6 +44,32 @@ from mo_stock.storage.models import (
 )
 from mo_stock.utils.stock_name import is_st_name as _is_st_name
 
+_SHORT_ADMISSION_DIMS = frozenset({
+    "limit", "moneyflow", "lhb", "sector", "theme",
+})
+_SHORT_RISK_ONLY_DIMS = frozenset({"exhaustion"})
+
+
+def _should_keep_dim_score(strategy: str, dim: str, score: float) -> bool:
+    """判断某维度是否应进入综合层明细。
+
+    常规正向维度只保留 >0 分；short 的 exhaustion 是风险修正维度，
+    0 分也必须透传给报告和 AI，否则严重透支会被误读为无风险。
+    """
+    if score > 0:
+        return True
+    return strategy == "short" and dim in _SHORT_RISK_ONLY_DIMS
+
+
+def _has_admission_signal(strategy: str, dim_scores: dict[str, float]) -> bool:
+    """候选准入判断。
+
+    short 策略中 exhaustion 只做风险修正，不单独把股票拉进候选池。
+    """
+    if strategy != "short":
+        return bool(dim_scores)
+    return any(dim_scores.get(dim, 0.0) > 0 for dim in _SHORT_ADMISSION_DIMS)
+
 
 def persist_filter_scores(
     session: Session,
@@ -250,7 +276,7 @@ def combine_scores(
     综合分算法见模块 docstring（固定分母）。
 
     v2.2 后流程：
-    1. 算 rule_score（固定分母融合 5 维）
+    1. 算 rule_score（固定分母融合 6 维）
     2. 应用硬规则得 reject_map
     3. 取未被淘汰的 TOP ai_top_n 调 AI（enable_ai=False 时跳过）
     4. _final_score_from(rule, ai) 融合（AI 缺失降级为 rule）
@@ -299,12 +325,12 @@ def combine_scores(
     # stock_scores[ts_code][dim] = score （只记录 score > 0 的有效信号；
     # 缺失维度由 _weighted_combine 自动按 0 计入分子但分母不缩）
     stock_scores: dict[str, dict[str, float]] = defaultdict(dict)
-    # dim_scores_map 给 AI prompt 用，只保留有正向信号的维度（与 prompts.py
-    # build_dynamic_stock_prompt docstring 对齐）；
-    # score=0 的兜底行（如 limit_filter 的 hard_fail）若塞给 AI 反而误导。
+    # dim_scores_map 给 AI prompt 用：常规维度只保留正向信号；
+    # exhaustion 是风险修正维度，score=0 也必须保留，否则会漏掉严重透支证据。
+    # 其它 score=0 的兜底行（如 limit_filter 的 hard_fail）若塞给 AI 反而误导。
     dim_scores_map: dict[str, dict[str, ScoreResult]] = defaultdict(dict)
     for r in score_rows:
-        if r.score > 0:
+        if _should_keep_dim_score(strategy, r.dim, r.score):
             stock_scores[r.ts_code][r.dim] = r.score
             dim_scores_map[r.ts_code][r.dim] = ScoreResult(
                 ts_code=r.ts_code,
@@ -317,6 +343,8 @@ def combine_scores(
     # ---------- 2. 按权重融合（固定分母 = 全部维度权重之和）----------
     combined: list[tuple[str, float]] = []
     for ts_code, dim_scores in stock_scores.items():
+        if not _has_admission_signal(strategy, dim_scores):
+            continue
         weighted = _weighted_combine(dim_scores, dimension_weights)
         combined.append((ts_code, round(weighted, 2)))
 
@@ -532,7 +560,16 @@ def _build_hard_reject_map(
             if ts not in reject:
                 reject[ts] = "当日停牌（成交额为 0）"
 
-    # 3. 近 7 日负面公告关键词命中
+    # 3. 极端短期透支硬淘汰（v2.6）
+    max_5d_return = cfg.get("max_5d_return_pct")
+    max_consec_config = cfg.get("max_consecutive_up_with_5d_return")
+    if max_5d_return or max_consec_config:
+        _add_overextension_rejects(
+            session, trade_date, candidates, reject,
+            max_5d_return, max_consec_config,
+        )
+
+    # 4. 近 7 日负面公告关键词命中
     if neg_keywords:
         start = trade_date - timedelta(days=7)
         anns = session.execute(
@@ -563,3 +600,79 @@ def _pick_market_regime_tier(
 def _name_is_st(name: str | None) -> bool:
     """根据股票名称判断是否 ST（兜底 is_st 字段未同步）。"""
     return _is_st_name(name)
+
+
+def _add_overextension_rejects(
+    session: Session,
+    trade_date: date,
+    candidates: list[str],
+    reject: dict[str, str],
+    max_5d_return: int | float | None,
+    max_consec_config: dict[str, int] | None,
+) -> None:
+    """极端短期透支硬淘汰（v2.6）。
+
+    1. 5 日累计涨幅 > max_5d_return_pct → 直接淘汰
+    2. 5 日涨幅 > ret_5d_pct 且连涨 ≥ min_consecutive_days → 直接淘汰
+    """
+    if not candidates:
+        return
+
+    trade_dates = repo.get_recent_trade_dates(session, trade_date, 11)
+    if len(trade_dates) < 6:
+        return
+
+    rows = session.execute(
+        select(
+            DailyKline.ts_code,
+            DailyKline.trade_date,
+            DailyKline.close,
+            DailyKline.open,
+        )
+        .where(DailyKline.trade_date.in_(trade_dates))
+        .where(DailyKline.ts_code.in_(candidates))
+    ).all()
+
+    # 按股票分组
+    klines_by_stock: dict[str, list[tuple[date, float, float | None]]] = {}
+    for ts_code, td, close, open_ in rows:
+        if close is None:
+            continue
+        klines_by_stock.setdefault(ts_code, []).append((td, close, open_))
+
+    for ts_code, klines in klines_by_stock.items():
+        if ts_code in reject or len(klines) < 6:
+            continue
+        klines.sort(key=lambda x: x[0])
+
+        # 确保最新 K 线对应目标交易日，避免用旧行情判断
+        if klines[-1][0] != trade_date:
+            continue
+
+        close_today = klines[-1][1]
+        close_5d = klines[-6][1]
+        if close_5d <= 0:
+            continue
+
+        ret_5d = (close_today - close_5d) / close_5d * 100
+        if max_5d_return:
+            if ret_5d > float(max_5d_return):
+                reject[ts_code] = f"5 日涨幅 {ret_5d:.1f}% > {max_5d_return}%，极端透支"
+                continue
+
+        if max_consec_config:
+            ret_threshold = float(max_consec_config.get("ret_5d_pct", 20))
+            min_days = int(max_consec_config.get("min_consecutive_days", 5))
+            if ret_5d > ret_threshold:
+                # 计算连涨天数
+                consec = 0
+                for _, c, o in reversed(klines):
+                    if o is not None and c > o:
+                        consec += 1
+                    else:
+                        break
+                if consec >= min_days:
+                    reject[ts_code] = (
+                        f"5 日涨幅 {ret_5d:.1f}% > {ret_threshold}% "
+                        f"且连涨 {consec} 天 ≥ {min_days} 天，高位风险"
+                    )

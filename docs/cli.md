@@ -194,7 +194,7 @@ mo-stock run-once --date 2026-04-26 --force            # 允许在非交易日�
 - `--skip-ingest`：跳过 Tushare 数据拉取步骤。用于数据已在库、只需重算打分 / 报告的场景
 - `--skip-enhanced`：只跑 7 个 CORE ingest 步骤（daily_kline / index_daily / daily_basic / limit_list / moneyflow / lhb / sw_daily），跳过 5 个 ENHANCED 步骤（ths_daily / limit_concept / concept_moneyflow / top_inst / hm_detail）。Tushare 限速时或调试用
 - `--skip-ai`：跳过 combine 的 AI 分析阶段，`ai_score=None`，`final_score` 直接回退为 `rule_score`。Anthropic API 故障 / 调试 / 控制成本时使用
-- `--strategy short|swing`：策略选择（默认 `short`）。`short`：5 个已实现短线维度 + sentiment 预留权重；`swing`：7 维度波段选股 + market_regime 控制
+- `--strategy short|swing`：策略选择（默认 `short`）。`short`：6 个已实现短线维度（limit / moneyflow / lhb / sector / theme / exhaustion）；`swing`：7 维度波段选股 + market_regime 控制
 - `--force`：允许在非交易日（周末 / 节假日）运行（默认会被拒绝）
 
 **v2.2 后 AI 成本估算**（默认开启）：
@@ -205,8 +205,8 @@ mo-stock run-once --date 2026-04-26 --force            # 允许在非交易日�
 **流程细节：**
 1. 数据拉取（`DailyIngestor.ingest_one_day`）—— CORE 7 步 + ENHANCED 5 步
 2. 加载权重配置 `config/weights.yaml`
-3. 规则层打分（v2.1 起 5 维度：`limit` + `moneyflow` + `lhb` + `sector` + `theme`）
-4. 综合打分（短线配置含 6 个权重项，sentiment 未接入时按 0 分进入固定分母）+ 硬规则过滤 → 取 TOP N（默认 20）
+3. 规则层打分（v2.5 起 6 维度：`limit` + `moneyflow` + `lhb` + `sector` + `theme` + `exhaustion`）
+4. 综合打分（6 个权重项固定分母 1.0）+ 硬规则过滤 → 取 TOP N（默认 20）
 5. 渲染 Markdown + JSON 报告到 `data/reports/YYYY-MM-DD.{md,json}`
 
 **幂等性：** 同一交易日重跑会 `upsert` `selection_result`，不会报唯一键冲突。
@@ -373,7 +373,7 @@ mo-stock run-once --date 2026-04-22
 
     mo-stock backtest --strategy short --start 2026-01-01 --end 2026-04-30 --top-n 20 --holding-days 1,2,3,5
 
-回测复刻 `run-once --skip-ai` 的规则层口径：5 个短线维度、硬规则、排序 tie-breaker 和板块 cap。
+回测复刻 `run-once --skip-ai` 的规则层口径：6 个短线维度、硬规则、排序 tie-breaker 和板块 cap。
 结果写入 `short_backtest_trade`，并生成 `data/reports/short-backtest-*.md`。
 
 可选参数：

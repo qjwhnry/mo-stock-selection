@@ -51,16 +51,14 @@ def build_system_prompt() -> str:
 
 
 def build_methodology_prompt() -> str:
-    """段 2：评分方法学。当前 short AI 使用的 5 个已实现规则维度。
+    """段 2：评分方法学。当前 short AI 使用的 6 个规则维度。
 
     注意：
-    - `config/weights.yaml` 里仍保留 sentiment=0.10，但 SentimentFilter 尚未接入；
-      prompt 不能编造新闻/公告情绪结论。
     - swing 策略当前在 CLI / scheduler 中会自动跳过 AI，本 prompt 仍按 short 1-3
       交易日语境设计，不要复用为波段 5-20 交易日分析。
     """
     return """\
-# short 规则层：5 个已实现维度
+# short 规则层：6 个维度
 
 | 维度 | 权重 | 数据源 | 含义 |
 |------|------|--------|------|
@@ -69,9 +67,12 @@ def build_methodology_prompt() -> str:
 | lhb | 0.20 | lhb + lhb_seat_detail | 龙虎榜 base 60 + 席位结构 40（机构/游资/北向） |
 | sector | 0.10 | sw_daily + index_member + daily_kline | 申万二级行业涨幅 TOP N + 行业内领涨 |
 | theme | 0.10 | ths_daily + limit_concept + cmf | 同花顺概念涨幅 + 涨停最强概念 + 概念资金流 |
+| exhaustion | 0.10 | daily_kline（多日） | 短期透支检测：5 日涨幅 / MA5 偏离 / 量价背离 / 连涨 / 动量衰减 |
 
-未接通维度：sentiment（情绪，0.10 权重保留但当前没有 SentimentFilter 产出）。
-如果输入里没有 sentiment detail，请视为"无情绪维度证据"，不要推断成利好或利空。
+- exhaustion 维度：0-100 新鲜度分，越低 = 越透支。该维度 detail 里的 penalty_* 字段
+  告诉你具体扣分原因，ret_5d_pct / ma5_deviation_pct / consecutive_up_days 提供原始数据。
+- 如果输入里有 exhaustion detail，即使 score=0 也必须视为重要风险证据；如果缺失，
+  只能说明本次规则层没有提供该维度数据，不要自行推断为无风险。
 
 # 评分原则
 

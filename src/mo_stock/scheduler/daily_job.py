@@ -18,6 +18,7 @@ from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 
 from mo_stock.filters.base import load_weights_yaml
+from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
 from mo_stock.filters.short.lhb_filter import LhbFilter
 from mo_stock.filters.short.limit_filter import LimitFilter
 from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
@@ -209,7 +210,8 @@ def _build_filters(strategy: str, cfg: dict):
             LhbFilter(weights=cfg.get("lhb_filter", {})),
             SectorFilter(weights=cfg.get("sector_filter", {})),
             ThemeFilter(weights=cfg.get("theme_filter", {})),
-        ], ["limit", "moneyflow", "lhb", "sector", "theme"]
+            ExhaustionFilter(weights=cfg.get("exhaustion_filter", {})),
+        ], ["limit", "moneyflow", "lhb", "sector", "theme", "exhaustion"]
 
     return [
         TrendFilter(weights=cfg.get("trend_filter", {})),
