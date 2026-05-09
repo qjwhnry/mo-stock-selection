@@ -13,6 +13,7 @@ from mo_stock.filters.short.exhaustion_filter import (
     _penalty_consecutive_up,
     _penalty_ma5_deviation,
     _penalty_momentum_decay,
+    _penalty_upper_shadow,
     _penalty_volume_divergence,
 )
 
@@ -33,6 +34,24 @@ def _kline(close: float, open_: float | None = None,
 def _klines(*closes: float) -> list[dict]:
     """Helper：连续 N 日 K 线，每日 open=close（平收），vol=None。"""
     return [_kline(c) for c in closes]
+
+
+def _upper_shadow_klines(
+    *,
+    pre_close: float = 10.0,
+    open_: float = 10.0,
+    high: float = 10.8,
+    low: float = 10.0,
+    close: float = 10.15,
+    close_3d_ago: float = 9.4,
+) -> list[dict]:
+    """Helper：构造满足冲高回落计算窗口的 4 条 K 线。"""
+    return [
+        _kline(close_3d_ago),
+        _kline(9.7),
+        _kline(pre_close),
+        _kline(close, open_=open_, high=high, low=low),
+    ]
 
 
 # ---------- _compute_ma5 ----------
@@ -114,6 +133,75 @@ class TestPenaltyMA5Deviation:
         klines = _klines(100, 97, 97, 97, 97, 112)
         actual = _penalty_ma5_deviation(klines, CFG_MA)
         assert actual == 25
+
+
+# ---------- _penalty_upper_shadow ----------
+
+CFG_SHADOW = {"penalty_upper_shadow_max": 15}
+
+
+class TestPenaltyUpperShadow:
+    """冲高回落惩罚：长上影 + 收盘弱 + 近期上涨 + 当天冲高。"""
+
+    def test_triggered_typical_upper_shadow(self) -> None:
+        klines = _upper_shadow_klines()
+        actual = _penalty_upper_shadow(klines, klines[-1], CFG_SHADOW)
+        # upper_shadow_ratio = 0.8125, close_position = 0.1875
+        # factor = 1 + (0.5 - 0.1875) * 0.5 = 1.15625
+        expected = 0.8125 * 15 * 1.15625
+        assert actual == pytest.approx(expected, abs=0.1)
+
+    def test_not_triggered_when_no_upper_shadow(self) -> None:
+        klines = _upper_shadow_klines(close=10.8)
+        assert _penalty_upper_shadow(klines, klines[-1], CFG_SHADOW) == 0
+
+    def test_not_triggered_when_close_in_upper_half(self) -> None:
+        klines = _upper_shadow_klines(close=10.5)
+        assert _penalty_upper_shadow(klines, klines[-1], CFG_SHADOW) == 0
+
+    def test_not_triggered_when_3d_return_low(self) -> None:
+        klines = _upper_shadow_klines(close_3d_ago=9.9)
+        assert _penalty_upper_shadow(klines, klines[-1], CFG_SHADOW) == 0
+
+    def test_not_triggered_when_high_return_from_pre_close_low(self) -> None:
+        klines = _upper_shadow_klines(
+            pre_close=10.0,
+            open_=10.0,
+            high=10.03,
+            low=10.0,
+            close=10.01,
+            close_3d_ago=9.2,
+        )
+        assert _penalty_upper_shadow(klines, klines[-1], CFG_SHADOW) == 0
+
+    def test_missing_ohlc_returns_zero(self) -> None:
+        klines = _upper_shadow_klines()
+        klines[-1]["high"] = None
+        assert _penalty_upper_shadow(klines, klines[-1], CFG_SHADOW) == 0
+
+    def test_missing_pre_close_returns_zero(self) -> None:
+        klines = _upper_shadow_klines()
+        klines[-2]["close"] = None
+        assert _penalty_upper_shadow(klines, klines[-1], CFG_SHADOW) == 0
+
+    def test_zero_amplitude_returns_zero(self) -> None:
+        klines = _upper_shadow_klines(open_=10.0, high=10.0, low=10.0, close=10.0)
+        assert _penalty_upper_shadow(klines, klines[-1], CFG_SHADOW) == 0
+
+    def test_custom_thresholds(self) -> None:
+        cfg = {
+            "penalty_upper_shadow_max": 20,
+            "threshold_upper_shadow_ratio": 0.7,
+            "threshold_close_position": 0.4,
+            "threshold_upper_shadow_3d_return": 6.0,
+            "threshold_high_return_from_pre_close": 5.0,
+        }
+        klines = _upper_shadow_klines()
+        actual = _penalty_upper_shadow(klines, klines[-1], cfg)
+        assert actual > 0
+
+        stricter_cfg = cfg | {"threshold_high_return_from_pre_close": 9.0}
+        assert _penalty_upper_shadow(klines, klines[-1], stricter_cfg) == 0
 
 
 # ---------- _count_consecutive_up ----------

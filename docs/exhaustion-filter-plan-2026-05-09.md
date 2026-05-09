@@ -120,7 +120,32 @@ penalty（默认配置）:
 **去共线机制**：MA5 偏离与 5 日涨幅高度正相关（涨得多 → MA5 必然低于现价）。
 当 5 日涨幅惩罚已触发时，MA5 偏离惩罚自动 ×0.5，避免两个信号对同一事实重复惩罚。
 
-### 3.4 信号 3：量价背离（最高扣 20 分）
+### 3.4 信号 3：冲高回落（最高扣 15 分）
+
+**设计依据**：短线持仓 1-3 天时，近期上涨后的长上影容易代表盘中卖压或获利盘兑现。
+但上影线占比单独使用会被窄幅震荡放大，因此必须同时确认当天 high 相对昨收确实冲高。
+
+```
+upper_shadow_ratio = (high - max(open, close)) / (high - low)
+close_position = (close - low) / (high - low)
+ret_3d = (close_today - close_T_minus_3) / close_T_minus_3 × 100
+high_return_from_pre_close = (high - pre_close) / pre_close × 100
+
+触发条件（四者同时满足）：
+  upper_shadow_ratio > threshold_upper_shadow_ratio(0.6)
+  close_position < threshold_close_position(0.5)
+  ret_3d > threshold_upper_shadow_3d_return(5.0)
+  high_return_from_pre_close >= threshold_high_return_from_pre_close(3.0)
+
+惩罚 = upper_shadow_ratio × penalty_upper_shadow_max × close_penalty_factor
+close_penalty_factor = 1.0 + (threshold_close_position - close_position) × 0.5
+最终 clamp 到 0 ~ penalty_upper_shadow_max
+```
+
+`high_return_from_pre_close` 用于过滤窄幅假上影：如果 today high 相对昨收涨幅不足 3%，
+即使上影线占比因 `high - low` 分母过小而超过 60%，也不视为真正冲高回落。
+
+### 3.5 信号 4：量价背离（最高扣 20 分）
 
 两种模式：
 
@@ -141,7 +166,7 @@ penalty（默认配置）:
 
 两种模式取 max（不累加），因为它们描述的风险场景不同但互斥。
 
-### 3.5 信号 4：连涨天数（最高扣 10 分）
+### 3.6 信号 5：连涨天数（最高扣 10 分）
 
 **设计依据**：A 股散户市中，连涨天数本身是反转概率的有效代理变量。
 
@@ -160,7 +185,7 @@ penalty（默认配置）:
 - 假阳线（低开高走但相对昨收仍跌）在短期内仍代表当日买盘强于卖盘
 - 连阳从市场心理角度比连涨更有信号意义
 
-### 3.6 信号 5：动量衰减（最高扣 10 分）
+### 3.7 信号 6：动量衰减（最高扣 10 分）
 
 **设计依据**：5 日涨幅高不等于透支——关键是涨幅发生在什么时候。
 
@@ -176,7 +201,7 @@ penalty（默认配置）:
   5 日 +20%，近 2 日 +12% → 60% 的涨幅在近 2 天 → 不触发（动量健康）
 ```
 
-### 3.7 硬规则（极端透支直接淘汰）
+### 3.8 硬规则（极端透支直接淘汰）
 
 在 `hard_reject` 层加两条二值淘汰规则，与梯度惩罚互补：
 
@@ -242,8 +267,8 @@ dimension_weights:
 
 | 文件 | 说明 |
 |------|------|
-| `src/mo_stock/filters/short/exhaustion_filter.py` | ExhaustionFilter + 7 个纯辅助函数 |
-| `tests/unit/filters/short/test_exhaustion_filter.py` | 35 个单元测试，覆盖纯辅助函数和自定义阈值 |
+| `src/mo_stock/filters/short/exhaustion_filter.py` | ExhaustionFilter + 冲高回落/量价背离等纯辅助函数 |
+| `tests/unit/filters/short/test_exhaustion_filter.py` | 单元测试覆盖纯辅助函数、自定义阈值、冲高回落边界 |
 | `tests/integration/test_exhaustion_admission.py` | 5 个集成测试，覆盖候选准入、排序影响和 analyzer admission 状态 |
 
 ### 5.2 修改文件
@@ -265,7 +290,7 @@ dimension_weights:
 
 所有触发阈值、惩罚上限和分档比例集中在 `config/weights.yaml` 的
 `exhaustion_filter` 节，调整后重跑 `run-once` 即可生效，无需改代码。
-当前共 20 个配置项：
+当前共 25 个配置项：
 
 | 配置项 | 信号 | 默认值 |
 |--------|------|--------|
@@ -275,6 +300,11 @@ dimension_weights:
 | `penalty_ma5_deviation_max` | MA5 偏离惩罚上限 | 25 |
 | `threshold_ma5_deviation_low` | MA5 偏离不罚阈值 | 2.0 |
 | `threshold_ma5_deviation_high` | MA5 偏离满罚阈值 | 8.0 |
+| `penalty_upper_shadow_max` | 冲高回落惩罚上限 | 15 |
+| `threshold_upper_shadow_ratio` | 冲高回落上影线占比阈值 | 0.6 |
+| `threshold_close_position` | 冲高回落收盘位置阈值 | 0.5 |
+| `threshold_upper_shadow_3d_return` | 冲高回落 3 日涨幅门槛 | 5.0 |
+| `threshold_high_return_from_pre_close` | high 相对昨收冲高门槛 | 3.0 |
 | `penalty_volume_divergence_max` | 量价背离惩罚上限 | 20 |
 | `threshold_shrink_vol_ratio` | 缩量上涨量比阈值 | 0.6 |
 | `threshold_shrink_3d_return` | 缩量上涨 3 日涨幅阈值 | 5.0 |
@@ -357,5 +387,5 @@ DeepSeek CR 指出 3 项文档与代码不一致问题，均为文档口径修�
 | # | 问题 | 修正 |
 |---|------|------|
 | 1 | 4.3 极端场景表未计入 MA5 去共线折扣 | 按 `penalty_5d > 0` 时 MA5 惩罚 ×0.5 重算总惩罚和新鲜度分 |
-| 2 | 5.1 测试数量仍写 24 个单元测试 | 更新为 35 个单元测试 + 5 个集成测试，总计 40 个 exhaustion 相关测试 |
+| 2 | 5.1 测试数量仍写 24 个单元测试 | 已更新为覆盖纯函数、冲高回落边界和准入语义的单元/集成测试 |
 | 3 | 3.2-3.6 信号描述容易被理解为硬编码阈值 | 明确所有阈值、惩罚上限和比例来自 `config/weights.yaml`，章节中的数字仅为默认值 |

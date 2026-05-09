@@ -171,6 +171,13 @@ exhaustion_filter:
   # 同理，强势股天然偏离 MA5。设为 0 关闭。
   penalty_ma5_deviation_max: 0
 
+  # 冲高回落惩罚（长上影 + 收盘弱 + 近期上涨 + 当天冲高）
+  penalty_upper_shadow_max: 15
+  threshold_upper_shadow_ratio: 0.6       # 上影线/振幅 > 此值
+  threshold_close_position: 0.5           # 收盘位置 < 此值（全日下半区）
+  threshold_upper_shadow_3d_return: 5.0   # 近 3 日涨幅 > 此值才检查
+  threshold_high_return_from_pre_close: 3.0  # high 相对昨收涨幅 >= 此值才检查
+
   # 量价背离惩罚
   penalty_volume_divergence_max: 20
   threshold_shrink_vol_ratio: 0.6    # 缩量上涨：今日量 < 均量×此值

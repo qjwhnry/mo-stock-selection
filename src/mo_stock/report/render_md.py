@@ -474,6 +474,7 @@ def _translate_exhaustion(detail: dict[str, Any]) -> list[str]:
     for key, label in (
         ("penalty_5d_return", "5 日涨幅偏大"),
         ("penalty_ma5_deviation", "偏离 MA5 过远"),
+        ("penalty_upper_shadow", "冲高回落"),
         ("penalty_volume_divergence", "量价背离"),
         ("penalty_consecutive_up", "连涨天数偏多"),
         ("penalty_momentum_decay", "动量衰减"),
