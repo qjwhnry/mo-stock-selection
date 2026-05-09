@@ -36,10 +36,11 @@ A 股批量选股系统：**短线（short）** 6 个已实现规则维度（lim
 | `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail` |
 | `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` |
 | `theme` 同花顺概念 + 涨停最强 + 资金流 | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` |
-| `exhaustion` 短线透支 | 0.10 | `daily_kline`（近 11 日 OHLCV） |
+| `exhaustion` 短线动量质量 | 0.10 | `daily_kline`（近 11 日 OHLCV） |
 
-注意：`exhaustion` 是风险修饰维度（不是入场信号），检测短期过度透支（5 日涨幅、MA5 偏离、量价背离、连涨天数、动量衰减）。
-得分 = 100 − Σpenalties（100 = 无透支，0 = 严重透支）。候选股需至少命中 limit/moneyflow/lhb/sector/theme 之一。
+注意：`exhaustion` 是动量质量维度（不是入场信号），评估动量健康度（量价背离、连涨天数、动量衰减）。
+5 日涨幅和 MA5 偏离已禁用（max=0），极端透支由 hard_reject 层处理。
+得分 = 100 − Σpenalties（100 = 动量健康，0 = 动量极差）。候选股需至少命中 limit/moneyflow/lhb/sector/theme 之一。
 
 ## swing 策略 7 维度
 

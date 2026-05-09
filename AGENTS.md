@@ -36,7 +36,7 @@ A 股批量选股系统：**短线（short）** 6 个已实现规则维度（lim
 | `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail` |
 | `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` |
 | `theme` 同花顺概念 + 涨停最强 + 资金流 | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` |
-| `exhaustion` 短期透支检测 | 0.10 | `daily_kline`（OHLCV 多日窗口）—— 替代原 sentiment 预留位 |
+| `exhaustion` 短期动量质量检测 | 0.10 | `daily_kline`（OHLCV 多日窗口）—— 替代原 sentiment 预留位 |
 
 ## swing 策略 7 维度
 

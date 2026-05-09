@@ -3,7 +3,7 @@
 #
 # 当前执行口径：
 # - run-once 实际运行 6 个短线维度：limit / moneyflow / lhb / sector / theme / exhaustion。
-# - exhaustion 是 v2.6 新增的短期透支检测维度，替代原 sentiment 预留位。
+# - exhaustion 是 v2.6 新增的短期动量质量检测维度，替代原 sentiment 预留位。
 # - 所有维度均会出分，固定分母 = 1.00，纯规则 rule_score 理论上限 100。
 # dimension_weights 总和保持 1.00，便于 rule_score 与 AI 分处在稳定的 0-100 量纲。
 # ==============================================================
@@ -15,7 +15,7 @@ dimension_weights:
   lhb: 0.20         # 龙虎榜（base 60 + seat 40）
   sector: 0.10      # 申万二级行业 + 行业内领涨确认
   theme: 0.10       # 同花顺概念 + 涨停最强 + 资金流（v2.1 新增独立维度）
-  exhaustion: 0.10  # 短期透支检测（v2.6 替代 sentiment 预留位）
+  exhaustion: 0.10  # 短期动量质量检测（v2.6 替代 sentiment 预留位）
 
 # 规则分 vs AI 分 的融合权重。
 # enable_ai=false、swing 自动跳过 AI、或 Claude 调用失败时，final_score 直接等于 rule_score；
@@ -158,20 +158,18 @@ theme_filter:
 
   max_theme_bonus: 100  # 信号合成上限
 
-# 短期透支维度细则（v2.6 新增，替代 sentiment 预留位）
+# 短期动量质量维度细则（v2.6 新增，替代 sentiment 预留位）
 # 打分逻辑：100 - Σ(各项惩罚) → clamp 0-100，即"新鲜度"分。
-# 100 = 完全无透支信号，0 = 严重透支。
+# 100 = 动量健康，0 = 动量极差。
 exhaustion_filter:
   # 5 日累计涨幅惩罚（主信号）
-  penalty_5d_return_max: 35
-  threshold_5d_return_low: 5.0    # ≤此值不罚
-  threshold_5d_return_high: 25.0  # ≥此值满罚
+  # 短线追势策略中，5 日涨幅高 ≠ 风险，强势股天然涨幅高。
+  # 设为 0 关闭此惩罚，极端透支由 hard_reject 层处理。
+  penalty_5d_return_max: 0
 
   # MA5 偏离度惩罚（均线回归压力）
-  # 当 5 日涨幅惩罚已触发时，MA5 偏离惩罚自动 ×0.5（去共线性）
-  penalty_ma5_deviation_max: 25
-  threshold_ma5_deviation_low: 2.0   # ≤此值不罚
-  threshold_ma5_deviation_high: 8.0  # ≥此值满罚
+  # 同理，强势股天然偏离 MA5。设为 0 关闭。
+  penalty_ma5_deviation_max: 0
 
   # 量价背离惩罚
   penalty_volume_divergence_max: 20

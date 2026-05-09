@@ -53,8 +53,8 @@ _SHORT_RISK_ONLY_DIMS = frozenset({"exhaustion"})
 def _should_keep_dim_score(strategy: str, dim: str, score: float) -> bool:
     """判断某维度是否应进入综合层明细。
 
-    常规正向维度只保留 >0 分；short 的 exhaustion 是风险修正维度，
-    0 分也必须透传给报告和 AI，否则严重透支会被误读为无风险。
+    常规正向维度只保留 >0 分；short 的 exhaustion 是动量质量维度，
+    0 分也必须透传给报告和 AI，否则动量极差会被误读为无风险。
     """
     if score > 0:
         return True
@@ -326,7 +326,7 @@ def combine_scores(
     # 缺失维度由 _weighted_combine 自动按 0 计入分子但分母不缩）
     stock_scores: dict[str, dict[str, float]] = defaultdict(dict)
     # dim_scores_map 给 AI prompt 用：常规维度只保留正向信号；
-    # exhaustion 是风险修正维度，score=0 也必须保留，否则会漏掉严重透支证据。
+    # exhaustion 是动量质量维度，score=0 也必须保留，否则会漏掉动量极差的证据。
     # 其它 score=0 的兜底行（如 limit_filter 的 hard_fail）若塞给 AI 反而误导。
     dim_scores_map: dict[str, dict[str, ScoreResult]] = defaultdict(dict)
     for r in score_rows:

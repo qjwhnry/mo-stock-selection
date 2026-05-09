@@ -18,7 +18,7 @@
 
 | 策略 | 周期 | 当前执行维度 | 说明 |
 |------|------|--------------|------|
-| `short` | 1-3 交易日 | 6 个已实现维度：`limit` / `moneyflow` / `lhb` / `sector` / `theme` / `exhaustion` | `exhaustion` 替代原 `sentiment` 预留位，检测短期透支风险 |
+| `short` | 1-3 交易日 | 6 个已实现维度：`limit` / `moneyflow` / `lhb` / `sector` / `theme` / `exhaustion` | `exhaustion` 替代原 `sentiment` 预留位，评估短期动量质量 |
 | `swing` | 5-20 交易日 | 7 个维度：`trend` / `pullback` / `moneyflow_swing` / `sector_swing` / `theme_swing` / `catalyst` / `risk_liquidity` | 额外使用 `market_regime` 做组合层仓位与入选数量控制 |
 
 ## 架构概览
@@ -105,7 +105,7 @@ pylint src               # 质量检查
 
 ## 当前缺口
 
-- `short` 的 `exhaustion` 维度已实现（替代原 `sentiment` 预留位），用于检测短期透支风险。
+- `short` 的 `exhaustion` 维度已实现（替代原 `sentiment` 预留位），用于评估短期动量质量。
 - `swing` 规则层和回测已接入，AI prompt 仍未接入；CLI / scheduler 会自动跳过 swing AI。
 - 波段阈值仍需用历史回测继续校准，再决定是否进入实盘提示和 AI 增强阶段。
 

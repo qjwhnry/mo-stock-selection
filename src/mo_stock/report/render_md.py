@@ -519,7 +519,7 @@ _DIM_LABELS = {
     "lhb": "龙虎榜",
     "sector": "行业强度",
     "theme": "题材强度",
-    "exhaustion": "透支风险",
+    "exhaustion": "动量质量",
     "trend": "趋势结构",
     "pullback": "回踩承接",
     "moneyflow_swing": "资金持续性",

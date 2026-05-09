@@ -116,7 +116,7 @@ cli.py:run_once()
 │  ├─ SectorFilter.score_all()   ──→ ScoreResult[] (sector)
 │  ├─ ThemeFilter.score_all()    ──→ ScoreResult[] (theme) ★v2.1 新维度
 │  │                                   多概念取最高 + 渐进降级
-│  └─ ExhaustionFilter.score_all()──→ ScoreResult[] (exhaustion) ★风险修饰维度
+│  └─ ExhaustionFilter.score_all()──→ ScoreResult[] (exhaustion) ★动量质量维度
 │
 ├─ replace_filter_scores(td, dims=[limit/moneyflow/lhb/sector/theme/exhaustion], all_scores)
 │  └─ DELETE WHERE trade_date AND dim IN (...) → INSERT 本轮结果
@@ -187,10 +187,11 @@ final_score = Σ(score_i × w_i) / Σ(全部权重之和 = 1.0)
 | `lhb` 龙虎榜 | 0.20 | lhb + lhb_seat_detail | base 60 + seat 40 |
 | `sector` 申万行业 | 0.10 | sw_daily + index_member | 0-100 |
 | `theme` 题材 | 0.10 | ths_daily + limit_concept + cmf | 0-100 |
-| `exhaustion` 短线透支 | 0.10 | daily_kline（近 11 日 OHLCV） | 100 − Σpenalties |
+| `exhaustion` 短线动量质量 | 0.10 | daily_kline（近 11 日 OHLCV） | 100 − Σpenalties |
 
-说明：`exhaustion` 是风险修饰维度（不是入场信号），检测短期过度透支信号（5 日涨幅、MA5 偏离、
-量价背离、连涨天数、动量衰减）。得分 = 100 − Σpenalties（100 = 无透支，0 = 严重透支）。
+说明：`exhaustion` 是动量质量维度（不是入场信号），评估动量健康度（量价背离、连涨天数、动量衰减）。
+5 日涨幅和 MA5 偏离已禁用（max=0），极端透支由 hard_reject 层处理。
+得分 = 100 − Σpenalties（100 = 动量健康，0 = 动量极差）。
 候选股需至少命中 limit/moneyflow/lhb/sector/theme 之一。6 维全部运行，纯规则理论上限为 100。
 
 ### swing 策略（7 维度，`config/weights_swing.yaml`）

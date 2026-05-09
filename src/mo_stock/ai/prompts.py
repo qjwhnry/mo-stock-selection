@@ -67,9 +67,9 @@ def build_methodology_prompt() -> str:
 | lhb | 0.20 | lhb + lhb_seat_detail | 龙虎榜 base 60 + 席位结构 40（机构/游资/北向） |
 | sector | 0.10 | sw_daily + index_member + daily_kline | 申万二级行业涨幅 TOP N + 行业内领涨 |
 | theme | 0.10 | ths_daily + limit_concept + cmf | 同花顺概念涨幅 + 涨停最强概念 + 概念资金流 |
-| exhaustion | 0.10 | daily_kline（多日） | 短期透支检测：5 日涨幅 / MA5 偏离 / 量价背离 / 连涨 / 动量衰减 |
+| exhaustion | 0.10 | daily_kline（多日） | 短期动量质量：量价背离 / 连涨 / 动量衰减（5日涨幅和MA5偏离已禁用） |
 
-- exhaustion 维度：0-100 新鲜度分，越低 = 越透支。该维度 detail 里的 penalty_* 字段
+- exhaustion 维度：0-100 新鲜度分，越低 = 动量质量越差。该维度 detail 里的 penalty_* 字段
   告诉你具体扣分原因，ret_5d_pct / ma5_deviation_pct / consecutive_up_days 提供原始数据。
 - 如果输入里有 exhaustion detail，即使 score=0 也必须视为重要风险证据；如果缺失，
   只能说明本次规则层没有提供该维度数据，不要自行推断为无风险。
