@@ -187,7 +187,11 @@ def _penalty_5d_return(
     """5 日累计涨幅惩罚。
 
     阈值从 cfg 读取，≤low 不罚，low~high 线性 0~max_penalty，≥high 满罚。
+    当前短线配置 penalty_max=0（已禁用），max=0 时直接返回。
     """
+    max_penalty = float(cfg.get("penalty_5d_return_max", 35))
+    if max_penalty <= 0:
+        return 0
     if len(klines) < 6:
         return 0
     close_today = float(klines[-1]["close"])
@@ -199,7 +203,6 @@ def _penalty_5d_return(
     high = float(cfg.get("threshold_5d_return_high", 25.0))
     if ret_5d <= low:
         return 0
-    max_penalty = float(cfg.get("penalty_5d_return_max", 35))
     if ret_5d >= high:
         return max_penalty
     return (ret_5d - low) / (high - low) * max_penalty
@@ -211,7 +214,11 @@ def _penalty_ma5_deviation(
     """MA5 偏离度惩罚。
 
     阈值从 cfg 读取，≤low 不罚，low~high 线性 0~max_penalty，≥high 满罚。
+    当前短线配置 penalty_max=0（已禁用），max=0 时直接返回。
     """
+    max_penalty = float(cfg.get("penalty_ma5_deviation_max", 25))
+    if max_penalty <= 0:
+        return 0
     ma5 = _compute_ma5(klines)
     if ma5 is None or ma5 <= 0:
         return 0
@@ -221,7 +228,6 @@ def _penalty_ma5_deviation(
     high = float(cfg.get("threshold_ma5_deviation_high", 8.0))
     if deviation <= low:
         return 0
-    max_penalty = float(cfg.get("penalty_ma5_deviation_max", 25))
     if deviation >= high:
         return max_penalty
     return (deviation - low) / (high - low) * max_penalty
