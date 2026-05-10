@@ -132,3 +132,27 @@ def catalyst_dims_groups(
         groups[key].append(r)
 
     return {key: _bucket_stats(key, bucket) for key, bucket in groups.items()}
+
+
+def rank_in_day_groups(
+    trades: Iterable[Any],
+    holding_days: int,
+    return_field: str = "net_realized_return_pct",
+) -> dict[str, BucketStats]:
+    """按 rank_in_day 分 3 段（1-5 / 6-10 / 11-20）统计。
+
+    缓解 picked Top N 选股偏差——同一日内排名是绝对可比的，
+    不依赖"低 rule_score 是否在弱市才进 picked"的混淆。
+    """
+    rows = _filter_rows(trades, holding_days, return_field)
+
+    edges = [(1, 5, "1-5"), (6, 10, "6-10"), (11, 20, "11-20")]
+    groups: dict[str, list[float]] = {label: [] for _, _, label in edges}
+    for t, r in rows:
+        rank = int(getattr(t, "rank_in_day", 0) or 0)
+        for low, high, label in edges:
+            if low <= rank <= high:
+                groups[label].append(r)
+                break
+
+    return {label: _bucket_stats(label, bucket) for label, bucket in groups.items()}

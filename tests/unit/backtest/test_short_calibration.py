@@ -136,3 +136,22 @@ def test_catalyst_dims_groups_zero_score_not_counted() -> None:
     # 只有 limit 命中 → 1 组
     assert groups["1"].count == 1
     assert groups["2"].count == 0
+
+
+def test_rank_in_day_groups_returns_three_buckets() -> None:
+    from mo_stock.backtest.calibration import rank_in_day_groups
+
+    trades = [
+        _make_trade(rank_in_day=1, net_realized_return_pct=3.0),
+        _make_trade(rank_in_day=3, net_realized_return_pct=2.0),
+        _make_trade(rank_in_day=5, net_realized_return_pct=1.5),
+        _make_trade(rank_in_day=8, net_realized_return_pct=1.0),
+        _make_trade(rank_in_day=15, net_realized_return_pct=0.0),
+        _make_trade(rank_in_day=20, net_realized_return_pct=-0.5),
+    ]
+    groups = rank_in_day_groups(trades, holding_days=1)
+    assert set(groups.keys()) == {"1-5", "6-10", "11-20"}
+    assert groups["1-5"].count == 3
+    assert groups["1-5"].avg_return == pytest.approx((3 + 2 + 1.5) / 3)
+    assert groups["6-10"].count == 1
+    assert groups["11-20"].count == 2
