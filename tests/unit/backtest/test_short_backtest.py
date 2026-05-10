@@ -1,6 +1,7 @@
 """短线回测交易模拟测试。"""
 from __future__ import annotations
 
+import pytest
 from datetime import date
 
 from mo_stock.backtest.short_engine import _is_limit_down_locked, _simulate_holding_period
@@ -150,3 +151,62 @@ def test_suspension_then_stop_loss_counts_calendar_days(sqlite_session) -> None:
     assert result["stop_day"] == 3
     assert result["exit_date"] == d3
     assert result["detail"]["suspended_in_holding"] is True
+
+
+def test_simulate_holding_period_applies_costs_to_net_return(sqlite_session) -> None:
+    """成本扣费验证：买入 100，持有 2 日（entry 日 + 次日）次日收 105，扣完成本 net_realized 应约 +4.5%。
+
+    注意：future_trade_dates(start=entry_date, days=N) 是 cal_date >= start + limit(N)，
+    所以 holding_days=1 时 planned_exit == entry_date（当天退出），用不到次日 K 线。
+    要让退出价为次日 close，holding_days 必须传 2。
+
+    买入参考价 100，第 2 日收盘 105：
+        raw_return = (105 - 100) / 100 × 100 = 5.0
+        净收益按 _net_return：
+            entry = 100 × (1 + 0.20%) × (1 + 0.025%) ≈ 100.225
+            exit  = 105 × (1 - 0.20%) × (1 - 0.025%) × (1 - 0.05%) ≈ 104.711
+            net   = (104.711 / 100.225 - 1) × 100 ≈ 4.476
+    """
+    sess = sqlite_session
+    ts_code = "000001.SZ"
+    # future_trade_dates 从 entry_date 开始（含），limit=2 → [4-2, 4-3]
+    sess.add_all([
+        TradeCal(cal_date=date(2026, 4, 1), is_open=True),
+        TradeCal(cal_date=date(2026, 4, 2), is_open=True),
+        TradeCal(cal_date=date(2026, 4, 3), is_open=True),
+    ])
+    # entry 日 K 线必须存在（_simulate_holding_period 会扫描 entry → exit 的全部日期）
+    sess.add_all([
+        DailyKline(ts_code=ts_code, trade_date=date(2026, 4, 2),
+                   open=100.0, high=100.5, low=99.5, close=100.0,
+                   pre_close=99.0, amount=100000.0, pct_chg=1.0),
+        DailyKline(ts_code=ts_code, trade_date=date(2026, 4, 3),
+                   open=100.0, high=106.0, low=100.0, close=105.0,
+                   pre_close=100.0, amount=200000.0, pct_chg=5.0),
+    ])
+    sess.commit()
+
+    cost_cfg = {
+        "buy_slippage_pct": 0.20,
+        "sell_slippage_pct": 0.20,
+        "commission_pct": 0.025,
+        "tax_pct": 0.05,
+    }
+    result = _simulate_holding_period(
+        sess,
+        ts_code=ts_code,
+        entry_date=date(2026, 4, 2),
+        entry_price=100.0,
+        holding_days=2,
+        stop_loss_pct=5.0,
+        cost_cfg=cost_cfg,
+    )
+    # 返回的是 dict，不是 ORM 对象
+    assert isinstance(result, dict)
+    assert result["raw_return_pct"] == pytest.approx(5.0, abs=0.01)
+    assert result["realized_return_pct"] == pytest.approx(5.0, abs=0.01)
+    # 净收益（扣费后）应比 raw 低 ~0.5%
+    assert result["net_raw_return_pct"] == pytest.approx(4.4763, abs=0.01)
+    assert result["net_realized_return_pct"] == pytest.approx(4.4763, abs=0.01)
+    # 没触发止损
+    assert result["stop_hit"] is False
