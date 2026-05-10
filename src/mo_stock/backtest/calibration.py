@@ -96,3 +96,39 @@ def rule_score_buckets(
         ]
         result.append(_bucket_stats(label, bucket))
     return result
+
+
+def _count_catalyst_hits(dim_detail: dict | None) -> int:
+    """从 dim_detail 数命中的催化维度数（score > 0，不含 exhaustion）。"""
+    if not dim_detail:
+        return 0
+    return sum(
+        1 for d, payload in dim_detail.items()
+        if d in CATALYST_DIMS
+        and isinstance(payload, dict)
+        and float(payload.get("score") or 0) > 0
+    )
+
+
+def catalyst_dims_groups(
+    trades: Iterable[Any],
+    holding_days: int,
+    return_field: str = "net_realized_return_pct",
+) -> dict[str, BucketStats]:
+    """按催化维度数（1/2/3/4+）分组，验证多维共振假设。
+
+    催化维度 = limit/moneyflow/lhb/sector/theme，不含 exhaustion。
+    从 dim_detail 数 score > 0 的命中维度（active_dims 字段把 exhaustion 也算进去了，
+    会污染共振判读）。
+    """
+    rows = _filter_rows(trades, holding_days, return_field)
+
+    groups: dict[str, list[float]] = {"1": [], "2": [], "3": [], "4+": []}
+    for t, r in rows:
+        n = _count_catalyst_hits(getattr(t, "dim_detail", None))
+        if n <= 0:
+            continue
+        key = str(n) if n < 4 else "4+"
+        groups[key].append(r)
+
+    return {key: _bucket_stats(key, bucket) for key, bucket in groups.items()}

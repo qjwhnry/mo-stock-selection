@@ -90,3 +90,49 @@ def test_rule_score_buckets_can_switch_return_field() -> None:
     buckets = rule_score_buckets([trade], holding_days=1,
                                   return_field="realized_return_pct")
     assert buckets[3].avg_return == pytest.approx(5.0)
+
+
+def test_catalyst_dims_groups_excludes_exhaustion() -> None:
+    from mo_stock.backtest.calibration import catalyst_dims_groups
+
+    trades = [
+        # 1 个催化（limit），还有 exhaustion 不算
+        _make_trade(net_realized_return_pct=1.0, dim_detail={
+            "limit": {"score": 50}, "exhaustion": {"score": 80},
+        }),
+        # 2 个催化（limit + moneyflow）
+        _make_trade(net_realized_return_pct=2.0, dim_detail={
+            "limit": {"score": 50}, "moneyflow": {"score": 30},
+        }),
+        # 3 个催化
+        _make_trade(net_realized_return_pct=3.0, dim_detail={
+            "limit": {"score": 50}, "moneyflow": {"score": 30},
+            "lhb": {"score": 40},
+        }),
+        # 5 个催化全 → 4+ 组
+        _make_trade(net_realized_return_pct=4.0, dim_detail={
+            "limit": {"score": 50}, "moneyflow": {"score": 30},
+            "lhb": {"score": 40}, "sector": {"score": 60},
+            "theme": {"score": 50},
+        }),
+    ]
+    groups = catalyst_dims_groups(trades, holding_days=1)
+    assert set(groups.keys()) == {"1", "2", "3", "4+"}
+    assert groups["1"].count == 1
+    assert groups["1"].avg_return == pytest.approx(1.0)
+    assert groups["4+"].count == 1
+    assert groups["4+"].avg_return == pytest.approx(4.0)
+
+
+def test_catalyst_dims_groups_zero_score_not_counted() -> None:
+    from mo_stock.backtest.calibration import catalyst_dims_groups
+
+    trade = _make_trade(net_realized_return_pct=1.0, dim_detail={
+        "limit": {"score": 50},
+        "moneyflow": {"score": 0},  # score=0 不算命中
+        "exhaustion": {"score": 90},  # 不算
+    })
+    groups = catalyst_dims_groups([trade], holding_days=1)
+    # 只有 limit 命中 → 1 组
+    assert groups["1"].count == 1
+    assert groups["2"].count == 0
