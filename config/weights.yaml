@@ -204,7 +204,7 @@ short_backtest:
   stop_loss_pct: 5.0
   holding_days: [1, 2, 3, 5]
   skip_limit_up_gap: true
-  buy_slippage_pct: 0.0
-  sell_slippage_pct: 0.0
-  commission_pct: 0.0
-  tax_pct: 0.0
+  buy_slippage_pct: 0.20    # 买入滑点（A 股 1-3 日短线常见值）
+  sell_slippage_pct: 0.20   # 卖出滑点
+  commission_pct: 0.025     # 佣金万分之 2.5（_net_return 在买卖两端各扣一次）
+  tax_pct: 0.05             # 卖出印花税千分之零点五（2023-08-28 后口径）
