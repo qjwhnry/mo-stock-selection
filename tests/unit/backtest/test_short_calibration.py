@@ -14,6 +14,7 @@ def _make_trade(
     rank_in_day: int = 1,
     dim_detail: dict | None = None,
     sector_l1: str | None = "电子",
+    stop_hit: bool = False,
 ):
     """构造测试用 trade 行（兼容 ShortBacktestTrade ORM 字段）。"""
     return SimpleNamespace(
@@ -26,7 +27,7 @@ def _make_trade(
         dim_detail=dim_detail or {},
         sector_l1=sector_l1,
         exit_date=None,
-        stop_hit=False,
+        stop_hit=stop_hit,
     )
 
 
@@ -92,6 +93,24 @@ def test_rule_score_buckets_can_switch_return_field() -> None:
     assert buckets[3].avg_return == pytest.approx(5.0)
 
 
+def test_bucket_stats_include_profit_loss_and_stop_rate() -> None:
+    from mo_stock.backtest.calibration import rule_score_buckets
+
+    trades = [
+        _make_trade(rule_score=50, net_realized_return_pct=2.0),
+        _make_trade(rule_score=50, net_realized_return_pct=3.0),
+        _make_trade(rule_score=50, net_realized_return_pct=-1.0, stop_hit=True),
+        _make_trade(rule_score=50, net_realized_return_pct=0.0),
+    ]
+    bucket = rule_score_buckets(trades, holding_days=1)[3]
+
+    assert bucket.count == 4
+    assert bucket.avg_win == pytest.approx(2.5)
+    assert bucket.avg_loss == pytest.approx(-1.0)
+    assert bucket.profit_factor == pytest.approx(5.0)
+    assert bucket.stop_rate == pytest.approx(25.0)
+
+
 def test_catalyst_dims_groups_excludes_exhaustion() -> None:
     from mo_stock.backtest.calibration import catalyst_dims_groups
 
@@ -138,7 +157,7 @@ def test_catalyst_dims_groups_zero_score_not_counted() -> None:
     assert groups["2"].count == 0
 
 
-def test_rank_in_day_groups_returns_three_buckets() -> None:
+def test_rank_in_day_groups_returns_rank_buckets_with_21_plus() -> None:
     from mo_stock.backtest.calibration import rank_in_day_groups
 
     trades = [
@@ -148,13 +167,17 @@ def test_rank_in_day_groups_returns_three_buckets() -> None:
         _make_trade(rank_in_day=8, net_realized_return_pct=1.0),
         _make_trade(rank_in_day=15, net_realized_return_pct=0.0),
         _make_trade(rank_in_day=20, net_realized_return_pct=-0.5),
+        _make_trade(rank_in_day=21, net_realized_return_pct=-1.0),
+        _make_trade(rank_in_day=30, net_realized_return_pct=-2.0),
     ]
     groups = rank_in_day_groups(trades, holding_days=1)
-    assert set(groups.keys()) == {"1-5", "6-10", "11-20"}
+    assert set(groups.keys()) == {"1-5", "6-10", "11-20", "21+"}
     assert groups["1-5"].count == 3
     assert groups["1-5"].avg_return == pytest.approx((3 + 2 + 1.5) / 3)
     assert groups["6-10"].count == 1
     assert groups["11-20"].count == 2
+    assert groups["21+"].count == 2
+    assert groups["21+"].avg_return == pytest.approx(-1.5)
 
 
 def test_sector_groups_filters_by_min_count_and_sorts() -> None:
@@ -267,6 +290,7 @@ def test_render_markdown_report_includes_all_sections() -> None:
             "1-5": BucketStats("1-5", 35, 1.5, 1.0, 60.0),
             "6-10": BucketStats("6-10", 20, 0.8, 0.5, 50.0),
             "11-20": BucketStats("11-20", 15, 0.2, 0.0, 45.0),
+            "21+": BucketStats("21+", 0, 0.0, 0.0, 0.0),
         },
         sector_buckets=[BucketStats("电子", 25, 1.5, 1.0, 60.0)],
         dim_combos=[BucketStats("limit+lhb", 8, 2.0, 1.5, 62.5)],
@@ -284,6 +308,9 @@ def test_render_markdown_report_includes_all_sections() -> None:
     assert "limit+lhb" in md
     assert "4+" in md
     assert "1-5" in md
+    assert "21+" in md
+    assert "盈亏因子" in md
+    assert "止损率(%)" in md
     assert "电子" in md
     assert "健康(>=80)" in md
     assert "70" in md  # total_trades

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from math import isinf
 from statistics import mean
 from typing import Any
 
@@ -40,6 +41,10 @@ class BucketStats:
     avg_return: float
     median_return: float
     win_rate: float  # %
+    avg_win: float = 0.0
+    avg_loss: float = 0.0
+    profit_factor: float = 0.0
+    stop_rate: float = 0.0  # %
 
 
 def _filter_rows(
@@ -59,21 +64,35 @@ def _filter_rows(
     return out
 
 
-def _bucket_stats(label: str, returns: list[float]) -> BucketStats:
-    if not returns:
+def _bucket_stats(label: str, rows: list[tuple[Any, float]]) -> BucketStats:
+    if not rows:
         return BucketStats(label=label, count=0,
                             avg_return=0.0, median_return=0.0, win_rate=0.0)
+    returns = [r for _, r in rows]
     wins = sum(1 for r in returns if r > 0)
+    win_values = [r for r in returns if r > 0]
+    loss_values = [r for r in returns if r < 0]
     sorted_r = sorted(returns)
     n = len(sorted_r)
     med = sorted_r[n // 2] if n % 2 == 1 \
           else (sorted_r[n // 2 - 1] + sorted_r[n // 2]) / 2
+    gross_win = sum(win_values)
+    gross_loss = sum(loss_values)
+    profit_factor = (
+        gross_win / abs(gross_loss)
+        if gross_loss < 0 else (float("inf") if gross_win > 0 else 0.0)
+    )
+    stop_count = sum(1 for t, _r in rows if bool(getattr(t, "stop_hit", False)))
     return BucketStats(
         label=label,
         count=n,
         avg_return=mean(returns),
         median_return=med,
         win_rate=wins / n * 100,
+        avg_win=mean(win_values) if win_values else 0.0,
+        avg_loss=mean(loss_values) if loss_values else 0.0,
+        profit_factor=profit_factor,
+        stop_rate=stop_count / n * 100,
     )
 
 
@@ -91,7 +110,7 @@ def rule_score_buckets(
     result: list[BucketStats] = []
     for low, high, label in _BUCKET_EDGES:
         bucket = [
-            r for t, r in rows
+            (t, r) for t, r in rows
             if low <= float(getattr(t, "rule_score", 0) or 0) < high
         ]
         result.append(_bucket_stats(label, bucket))
@@ -123,13 +142,13 @@ def catalyst_dims_groups(
     """
     rows = _filter_rows(trades, holding_days, return_field)
 
-    groups: dict[str, list[float]] = {"1": [], "2": [], "3": [], "4+": []}
+    groups: dict[str, list[tuple[Any, float]]] = {"1": [], "2": [], "3": [], "4+": []}
     for t, r in rows:
         n = _count_catalyst_hits(getattr(t, "dim_detail", None))
         if n <= 0:
             continue
         key = str(n) if n < 4 else "4+"
-        groups[key].append(r)
+        groups[key].append((t, r))
 
     return {key: _bucket_stats(key, bucket) for key, bucket in groups.items()}
 
@@ -139,21 +158,26 @@ def rank_in_day_groups(
     holding_days: int,
     return_field: str = "net_realized_return_pct",
 ) -> dict[str, BucketStats]:
-    """按 rank_in_day 分 3 段（1-5 / 6-10 / 11-20）统计。
+    """按 rank_in_day 分段（1-5 / 6-10 / 11-20 / 21+）统计。
 
     缓解 picked Top N 选股偏差——同一日内排名是绝对可比的，
     不依赖"低 rule_score 是否在弱市才进 picked"的混淆。
     """
     rows = _filter_rows(trades, holding_days, return_field)
 
-    edges = [(1, 5, "1-5"), (6, 10, "6-10"), (11, 20, "11-20")]
-    groups: dict[str, list[float]] = {label: [] for _, _, label in edges}
+    groups: dict[str, list[tuple[Any, float]]] = {
+        "1-5": [], "6-10": [], "11-20": [], "21+": [],
+    }
     for t, r in rows:
         rank = int(getattr(t, "rank_in_day", 0) or 0)
-        for low, high, label in edges:
-            if low <= rank <= high:
-                groups[label].append(r)
-                break
+        if 1 <= rank <= 5:
+            groups["1-5"].append((t, r))
+        elif 6 <= rank <= 10:
+            groups["6-10"].append((t, r))
+        elif 11 <= rank <= 20:
+            groups["11-20"].append((t, r))
+        elif rank >= 21:
+            groups["21+"].append((t, r))
 
     return {label: _bucket_stats(label, bucket) for label, bucket in groups.items()}
 
@@ -171,12 +195,12 @@ def sector_groups(
     """
     rows = _filter_rows(trades, holding_days, return_field)
 
-    by_sector: dict[str, list[float]] = {}
+    by_sector: dict[str, list[tuple[Any, float]]] = {}
     for t, r in rows:
         sec = getattr(t, "sector_l1", None)
         if not sec:
             continue
-        by_sector.setdefault(sec, []).append(r)
+        by_sector.setdefault(sec, []).append((t, r))
 
     result = [
         _bucket_stats(sec, bucket)
@@ -203,7 +227,7 @@ def dim_combination_analysis(
     """
     rows = _filter_rows(trades, holding_days, return_field)
 
-    by_combo: dict[str, list[float]] = {}
+    by_combo: dict[str, list[tuple[Any, float]]] = {}
     for t, r in rows:
         detail = getattr(t, "dim_detail", None) or {}
         hit_dims = sorted(
@@ -215,7 +239,7 @@ def dim_combination_analysis(
         if not hit_dims:
             continue
         key = "+".join(hit_dims)
-        by_combo.setdefault(key, []).append(r)
+        by_combo.setdefault(key, []).append((t, r))
 
     result = [
         _bucket_stats(key, bucket)
@@ -241,13 +265,15 @@ def exhaustion_quality_buckets(
     edges = [(0.0, 50.0, "差(<50)"),
              (50.0, 80.0, "中(50-80)"),
              (80.0, 100.01, "健康(>=80)")]
-    groups: list[tuple[str, list[float]]] = [(label, []) for _, _, label in edges]
+    groups: list[tuple[str, list[tuple[Any, float]]]] = [
+        (label, []) for _, _, label in edges
+    ]
     for t, r in rows:
         detail = getattr(t, "dim_detail", None) or {}
         ex_score = float((detail.get("exhaustion") or {}).get("score") or 0)
         for i, (low, high, _label) in enumerate(edges):
             if low <= ex_score < high:
-                groups[i][1].append(r)
+                groups[i][1].append((t, r))
                 break
 
     return [_bucket_stats(label, bucket) for label, bucket in groups]
@@ -288,7 +314,7 @@ def render_markdown_report(
     # §1 rule_score 分档
     lines.append("## 1. 按 rule_score 分档")
     lines.append("")
-    lines.append(_render_table(["分档", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+    lines.append(_render_table(_TABLE_HEADERS,
                                [_row(b) for b in rule_buckets]))
     lines.append("")
     lines.append("**判读**：从 `[0,30)` 到 `[60,100]` 胜率和均收益应单调上升；"
@@ -299,7 +325,7 @@ def render_markdown_report(
     # §2 催化维度数分组
     lines.append("## 2. 按催化维度数分组（不含 exhaustion）")
     lines.append("")
-    lines.append(_render_table(["命中数", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+    lines.append(_render_table(_TABLE_HEADERS,
                                [_row(catalyst_groups[k]) for k in ["1", "2", "3", "4+"]]))
     lines.append("")
     lines.append("**判读**：多维共振假设成立时，4+ 应显著优于 1。"
@@ -309,11 +335,11 @@ def render_markdown_report(
     # §3 rank_in_day 分组
     lines.append("## 3. 按当日排名分段（picked 内可比）")
     lines.append("")
-    lines.append(_render_table(["排名段", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
-                               [_row(rank_groups[k]) for k in ["1-5", "6-10", "11-20"]]))
+    lines.append(_render_table(_TABLE_HEADERS,
+                               [_row(rank_groups[k]) for k in ["1-5", "6-10", "11-20", "21+"]]))
     lines.append("")
     lines.append("**判读**：同一日内排名段是 picked 内可比的强弱信号，"
-                 "不依赖「低分是否在弱市才进 picked」的混淆。理想情况下 1-5 显著优于 11-20。")
+                 "不依赖「低分是否在弱市才进 picked」的混淆。理想情况下 1-5 显著优于 11-20/21+。")
     lines.append("")
 
     # §4 sector_l1
@@ -322,7 +348,7 @@ def render_markdown_report(
     if not sector_buckets:
         lines.append("（无满足样本数门槛的行业）")
     else:
-        lines.append(_render_table(["行业", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+        lines.append(_render_table(_TABLE_HEADERS,
                                    [_row(b) for b in sector_buckets]))
     lines.append("")
     lines.append("**判读**：找出策略的强项/弱项行业。"
@@ -335,7 +361,7 @@ def render_markdown_report(
     if not dim_combos:
         lines.append("（无满足样本数门槛的组合）")
     else:
-        lines.append(_render_table(["组合", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+        lines.append(_render_table(_TABLE_HEADERS,
                                    [_row(b) for b in dim_combos[:10]]))
     lines.append("")
     lines.append("**判读**：找出胜率 > 60% 且样本量足够的组合，"
@@ -345,7 +371,7 @@ def render_markdown_report(
     # §6 exhaustion 质量分档
     lines.append("## 6. 按 exhaustion 分数分档（独立做）")
     lines.append("")
-    lines.append(_render_table(["质量档", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+    lines.append(_render_table(_TABLE_HEADERS,
                                [_row(b) for b in exhaustion_buckets]))
     lines.append("")
     lines.append("**判读**：健康(>=80)档应显著优于差(<50)档。"
@@ -353,6 +379,12 @@ def render_markdown_report(
     lines.append("")
 
     return "\n".join(lines)
+
+
+_TABLE_HEADERS = [
+    "分组", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)",
+    "平均盈利(%)", "平均亏损(%)", "盈亏因子", "止损率(%)",
+]
 
 
 def _render_table(headers: list[str], rows: list[list[str]]) -> str:
@@ -371,4 +403,8 @@ def _row(b: BucketStats) -> list[str]:
         f"{b.win_rate:.1f}",
         f"{b.avg_return:.2f}",
         f"{b.median_return:.2f}",
+        f"{b.avg_win:.2f}",
+        f"{b.avg_loss:.2f}",
+        "∞" if isinf(b.profit_factor) else f"{b.profit_factor:.2f}",
+        f"{b.stop_rate:.1f}",
     ]
