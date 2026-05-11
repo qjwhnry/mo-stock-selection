@@ -298,6 +298,7 @@ export interface StockItem {
   ts_code: string               // 股票代码，如 600519.SH
   name: string                  // 股票名称
   industry: string              // 所属行业（申万一级）
+  concepts: string[]            // 所属概念/题材列表
   final_score: number           // 最终综合分；AI 缺失时等于 rule_score，否则按配置权重融合
   rule_score: number            // 规则维度综合分
   ai_score: number | null        // AI 评分（可能为 null 尚未分析）
@@ -345,6 +346,7 @@ export interface StockDetailResponse {
   ts_code: string               // 股票代码
   name: string                  // 股票名称
   industry: string              // 所属行业
+  concepts: string[]            // 所属概念/题材列表
   latest_scores: Record<string, number>  // 各维度最新得分
   score_details: Record<string, Record<string, any>>  // 各维度打分详情
   ai_score: number | null                 // AI 评分

@@ -16,6 +16,8 @@ from mo_stock.storage.models import (
     IndexMember,
     SelectionResult,
     StockBasic,
+    ThsIndex,
+    ThsMember,
 )
 from mo_stock.web.deps import get_db
 from mo_stock.web.schemas import (
@@ -288,6 +290,18 @@ async def get_report_detail(
         for stock_row in stock_rows:
             name_map[stock_row.ts_code] = stock_row.name
 
+    # 批量查询概念/题材
+    concepts_map: dict[str, list[str]] = {c: [] for c in ts_codes}
+    if ts_codes:
+        concept_rows = db.execute(
+            select(ThsMember.con_code, ThsIndex.name)
+            .join(ThsIndex, ThsMember.ts_code == ThsIndex.ts_code)
+            .where(ThsMember.con_code.in_(ts_codes))
+            .where(ThsIndex.name.isnot(None))
+        ).all()
+        for con_code, concept_name in concept_rows:
+            concepts_map.setdefault(con_code, []).append(concept_name)
+
     # 组装 StockItem 列表
     stocks = []
     for r in results:
@@ -297,6 +311,7 @@ async def get_report_detail(
                 ts_code=r.ts_code,
                 name=name_map.get(r.ts_code, ""),
                 industry=industry_map.get(r.ts_code, ""),
+                concepts=concepts_map.get(r.ts_code, []),
                 final_score=round(float(r.final_score), 1),
                 rule_score=round(float(r.rule_score), 1),
                 ai_score=round(float(r.ai_score), 1) if r.ai_score is not None else None,

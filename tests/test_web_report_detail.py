@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS ai_analysis (
     input_tokens INTEGER, output_tokens INTEGER,
     cache_creation_tokens INTEGER, cache_read_tokens INTEGER, created_at DATETIME
 );
+CREATE TABLE IF NOT EXISTS ths_index (
+    ts_code VARCHAR(20) PRIMARY KEY, name VARCHAR(50),
+    count INTEGER, exchange VARCHAR(10), list_date DATE, type VARCHAR(5)
+);
+CREATE TABLE IF NOT EXISTS ths_member (
+    ts_code VARCHAR(20), con_code VARCHAR(12),
+    con_name VARCHAR(50), weight FLOAT, in_date DATE, out_date DATE,
+    PRIMARY KEY (ts_code, con_code)
+);
 """
 
 
@@ -91,6 +100,18 @@ def _make_test_db():
         s.execute(text(
             "INSERT INTO filter_score_daily (trade_date, strategy, ts_code, dim, score) "
             "VALUES ('2026-04-30', 'short', '600519.SH', 'moneyflow', 85.0)"
+        ))
+        s.execute(text(
+            "INSERT INTO ths_index (ts_code, name, type) VALUES ('885328.TI', '新能源车', 'N')"
+        ))
+        s.execute(text(
+            "INSERT INTO ths_index (ts_code, name, type) VALUES ('885412.TI', '白酒', 'N')"
+        ))
+        s.execute(text(
+            "INSERT INTO ths_member (ts_code, con_code, con_name) VALUES ('885328.TI', '600519.SH', '贵州茅台')"
+        ))
+        s.execute(text(
+            "INSERT INTO ths_member (ts_code, con_code, con_name) VALUES ('885412.TI', '600519.SH', '贵州茅台')"
         ))
         s.commit()
 
@@ -147,6 +168,7 @@ def test_valid_detail_returns_200(client):
     assert stock["name"] == "贵州茅台"
     assert stock["final_score"] == 85.2
     assert stock["scores"]["limit"] == 92
+    assert set(stock["concepts"]) == {"新能源车", "白酒"}
 
 
 def test_market_data_present(client):

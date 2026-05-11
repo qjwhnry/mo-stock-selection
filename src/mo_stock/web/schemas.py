@@ -39,6 +39,7 @@ class StockItem(BaseModel):
     ts_code: str
     name: str
     industry: str
+    concepts: list[str] = []
     final_score: float
     rule_score: float
     ai_score: float | None = None
@@ -74,6 +75,7 @@ class StockDetailResponse(BaseModel):
     ts_code: str
     name: str
     industry: str
+    concepts: list[str] = []
     latest_scores: dict[str, int]
     score_details: dict[str, dict] = {}
     ai_score: float | None = None

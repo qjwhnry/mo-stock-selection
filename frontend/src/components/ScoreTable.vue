@@ -115,9 +115,23 @@ function toggleOrder() {
         v-for="stock in stocks"
         :key="stock.ts_code"
         :title="stock.name"
-        :label="`${stock.ts_code} · ${stock.industry}`"
         :name="stock.ts_code"
       >
+        <template #label>
+          <div class="text-xs text-gray-400">
+            <span>{{ stock.ts_code }} · {{ stock.industry }}</span>
+            <div v-if="stock.concepts.length" class="mt-0.5 flex flex-wrap gap-1">
+              <van-tag
+                v-for="c in stock.concepts.slice(0, 5)"
+                :key="c"
+                type="primary"
+                size="medium"
+                plain
+              >{{ c }}</van-tag>
+              <span v-if="stock.concepts.length > 5" class="text-gray-400">+{{ stock.concepts.length - 5 }}</span>
+            </div>
+          </div>
+        </template>
         <!-- 卡片头部右侧：综合分 + 排名 + 规则分/AI分 -->
         <template #value>
           <div class="flex flex-col items-end">

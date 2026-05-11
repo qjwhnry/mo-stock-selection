@@ -102,6 +102,19 @@ onMounted(loadDetail)
         <!-- 基本信息卡片 -->
         <van-cell-group inset>
           <van-cell title="行业" :value="data.industry" />
+          <van-cell v-if="data.concepts.length" title="概念题材">
+            <template #value>
+              <div class="flex flex-wrap gap-1 justify-end">
+                <van-tag
+                  v-for="c in data.concepts"
+                  :key="c"
+                  type="primary"
+                  size="medium"
+                  plain
+                >{{ c }}</van-tag>
+              </div>
+            </template>
+          </van-cell>
           <van-cell title="AI 评分" :value="data.ai_score != null ? String(data.ai_score) : '暂无'" />
         </van-cell-group>
 
