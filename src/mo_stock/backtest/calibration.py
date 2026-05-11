@@ -245,9 +245,130 @@ def exhaustion_quality_buckets(
     for t, r in rows:
         detail = getattr(t, "dim_detail", None) or {}
         ex_score = float((detail.get("exhaustion") or {}).get("score") or 0)
-        for i, (low, high, label) in enumerate(edges):
+        for i, (low, high, _label) in enumerate(edges):
             if low <= ex_score < high:
                 groups[i][1].append(r)
                 break
 
     return [_bucket_stats(label, bucket) for label, bucket in groups]
+
+
+def render_markdown_report(
+    run_id: str,
+    backtest_window: tuple,
+    holding_days: int,
+    return_field: str,
+    total_trades: int,
+    rule_buckets: list[BucketStats],
+    catalyst_groups: dict[str, BucketStats],
+    rank_groups: dict[str, BucketStats],
+    sector_buckets: list[BucketStats],
+    dim_combos: list[BucketStats],
+    exhaustion_buckets: list[BucketStats],
+) -> str:
+    """渲染校准报告为 markdown。明确标注 return_field 口径和 picked 偏差告警。"""
+    start, end = backtest_window
+    lines: list[str] = []
+
+    lines.append("# 短线策略校准报告")
+    lines.append("")
+    lines.append(f"- 回测批次：`{run_id}`")
+    lines.append(f"- 回测区间：{start} ~ {end}")
+    lines.append(f"- 持有期：{holding_days} 日")
+    lines.append(f"- 收益口径：`{return_field}`（"
+                 f"{'扣费后' if return_field.startswith('net_') else '扣费前'}）")
+    lines.append(f"- 样本总数：{total_trades}")
+    lines.append("")
+    lines.append("> **方法论限制**：当前 `short_backtest_trade` 只持久化每日 picked Top N，"
+                 "**不含全部 scored 候选**。rule_score 分档存在选股偏差——低分能进 picked "
+                 "通常发生在市场弱日（候选少导致门槛降低），与「低分股票本身」的真实表现不可分离。"
+                 "排名段分组（§3）是 picked 内可比的强弱信号，可做交叉验证。")
+    lines.append("")
+
+    # §1 rule_score 分档
+    lines.append("## 1. 按 rule_score 分档")
+    lines.append("")
+    lines.append(_render_table(["分档", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+                               [_row(b) for b in rule_buckets]))
+    lines.append("")
+    lines.append("**判读**：从 `[0,30)` 到 `[60,100]` 胜率和均收益应单调上升；"
+                 "若不单调说明 rule_score 排序失效。**结论需结合 §3 排名分组交叉验证**——"
+                 "如果 §3 单调而本节倒挂，更可能是 picked 偏差而非排序失效。")
+    lines.append("")
+
+    # §2 催化维度数分组
+    lines.append("## 2. 按催化维度数分组（不含 exhaustion）")
+    lines.append("")
+    lines.append(_render_table(["命中数", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+                               [_row(catalyst_groups[k]) for k in ["1", "2", "3", "4+"]]))
+    lines.append("")
+    lines.append("**判读**：多维共振假设成立时，4+ 应显著优于 1。"
+                 "催化维度 = limit/moneyflow/lhb/sector/theme（exhaustion 单独看）。")
+    lines.append("")
+
+    # §3 rank_in_day 分组
+    lines.append("## 3. 按当日排名分段（picked 内可比）")
+    lines.append("")
+    lines.append(_render_table(["排名段", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+                               [_row(rank_groups[k]) for k in ["1-5", "6-10", "11-20"]]))
+    lines.append("")
+    lines.append("**判读**：同一日内排名段是 picked 内可比的强弱信号，"
+                 "不依赖「低分是否在弱市才进 picked」的混淆。理想情况下 1-5 显著优于 11-20。")
+    lines.append("")
+
+    # §4 sector_l1
+    lines.append("## 4. 按申万一级行业分组（样本数 ≥ 20）")
+    lines.append("")
+    if not sector_buckets:
+        lines.append("（无满足样本数门槛的行业）")
+    else:
+        lines.append(_render_table(["行业", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+                                   [_row(b) for b in sector_buckets]))
+    lines.append("")
+    lines.append("**判读**：找出策略的强项/弱项行业。"
+                 "可作为后续按行业差异化阈值或权重的依据。")
+    lines.append("")
+
+    # §5 维度组合
+    lines.append("## 5. 维度命中组合 TOP 10（样本 ≥ 5，已排除 exhaustion）")
+    lines.append("")
+    if not dim_combos:
+        lines.append("（无满足样本数门槛的组合）")
+    else:
+        lines.append(_render_table(["组合", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+                                   [_row(b) for b in dim_combos[:10]]))
+    lines.append("")
+    lines.append("**判读**：找出胜率 > 60% 且样本量足够的组合，"
+                 "作为后续 limit / theme / sector 维度扩展的优先方向。")
+    lines.append("")
+
+    # §6 exhaustion 质量分档
+    lines.append("## 6. 按 exhaustion 分数分档（独立做）")
+    lines.append("")
+    lines.append(_render_table(["质量档", "样本数", "胜率(%)", "均收益(%)", "中位收益(%)"],
+                               [_row(b) for b in exhaustion_buckets]))
+    lines.append("")
+    lines.append("**判读**：健康(>=80)档应显著优于差(<50)档。"
+                 "若差档反而更好，说明 exhaustion 维度需要重新设计。")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+def _render_table(headers: list[str], rows: list[list[str]]) -> str:
+    sep = ["---:" if i > 0 else "---" for i in range(len(headers))]
+    out = ["| " + " | ".join(headers) + " |",
+           "|" + "|".join(sep) + "|"]
+    for row in rows:
+        out.append("| " + " | ".join(row) + " |")
+    return "\n".join(out)
+
+
+def _row(b: BucketStats) -> list[str]:
+    return [
+        b.label,
+        str(b.count),
+        f"{b.win_rate:.1f}",
+        f"{b.avg_return:.2f}",
+        f"{b.median_return:.2f}",
+    ]

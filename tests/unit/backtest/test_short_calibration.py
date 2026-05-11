@@ -240,3 +240,52 @@ def test_exhaustion_quality_buckets_groups_by_score() -> None:
     assert buckets[0].count == 1
     assert buckets[2].count == 2
     assert buckets[2].avg_return == pytest.approx(2.5)
+
+
+def test_render_markdown_report_includes_all_sections() -> None:
+    from datetime import date
+
+    from mo_stock.backtest.calibration import (
+        BucketStats,
+        render_markdown_report,
+    )
+
+    md = render_markdown_report(
+        run_id="abc-123",
+        backtest_window=(date(2025, 9, 1), date(2026, 4, 30)),
+        holding_days=1,
+        return_field="net_realized_return_pct",
+        total_trades=70,
+        rule_buckets=[BucketStats("[0,30)", 10, 0.5, 0.3, 45.0)],
+        catalyst_groups={
+            "1": BucketStats("1", 20, 0.2, 0.1, 40.0),
+            "2": BucketStats("2", 30, 1.0, 0.8, 55.0),
+            "3": BucketStats("3", 15, 1.8, 1.5, 65.0),
+            "4+": BucketStats("4+", 5, 2.5, 2.3, 70.0),
+        },
+        rank_groups={
+            "1-5": BucketStats("1-5", 35, 1.5, 1.0, 60.0),
+            "6-10": BucketStats("6-10", 20, 0.8, 0.5, 50.0),
+            "11-20": BucketStats("11-20", 15, 0.2, 0.0, 45.0),
+        },
+        sector_buckets=[BucketStats("电子", 25, 1.5, 1.0, 60.0)],
+        dim_combos=[BucketStats("limit+lhb", 8, 2.0, 1.5, 62.5)],
+        exhaustion_buckets=[
+            BucketStats("差(<50)", 5, -0.5, -0.3, 30.0),
+            BucketStats("中(50-80)", 30, 0.8, 0.5, 50.0),
+            BucketStats("健康(>=80)", 35, 1.5, 1.0, 60.0),
+        ],
+    )
+    # 关键内容都出现
+    assert "# 短线策略校准报告" in md
+    assert "abc-123" in md
+    assert "net_realized_return_pct" in md  # 明确标注扣费后口径
+    assert "[0,30)" in md
+    assert "limit+lhb" in md
+    assert "4+" in md
+    assert "1-5" in md
+    assert "电子" in md
+    assert "健康(>=80)" in md
+    assert "70" in md  # total_trades
+    # 必须含 picked 偏差告警
+    assert "picked" in md.lower() or "选股偏差" in md
