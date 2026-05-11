@@ -185,3 +185,42 @@ def sector_groups(
     ]
     result.sort(key=lambda b: b.avg_return, reverse=True)
     return result
+
+
+def dim_combination_analysis(
+    trades: Iterable[Any],
+    holding_days: int,
+    min_count: int = 5,
+    exclude_dims: frozenset[str] = frozenset({"exhaustion"}),
+    return_field: str = "net_realized_return_pct",
+) -> list[BucketStats]:
+    """按 dim_detail 命中维度集合分组（默认排除 exhaustion），返回样本数 ≥ min_count 的组合。
+
+    label 形如 "limit+lhb"、"moneyflow+sector+theme"，键名按字母序保证稳定。
+    按 avg_return 降序返回。
+
+    exhaustion 是动量质量维度（不是催化），混进组合 label 会让"limit+exhaustion"看起来像"双信号共振"。
+    """
+    rows = _filter_rows(trades, holding_days, return_field)
+
+    by_combo: dict[str, list[float]] = {}
+    for t, r in rows:
+        detail = getattr(t, "dim_detail", None) or {}
+        hit_dims = sorted(
+            d for d, payload in detail.items()
+            if d not in exclude_dims
+            and isinstance(payload, dict)
+            and float(payload.get("score") or 0) > 0
+        )
+        if not hit_dims:
+            continue
+        key = "+".join(hit_dims)
+        by_combo.setdefault(key, []).append(r)
+
+    result = [
+        _bucket_stats(key, bucket)
+        for key, bucket in by_combo.items()
+        if len(bucket) >= min_count
+    ]
+    result.sort(key=lambda b: b.avg_return, reverse=True)
+    return result

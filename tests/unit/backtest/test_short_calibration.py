@@ -183,3 +183,39 @@ def test_sector_groups_skips_none_sector() -> None:
     result = sector_groups(trades, holding_days=1, min_count=3)
     # sector_l1=None 应被跳过，不要把 None 当成一个分组
     assert result == []
+
+
+def test_dim_combination_analysis_excludes_exhaustion_by_default() -> None:
+    from mo_stock.backtest.calibration import dim_combination_analysis
+
+    trades = (
+        # 组合 limit+lhb，3 笔
+        [_make_trade(net_realized_return_pct=2.0, dim_detail={
+            "limit": {"score": 30}, "lhb": {"score": 40},
+            "exhaustion": {"score": 95},  # 应被排除，不影响组合 label
+        })] * 3
+    )
+    combos = dim_combination_analysis(trades, holding_days=1, min_count=3)
+    assert len(combos) == 1
+    assert combos[0].label == "lhb+limit"  # 不应是 "exhaustion+lhb+limit"
+    assert combos[0].count == 3
+
+
+def test_dim_combination_analysis_filters_min_count_and_sorts() -> None:
+    from mo_stock.backtest.calibration import dim_combination_analysis
+
+    trades = (
+        # 组合 A：3 笔，均 2.5
+        [_make_trade(net_realized_return_pct=2.0, dim_detail={
+            "limit": {"score": 30}, "lhb": {"score": 40}})] * 1
+        + [_make_trade(net_realized_return_pct=3.0, dim_detail={
+            "limit": {"score": 30}, "lhb": {"score": 40}})] * 1
+        + [_make_trade(net_realized_return_pct=2.5, dim_detail={
+            "limit": {"score": 30}, "lhb": {"score": 40}})] * 1
+        # 组合 B：2 笔（< min_count 应被过滤）
+        + [_make_trade(net_realized_return_pct=4.0, dim_detail={
+            "moneyflow": {"score": 50}, "sector": {"score": 50}})] * 2
+    )
+    combos = dim_combination_analysis(trades, holding_days=1, min_count=3)
+    assert len(combos) == 1
+    assert combos[0].label == "lhb+limit"
