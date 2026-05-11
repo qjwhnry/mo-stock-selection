@@ -1,4 +1,4 @@
-"""APScheduler 调度入口：每交易日 15:30 执行 run-once。
+"""APScheduler 调度入口：每交易日默认 21:00 执行 run-once。
 
 用法：
     from mo_stock.scheduler.daily_job import start_scheduler
@@ -9,12 +9,13 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from loguru import logger
 
 from mo_stock.filters.base import load_weights_yaml
@@ -34,7 +35,18 @@ from mo_stock.filters.swing.theme_swing_filter import ThemeSwingFilter
 from mo_stock.filters.swing.trend_filter import TrendFilter
 from mo_stock.ingest.ingest_daily import DailyIngestor
 from mo_stock.report.render_md import render_daily_report
+from mo_stock.scheduler.state import (
+    SchedulerRuntimeConfig,
+    finish_run,
+    has_selection_result,
+    has_successful_scheduler_run,
+    load_runtime_config,
+    mark_stale_running_runs_failed,
+    save_runtime_config,
+    start_run,
+)
 from mo_stock.scorer.combine import combine_scores, replace_filter_scores
+from mo_stock.storage import repo
 from mo_stock.storage.db import get_session
 
 # A 股交易时区，所有时点判断都基于此（UTC+8）
@@ -97,6 +109,8 @@ def run_daily_pipeline(
         DailyIngestor().ingest_one_day(trade_date, skip_enhanced=skip_enhanced)
 
         cfg = load_weights_yaml(_weights_path_for_strategy(strategy))
+        # short 配置作为 combine 默认值来源；strategy 配置存在时会覆盖。
+        # hard_reject 同理优先使用当前 strategy，缺失时才回退到 short。
         base_cfg = load_weights_yaml(_weights_path_for_strategy("short"))
         dim_weights = cfg.get("dimension_weights", {})
         hard_reject = cfg.get("hard_reject", base_cfg.get("hard_reject", {}))
@@ -149,44 +163,165 @@ def run_daily_pipeline(
         raise
 
 
-def start_scheduler(
-    *,
+def run_daily_pipeline_with_history(
+    trade_date: date | None = None, *,
     skip_enhanced: bool = False,
     skip_ai: bool = False,
     strategy: str = "short",
+    source: str = "scheduled",
 ) -> None:
-    """启动阻塞调度器。周一至周五 15:30 (Asia/Shanghai) 触发。
+    """带执行历史记录的调度入口。
+
+    仅 scheduler / catch-up 使用；手工 `run-once` 保持原有路径。
+    """
+    trade_date = trade_date or datetime.now(CN_TZ).date()
+    strategy = _validate_strategy(strategy)
+    run_id = start_run(trade_date=trade_date, strategy=strategy, source=source)
+    try:
+        run_daily_pipeline(
+            trade_date=trade_date,
+            skip_enhanced=skip_enhanced,
+            skip_ai=skip_ai,
+            strategy=strategy,
+        )
+    except Exception as exc:
+        finish_run(run_id, status="failed", error_message=str(exc))
+        raise
+    finish_run(run_id, status="success")
+
+
+def start_scheduler(
+    *,
+    skip_enhanced: bool | None = None,
+    skip_ai: bool | None = None,
+    strategy: str | None = None,
+    cron_hour: int | None = None,
+    cron_minute: int | None = None,
+) -> None:
+    """启动阻塞调度器。周一至周五按数据库配置触发，默认 21:00。
 
     Args:
-        skip_enhanced: 透传给每日任务的 ingest_one_day（True 时只跑 CORE 步骤）
-        skip_ai: 透传给 run_daily_pipeline，跳过 AI 分析
-        strategy: 透传给 run_daily_pipeline，支持 short / swing
+        skip_enhanced: 可选覆盖数据库配置；True 时只跑 CORE 步骤
+        skip_ai: 可选覆盖数据库配置；True 时跳过 AI 分析
+        strategy: 可选覆盖数据库配置；支持 short / swing
+        cron_hour: 可选覆盖数据库配置；触发小时
+        cron_minute: 可选覆盖数据库配置；触发分钟
     """
-    strategy = _validate_strategy(strategy)
-    scheduler = BlockingScheduler(timezone="Asia/Shanghai")
+    if strategy is not None:
+        strategy = _validate_strategy(strategy)
 
-    scheduler.add_job(
-        run_daily_pipeline,
-        trigger=CronTrigger(
-            day_of_week="mon-fri",
-            hour=15,
-            minute=30,
-        ),
-        id="daily_stock_selection",
-        name="每日 15:30 A 股选股流程",
-        # P1-18：错过 60 分钟内仍补跑（原 30 分钟偏短，遇网络抖动易错过窗口）
-        misfire_grace_time=60 * 60,
-        kwargs={"skip_enhanced": skip_enhanced, "skip_ai": skip_ai, "strategy": strategy},
+    stale_count = mark_stale_running_runs_failed()
+    if stale_count:
+        logger.warning("已清理 {} 条遗留 running 调度记录", stale_count)
+
+    runtime_cfg = save_runtime_config(
+        enabled=True,
+        skip_enhanced=skip_enhanced,
+        skip_ai=skip_ai,
+        strategy=strategy,
+        cron_hour=cron_hour,
+        cron_minute=cron_minute,
     )
+    scheduler = BlockingScheduler(timezone=runtime_cfg.timezone)
+    register_scheduler_jobs(scheduler, runtime_cfg)
 
     logger.info(
-        "scheduler 已启动：每交易日 15:30 触发 (strategy={} skip_enhanced={} skip_ai={})",
-        strategy, skip_enhanced, skip_ai,
+        "scheduler 已启动：每交易日 {:02d}:{:02d} 触发 "
+        "(strategy={} skip_enhanced={} skip_ai={} catch_up={})",
+        runtime_cfg.cron_hour,
+        runtime_cfg.cron_minute,
+        runtime_cfg.strategy,
+        runtime_cfg.skip_enhanced,
+        runtime_cfg.skip_ai,
+        runtime_cfg.auto_catch_up,
     )
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):
         logger.info("scheduler 被中断，退出")
+
+
+def register_scheduler_jobs(scheduler, runtime_cfg: SchedulerRuntimeConfig) -> None:
+    """按数据库配置向 APScheduler 注册每日任务和可选补跑任务。"""
+    scheduler.add_job(
+        run_daily_pipeline_with_history,
+        trigger=CronTrigger(
+            day_of_week="mon-fri",
+            hour=runtime_cfg.cron_hour,
+            minute=runtime_cfg.cron_minute,
+        ),
+        id="daily_stock_selection",
+        name="每日 A 股选股流程",
+        misfire_grace_time=runtime_cfg.misfire_grace_minutes * 60,
+        kwargs={
+            "skip_enhanced": runtime_cfg.skip_enhanced,
+            "skip_ai": runtime_cfg.skip_ai,
+            "strategy": runtime_cfg.strategy,
+            "source": "scheduled",
+        },
+        replace_existing=True,
+    )
+    _register_catch_up_job_if_needed(scheduler, runtime_cfg)
+
+
+def load_enabled_runtime_config() -> SchedulerRuntimeConfig | None:
+    """服务启动时读取已启用的数据库配置。"""
+    stale_count = mark_stale_running_runs_failed()
+    if stale_count:
+        logger.warning("已清理 {} 条遗留 running 调度记录", stale_count)
+    runtime_cfg = load_runtime_config()
+    return runtime_cfg if runtime_cfg.enabled else None
+
+
+def _register_catch_up_job_if_needed(scheduler, runtime_cfg: SchedulerRuntimeConfig) -> None:
+    """启动时若错过今日调度且仍在宽限期内，注册一次性补跑任务。"""
+    if not runtime_cfg.auto_catch_up:
+        return
+
+    tz = ZoneInfo(runtime_cfg.timezone)
+    now = datetime.now(tz)
+    scheduled_at = datetime.combine(
+        now.date(),
+        time(runtime_cfg.cron_hour, runtime_cfg.cron_minute),
+        tzinfo=tz,
+    )
+    if now < scheduled_at:
+        return
+    if now > scheduled_at + timedelta(minutes=runtime_cfg.misfire_grace_minutes):
+        return
+
+    trade_date = now.date()
+    try:
+        with get_session() as session:
+            if not repo.is_trade_date(session, trade_date):
+                return
+            if has_successful_scheduler_run(
+                session, trade_date=trade_date, strategy=runtime_cfg.strategy,
+            ):
+                return
+            if has_selection_result(
+                session, trade_date=trade_date, strategy=runtime_cfg.strategy,
+            ):
+                return
+    except Exception:
+        logger.exception("检查 scheduler catch-up 条件失败，跳过自动补跑")
+        return
+
+    scheduler.add_job(
+        run_daily_pipeline_with_history,
+        trigger=DateTrigger(run_date=now + timedelta(seconds=1)),
+        id="daily_stock_selection_catch_up",
+        name="启动后补跑 A 股选股流程",
+        kwargs={
+            "trade_date": trade_date,
+            "skip_enhanced": runtime_cfg.skip_enhanced,
+            "skip_ai": runtime_cfg.skip_ai,
+            "strategy": runtime_cfg.strategy,
+            "source": "catch_up",
+        },
+        replace_existing=True,
+    )
+    logger.warning("检测到今日调度可能错过，已注册启动补跑任务：{}", trade_date)
 
 
 def _validate_strategy(strategy: str) -> str:

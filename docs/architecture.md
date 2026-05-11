@@ -14,7 +14,7 @@
 │   ┌─────────────────────────┐      ┌──────────────────────────┐   │
 │   │  cli.py (click 命令)     │      │  scheduler/daily_job.py  │   │
 │   │  init-db / refresh-* /   │      │  APScheduler             │   │
-│   │  backfill / run-once /   │      │  cron mon-fri 15:30      │   │
+│   │  backfill / run-once /   │      │  cron mon-fri 21:00      │   │
 │   │  analyze / scheduler     │◀────▶│  + 时点断言 / 异常捕获   │   │
 │   └─────────────────────────┘      └──────────────────────────┘   │
 └────────────┬───────────────────────────────────────┬───────────────┘
@@ -148,7 +148,7 @@ cli.py:run_once()
 | `refresh-cal --start ...` | cli.refresh_cal | refresh_trade_cal（年度刷一次） |
 | `backfill --days 180` | cli.backfill | DailyIngestor.backfill 按日循环跑 ingest_one_day |
 | `analyze 600519.SH` | cli.analyze → analyzer.analyze_stock | 复用 6 个 Filter.score_all 单股提取 |
-| `scheduler [--skip-enhanced]` | cli.scheduler → start_scheduler | APScheduler cron 每周一至五 15:30 触发 run_daily_pipeline |
+| `scheduler [--skip-enhanced]` | cli.scheduler → start_scheduler | APScheduler cron 每周一至五默认 21:00 触发 run_daily_pipeline |
 
 ---
 

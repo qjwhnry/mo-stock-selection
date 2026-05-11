@@ -4,6 +4,8 @@ from __future__ import annotations
 import base64
 import binascii
 import secrets
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -12,10 +14,19 @@ from starlette.requests import Request
 from config.settings import settings
 from mo_stock.web.routers import data, reports, stocks, tasks
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Web 服务启动时恢复数据库中启用的调度器。"""
+    tasks.autostart_scheduler_from_db()
+    yield
+
+
 app = FastAPI(
     title="mo-stock API",
     version="0.1.0",
     description="A 股选股系统 REST API",
+    lifespan=lifespan,
 )
 
 

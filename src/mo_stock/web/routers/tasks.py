@@ -5,7 +5,7 @@ import threading
 import uuid
 from collections.abc import Callable
 from datetime import date, datetime, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, HTTPException
 from loguru import logger
@@ -374,29 +374,26 @@ _sched_state: dict = {
     "scheduler": None,
     "strategy": None,
     "cron": None,
+    "enabled": None,
+    "skip_enhanced": None,
+    "skip_ai": None,
+    "timezone": None,
+    "auto_catch_up": None,
 }
 
 
-def _start_scheduler_thread(config: SchedulerConfig) -> None:
+def _scheduler_cron_expr(cron_hour: int, cron_minute: int) -> str:
+    return f"{cron_minute} {cron_hour} * * mon-fri"
+
+
+def _start_scheduler_thread(config) -> None:
     """在后台线程启动 BlockingScheduler。"""
     from apscheduler.schedulers.blocking import BlockingScheduler
-    from apscheduler.triggers.cron import CronTrigger
 
-    from mo_stock.scheduler.daily_job import run_daily_pipeline
+    from mo_stock.scheduler.daily_job import register_scheduler_jobs
 
-    sched = BlockingScheduler(timezone="Asia/Shanghai")
-    sched.add_job(
-        run_daily_pipeline,
-        trigger=CronTrigger(
-            day_of_week="mon-fri",
-            hour=config.cron_hour,
-            minute=config.cron_minute,
-        ),
-        id="daily_stock_selection",
-        name="每日选股流程",
-        misfire_grace_time=3600,
-        kwargs={"skip_ai": config.skip_ai, "strategy": config.strategy},
-    )
+    sched = BlockingScheduler(timezone=config.timezone)
+    register_scheduler_jobs(sched, config)
 
     with _sched_lock:
         _sched_state["scheduler"] = sched
@@ -411,26 +408,111 @@ def _start_scheduler_thread(config: SchedulerConfig) -> None:
             _sched_state["scheduler"] = None
 
 
+def autostart_scheduler_from_db() -> None:
+    """FastAPI 启动时从数据库恢复已启用的调度器。"""
+    from mo_stock.scheduler.daily_job import load_enabled_runtime_config
+
+    try:
+        runtime_cfg = load_enabled_runtime_config()
+    except Exception:
+        logger.exception("读取调度配置失败，跳过 Web 自动启动 scheduler")
+        return
+    if runtime_cfg is None:
+        return
+
+    with _sched_lock:
+        if _sched_state["status"] == "running":
+            return
+        _sched_state.update({
+            "status": "running",
+            "strategy": runtime_cfg.strategy,
+            "cron": _scheduler_cron_expr(runtime_cfg.cron_hour, runtime_cfg.cron_minute),
+            "enabled": runtime_cfg.enabled,
+            "skip_enhanced": runtime_cfg.skip_enhanced,
+            "skip_ai": runtime_cfg.skip_ai,
+            "timezone": runtime_cfg.timezone,
+            "auto_catch_up": runtime_cfg.auto_catch_up,
+        })
+
+    t = threading.Thread(
+        target=_start_scheduler_thread,
+        args=(runtime_cfg,),
+        daemon=True,
+    )
+    t.start()
+    logger.info("Web 启动时已从数据库恢复 scheduler")
+
+
 @router.post("/scheduler/start")
 async def start_scheduler(config: SchedulerConfig) -> dict:
     """启动定时调度器。"""
     if config.strategy not in ("short", "swing"):
         raise HTTPException(status_code=400, detail=f"非法 strategy: {config.strategy}")
+    try:
+        ZoneInfo(config.timezone)
+    except ZoneInfoNotFoundError:
+        raise HTTPException(status_code=400, detail=f"非法 timezone: {config.timezone}") from None
 
     with _sched_lock:
         if _sched_state["status"] == "running":
             raise HTTPException(status_code=409, detail="调度器已在运行中")
-
-        cron_expr = f"{config.cron_minute} {config.cron_hour} * * mon-fri"
         _sched_state.update({
             "status": "running",
+            "scheduler": None,
             "strategy": config.strategy,
+            "cron": _scheduler_cron_expr(config.cron_hour, config.cron_minute),
+            "enabled": True,
+            "skip_enhanced": config.skip_enhanced,
+            "skip_ai": config.skip_ai,
+            "timezone": config.timezone,
+            "auto_catch_up": config.auto_catch_up,
+        })
+
+    from mo_stock.scheduler.state import save_runtime_config
+
+    try:
+        runtime_cfg = save_runtime_config(
+            enabled=True,
+            strategy=config.strategy,
+            skip_enhanced=config.skip_enhanced,
+            skip_ai=config.skip_ai,
+            cron_hour=config.cron_hour,
+            cron_minute=config.cron_minute,
+            timezone=config.timezone,
+            auto_catch_up=config.auto_catch_up,
+            misfire_grace_minutes=config.misfire_grace_minutes,
+        )
+    except Exception:
+        with _sched_lock:
+            _sched_state.update({
+                "status": "stopped",
+                "scheduler": None,
+                "strategy": None,
+                "cron": None,
+                "enabled": None,
+                "skip_enhanced": None,
+                "skip_ai": None,
+                "timezone": None,
+                "auto_catch_up": None,
+            })
+        raise
+
+    with _sched_lock:
+        cron_expr = _scheduler_cron_expr(runtime_cfg.cron_hour, runtime_cfg.cron_minute)
+        _sched_state.update({
+            "status": "running",
+            "strategy": runtime_cfg.strategy,
             "cron": cron_expr,
+            "enabled": runtime_cfg.enabled,
+            "skip_enhanced": runtime_cfg.skip_enhanced,
+            "skip_ai": runtime_cfg.skip_ai,
+            "timezone": runtime_cfg.timezone,
+            "auto_catch_up": runtime_cfg.auto_catch_up,
         })
 
     t = threading.Thread(
         target=_start_scheduler_thread,
-        args=(config,),
+        args=(runtime_cfg,),
         daemon=True,
     )
     t.start()
@@ -441,6 +523,8 @@ async def start_scheduler(config: SchedulerConfig) -> dict:
 @router.post("/scheduler/stop")
 async def stop_scheduler() -> dict:
     """停止定时调度器。"""
+    from mo_stock.scheduler.state import save_runtime_config
+
     with _sched_lock:
         if _sched_state["status"] != "running" or _sched_state["scheduler"] is None:
             raise HTTPException(status_code=409, detail="调度器未在运行")
@@ -449,16 +533,32 @@ async def stop_scheduler() -> dict:
         _sched_state["status"] = "stopped"
         _sched_state["scheduler"] = None
         _sched_state["cron"] = None
+        _sched_state["enabled"] = False
+
+    save_runtime_config(enabled=False)
 
     return {"message": "调度器已停止"}
 
 
 @router.get("/scheduler/status", response_model=SchedulerStatusResponse)
 async def get_scheduler_status() -> SchedulerStatusResponse:
+    db_cfg = None
+    try:
+        from mo_stock.scheduler.state import load_runtime_config
+
+        db_cfg = load_runtime_config()
+    except Exception:
+        logger.exception("读取调度配置状态失败")
+
     with _sched_lock:
         status = _sched_state["status"]
         strategy = _sched_state.get("strategy")
         cron = _sched_state.get("cron")
+        enabled = _sched_state.get("enabled")
+        skip_enhanced = _sched_state.get("skip_enhanced")
+        skip_ai = _sched_state.get("skip_ai")
+        timezone = _sched_state.get("timezone")
+        auto_catch_up = _sched_state.get("auto_catch_up")
 
         next_run = None
         if status == "running" and _sched_state.get("scheduler"):
@@ -468,9 +568,24 @@ async def get_scheduler_status() -> SchedulerStatusResponse:
             except Exception:
                 pass
 
+    if db_cfg is not None:
+        strategy = strategy or db_cfg.strategy
+        cron = cron or _scheduler_cron_expr(db_cfg.cron_hour, db_cfg.cron_minute)
+        enabled = db_cfg.enabled if enabled is None else enabled
+        skip_enhanced = db_cfg.skip_enhanced if skip_enhanced is None else skip_enhanced
+        skip_ai = db_cfg.skip_ai if skip_ai is None else skip_ai
+        timezone = db_cfg.timezone if timezone is None else timezone
+        auto_catch_up = db_cfg.auto_catch_up if auto_catch_up is None else auto_catch_up
+
     return SchedulerStatusResponse(
         status=status,
+        status_scope="web_process",
         strategy=strategy,
         cron=cron,
         next_run=next_run,
+        enabled=enabled,
+        skip_enhanced=skip_enhanced,
+        skip_ai=skip_ai,
+        timezone=timezone,
+        auto_catch_up=auto_catch_up,
     )

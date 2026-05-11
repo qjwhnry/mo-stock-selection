@@ -298,16 +298,26 @@ class TaskStatusResponse(BaseModel):
 
 class SchedulerConfig(BaseModel):
     strategy: str = "short"
+    skip_enhanced: bool = False
     skip_ai: bool = False
-    cron_hour: int = 15
-    cron_minute: int = 30
+    cron_hour: int = Field(default=21, ge=0, le=23)
+    cron_minute: int = Field(default=0, ge=0, le=59)
+    timezone: str = "Asia/Shanghai"
+    auto_catch_up: bool = True
+    misfire_grace_minutes: int = Field(default=60, ge=1, le=1440)
 
 
 class SchedulerStatusResponse(BaseModel):
     status: Literal["running", "stopped"]
+    status_scope: Literal["web_process"] = "web_process"
     strategy: str | None = None
     cron: str | None = None
     next_run: str | None = None
+    enabled: bool | None = None
+    skip_enhanced: bool | None = None
+    skip_ai: bool | None = None
+    timezone: str | None = None
+    auto_catch_up: bool | None = None
 
 
 def _parse_iso_date(value: str, *, field_name: str) -> date:

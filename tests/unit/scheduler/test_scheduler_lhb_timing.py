@@ -8,7 +8,9 @@
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -30,7 +32,7 @@ class TestAssertLhbDataAvailable:
             _assert_lhb_data_available(today, now=now)
 
     def test_at_exactly_1530_passes(self) -> None:
-        """边界：15:30:00 整点视为已发布（与 cron 触发时刻一致）。"""
+        """边界：15:30:00 整点视为已发布（与时点保护边界一致）。"""
         today = date.today()
         now = datetime(today.year, today.month, today.day, 15, 30, tzinfo=CN_TZ)
         _assert_lhb_data_available(today, now=now)  # 不抛
@@ -51,3 +53,107 @@ def test_scheduler_builds_swing_filters_and_dims() -> None:
         "theme_swing", "catalyst", "risk_liquidity",
     ]
     assert [f.dim for f in filters] == dims
+
+
+def test_run_daily_pipeline_with_history_records_success(monkeypatch) -> None:
+    """调度执行成功时写入 success。"""
+    from mo_stock.scheduler import daily_job
+
+    calls: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(daily_job, "start_run", lambda **kwargs: 7)
+    monkeypatch.setattr(
+        daily_job,
+        "run_daily_pipeline",
+        lambda **kwargs: calls.append(("pipeline", kwargs)),
+    )
+    monkeypatch.setattr(
+        daily_job,
+        "finish_run",
+        lambda run_id, **kwargs: calls.append(("finish", (run_id, kwargs))),
+    )
+
+    trade_date = date(2026, 5, 11)
+    daily_job.run_daily_pipeline_with_history(
+        trade_date=trade_date,
+        skip_ai=True,
+        strategy="short",
+        source="scheduled",
+    )
+
+    assert calls[0] == ("pipeline", {
+        "trade_date": trade_date,
+        "skip_enhanced": False,
+        "skip_ai": True,
+        "strategy": "short",
+    })
+    assert calls[1] == ("finish", (7, {"status": "success"}))
+
+
+def test_run_daily_pipeline_with_history_records_failure(monkeypatch) -> None:
+    """调度执行失败时写入 failed 并继续抛出异常，交给 APScheduler 记录。"""
+    from mo_stock.scheduler import daily_job
+
+    calls: list[tuple[int, dict]] = []
+
+    def _boom(**kwargs) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(daily_job, "start_run", lambda **kwargs: 8)
+    monkeypatch.setattr(daily_job, "run_daily_pipeline", _boom)
+    monkeypatch.setattr(
+        daily_job,
+        "finish_run",
+        lambda run_id, **kwargs: calls.append((run_id, kwargs)),
+    )
+
+    with pytest.raises(RuntimeError, match="boom"):
+        daily_job.run_daily_pipeline_with_history(trade_date=date(2026, 5, 11))
+
+    assert calls == [(8, {"status": "failed", "error_message": "boom"})]
+
+
+def test_register_catch_up_job_when_missed_within_grace(monkeypatch) -> None:
+    """启动时间错过调度点但仍在宽限期内时，注册一次性补跑。"""
+    from mo_stock.scheduler import daily_job
+    from mo_stock.scheduler.state import SchedulerRuntimeConfig
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # noqa: ANN001
+            return datetime(2026, 5, 11, 21, 5, tzinfo=tz)
+
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.jobs: list[dict[str, Any]] = []
+
+        def add_job(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            self.jobs.append({"args": args, "kwargs": kwargs})
+
+    @contextmanager
+    def fake_session():
+        yield object()
+
+    runtime_cfg = SchedulerRuntimeConfig(
+        enabled=True,
+        strategy="short",
+        skip_enhanced=False,
+        skip_ai=True,
+        cron_hour=21,
+        cron_minute=0,
+        timezone="Asia/Shanghai",
+        auto_catch_up=True,
+        misfire_grace_minutes=60,
+    )
+    scheduler = FakeScheduler()
+    monkeypatch.setattr(daily_job, "datetime", FixedDatetime)
+    monkeypatch.setattr(daily_job, "get_session", fake_session)
+    monkeypatch.setattr(daily_job.repo, "is_trade_date", lambda session, trade_date: True)
+    monkeypatch.setattr(daily_job, "has_successful_scheduler_run", lambda *args, **kwargs: False)
+    monkeypatch.setattr(daily_job, "has_selection_result", lambda *args, **kwargs: False)
+
+    daily_job._register_catch_up_job_if_needed(scheduler, runtime_cfg)
+
+    assert len(scheduler.jobs) == 1
+    assert scheduler.jobs[0]["kwargs"]["id"] == "daily_stock_selection_catch_up"
+    assert scheduler.jobs[0]["kwargs"]["kwargs"]["trade_date"] == date(2026, 5, 11)

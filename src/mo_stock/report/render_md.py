@@ -96,7 +96,7 @@ def render_daily_report(
     md_lines: list[str] = [
         f"# {trade_date} A 股选股日报（{strategy} / {phase}）",
         "",
-        f"> 产出时间：{trade_date} 15:30 收盘后",
+        f"> 产出时间：{trade_date} 收盘后数据稳定后",
         f"> TOP {len(selections)}，按 `final_score` 排序",
         *(
             ["> 注：本次未读取到 exhaustion 维度，规则层该权重按 0 计。"]

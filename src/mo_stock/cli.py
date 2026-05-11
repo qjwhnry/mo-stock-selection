@@ -13,7 +13,7 @@
     mo-stock backfill --days 180                # 首次部署：回填 180 天历史日频数据
 
     # ---------- 每日运行 ----------
-    mo-stock run-once --date 2026-04-22         # 每个交易日 15:30：选股端到端
+    mo-stock run-once --date 2026-04-22         # 每个交易日 21:00：选股端到端
     mo-stock scheduler                          # 生产常驻：自动按交易日触发 run-once
 
     # ---------- 按需复盘 / 调试 ----------
@@ -452,15 +452,38 @@ def backtest(
 
 
 @cli.command("scheduler")
-@click.option("--skip-enhanced", is_flag=True, help="scheduler 每日任务跳过 ENHANCED ingest（5 步）")
-@click.option("--skip-ai", is_flag=True, help="scheduler 每日任务跳过 AI 分析，final_score 使用 rule_score")
-@click.option("--strategy", default="short", show_default=True, help="策略：short / swing")
-def scheduler(skip_enhanced: bool, skip_ai: bool, strategy: str) -> None:
-    """启动常驻调度：每个交易日 15:30 自动跑 run-once。"""
+@click.option(
+    "--skip-enhanced/--no-skip-enhanced",
+    default=None,
+    help="覆盖数据库配置：是否跳过 ENHANCED ingest（5 步）",
+)
+@click.option(
+    "--skip-ai/--no-skip-ai",
+    default=None,
+    help="覆盖数据库配置：是否跳过 AI 分析",
+)
+@click.option("--strategy", default=None, help="覆盖数据库配置：short / swing")
+@click.option("--cron-hour", type=click.IntRange(0, 23), default=None, help="覆盖数据库配置：触发小时")
+@click.option("--cron-minute", type=click.IntRange(0, 59), default=None, help="覆盖数据库配置：触发分钟")
+def scheduler(
+    skip_enhanced: bool | None,
+    skip_ai: bool | None,
+    strategy: str | None,
+    cron_hour: int | None,
+    cron_minute: int | None,
+) -> None:
+    """启动常驻调度：读取数据库配置，到点自动跑 run-once。"""
     from mo_stock.scheduler.daily_job import start_scheduler
 
-    strategy = _validate_strategy(strategy)
-    start_scheduler(skip_enhanced=skip_enhanced, skip_ai=skip_ai, strategy=strategy)
+    if strategy is not None:
+        strategy = _validate_strategy(strategy)
+    start_scheduler(
+        skip_enhanced=skip_enhanced,
+        skip_ai=skip_ai,
+        strategy=strategy,
+        cron_hour=cron_hour,
+        cron_minute=cron_minute,
+    )
 
 
 def _parse_holding_days(value: str) -> list[int]:

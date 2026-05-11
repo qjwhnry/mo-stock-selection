@@ -608,6 +608,95 @@ class SelectionResult(Base):
     )
 
 
+class SchedulerConfig(Base):
+    """定时调度配置。单行表，服务启动时读取并注册 APScheduler job。"""
+
+    __tablename__ = "scheduler_config"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, default=1, comment="固定主键；当前仅使用 id=1",
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, index=True, comment="是否随服务启动自动启用调度",
+    )
+    strategy: Mapped[str] = mapped_column(
+        String(20), default="short", comment="策略标识：short / swing",
+    )
+    skip_enhanced: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否跳过 ENHANCED 数据同步步骤",
+    )
+    skip_ai: Mapped[bool] = mapped_column(
+        Boolean, default=False, comment="是否跳过 AI 分析",
+    )
+    cron_hour: Mapped[int] = mapped_column(
+        Integer, default=21, comment="每日触发小时，Asia/Shanghai 语义，0-23",
+    )
+    cron_minute: Mapped[int] = mapped_column(
+        Integer, default=0, comment="每日触发分钟，Asia/Shanghai 语义，0-59",
+    )
+    timezone: Mapped[str] = mapped_column(
+        String(50), default="Asia/Shanghai", comment="调度时区",
+    )
+    auto_catch_up: Mapped[bool] = mapped_column(
+        Boolean, default=True, comment="启动时若错过当日调度窗口，是否在宽限期内自动补跑",
+    )
+    misfire_grace_minutes: Mapped[int] = mapped_column(
+        Integer, default=60, comment="错过调度后的补跑宽限分钟数",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        comment="配置创建时间",
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        comment="配置最后更新时间",
+    )
+
+    __table_args__ = ({"comment": "定时调度配置；服务启动时读取 id=1 并注册 APScheduler job"},)
+
+
+class SchedulerRun(Base):
+    """定时调度执行历史。用于重启补跑、失败排查和前端展示。"""
+
+    __tablename__ = "scheduler_run"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="自增主键",
+    )
+    trade_date: Mapped[date] = mapped_column(Date, index=True, comment="执行对应的交易日")
+    strategy: Mapped[str] = mapped_column(
+        String(20), index=True, comment="策略标识：short / swing",
+    )
+    source: Mapped[str] = mapped_column(
+        String(20), index=True, comment="触发来源：scheduled / catch_up",
+    )
+    status: Mapped[str] = mapped_column(
+        String(20), index=True, comment="执行状态：running / success / failed",
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), comment="开始时间",
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), comment="结束时间",
+    )
+    error_message: Mapped[str | None] = mapped_column(
+        Text, comment="失败原因；成功时为 NULL",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        comment="记录创建时间",
+    )
+
+    __table_args__ = (
+        Index("ix_scheduler_run_date_strategy_status", "trade_date", "strategy", "status"),
+        {"comment": "定时调度执行历史；用于重启补跑、失败排查和审计"},
+    )
+
+
 class SwingPosition(Base):
     """波段策略持仓状态跟踪（回测 + 实盘共用，通过 mode 隔离）。"""
 

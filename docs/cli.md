@@ -43,7 +43,7 @@
 | `refresh-basics` | **每周 1 次** | 周一开盘前 | `stock_basic`（~5500 行）+ `index_member`（~5700 行） |
 | `refresh-basics --with-ths` | **每月 1 次** | 月初首个交易日前 | 上述 + `ths_index`（~408 行）+ `ths_member`（~7 万行） |
 | `backfill` | **一次性 / 按需** | 首次部署回填 180 天；缺数据时补区间 | 全部日频表（千万级） |
-| `run-once` | **每个交易日 1 次** | 收盘后 15:30+，手工或调度触发 | 当日全部日频表 + 选股结果 |
+| `run-once` | **每个交易日 1 次** | 默认晚间 21:00 调度；也可手工触发 | 当日全部日频表 + 选股结果 |
 | `scheduler` | **常驻** | 生产环境 `systemd`/`docker` 启动 | 自动调用 `run-once` |
 | `analyze` | **按需** | 复盘单股、调试某次打分 | ✗ 只读 |
 
@@ -62,7 +62,7 @@
 ```
 每年 12-31 23:00       refresh-cal --start <next_year>-01-01
 每周一 08:00           refresh-basics
-每个交易日 15:30       run-once（scheduler 自动跑，无需 cron）
+每个交易日 21:00       run-once（scheduler 自动跑，无需 cron）
 ```
 
 ---
@@ -302,18 +302,31 @@ mo-stock analyze 600519.SH --date 2026-04-22 --json # JSON 结构化输出
 
 ## scheduler
 
-启动常驻调度进程：**每个交易日 15:30 自动执行 run-once**（基于 APScheduler）。
+启动常驻调度进程：**按数据库中的调度配置自动执行 run-once**（基于 APScheduler）。
 
 ```bash
 mo-stock scheduler
 ```
 
-**参数：** 无
+首次启动会创建默认配置：每个交易日 21:00、`short` 策略、不跳过 AI。
+配置写入 `scheduler_config` 表，执行历史写入 `scheduler_run` 表。
+
+常用覆盖参数：
+
+```bash
+mo-stock scheduler --strategy swing --skip-ai
+mo-stock scheduler --cron-hour 20 --cron-minute 30
+```
+
+这些参数会覆盖并保存到数据库；不传参数时直接读取数据库中的既有配置。
 
 **部署建议：**
 - 前台跑适合本地调试
 - 生产用 `systemd` / `supervisor` / Docker 常驻
 - 调度器会读 `trade_cal` 判断交易日，非交易日自动跳过
+- 服务重启后会读取 `scheduler_config.enabled`，Web 服务会自动恢复已启用调度
+- 如果启动时间已错过当日触发点，但仍在 `misfire_grace_minutes` 宽限期内，且当天没有成功记录/选股结果，会注册一次补跑任务
+- Web `/scheduler/status` 的 `status` 只表示当前 Web 进程内的调度器状态；`enabled` 表示数据库中的期望配置，不等价于外部 CLI scheduler 进程存活
 
 **相关代码：** [src/mo_stock/scheduler/daily_job.py](../src/mo_stock/scheduler/daily_job.py)
 
@@ -397,4 +410,4 @@ mo-stock run-once --date 2026-04-22
 
     mo-stock scheduler --strategy swing
 
-每交易日 15:30 触发波段选股流程。swing AI prompt 未接入前会自动跳过 AI 阶段。
+按数据库配置触发波段选股流程，默认每交易日 21:00。swing AI prompt 未接入前会自动跳过 AI 阶段。
