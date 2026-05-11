@@ -155,3 +155,31 @@ def test_rank_in_day_groups_returns_three_buckets() -> None:
     assert groups["1-5"].avg_return == pytest.approx((3 + 2 + 1.5) / 3)
     assert groups["6-10"].count == 1
     assert groups["11-20"].count == 2
+
+
+def test_sector_groups_filters_by_min_count_and_sorts() -> None:
+    from mo_stock.backtest.calibration import sector_groups
+
+    trades = (
+        # 电子：3 条，均收益 2.0
+        [_make_trade(sector_l1="电子", net_realized_return_pct=2.0)] * 3
+        # 计算机：3 条，均收益 -0.5
+        + [_make_trade(sector_l1="计算机", net_realized_return_pct=-0.5)] * 3
+        # 食品饮料：1 条，应被 min_count 过滤
+        + [_make_trade(sector_l1="食品饮料", net_realized_return_pct=5.0)]
+    )
+    result = sector_groups(trades, holding_days=1, min_count=3)
+    labels = [b.label for b in result]
+    # 应按 avg_return 降序，且不含 sample 不足的食品饮料
+    assert labels == ["电子", "计算机"]
+    assert "食品饮料" not in labels
+    assert result[0].avg_return == pytest.approx(2.0)
+
+
+def test_sector_groups_skips_none_sector() -> None:
+    from mo_stock.backtest.calibration import sector_groups
+
+    trades = [_make_trade(sector_l1=None, net_realized_return_pct=1.0)] * 5
+    result = sector_groups(trades, holding_days=1, min_count=3)
+    # sector_l1=None 应被跳过，不要把 None 当成一个分组
+    assert result == []

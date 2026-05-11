@@ -156,3 +156,32 @@ def rank_in_day_groups(
                 break
 
     return {label: _bucket_stats(label, bucket) for label, bucket in groups.items()}
+
+
+def sector_groups(
+    trades: Iterable[Any],
+    holding_days: int,
+    min_count: int = 20,
+    return_field: str = "net_realized_return_pct",
+) -> list[BucketStats]:
+    """按 sector_l1 分组，过滤样本数 < min_count 的行业，按 avg_return 降序返回。
+
+    sector_l1 来自 short_backtest_trade 的快照列（信号日时点），
+    不依赖 index_member 的当前状态，可跨时间稳定比较。
+    """
+    rows = _filter_rows(trades, holding_days, return_field)
+
+    by_sector: dict[str, list[float]] = {}
+    for t, r in rows:
+        sec = getattr(t, "sector_l1", None)
+        if not sec:
+            continue
+        by_sector.setdefault(sec, []).append(r)
+
+    result = [
+        _bucket_stats(sec, bucket)
+        for sec, bucket in by_sector.items()
+        if len(bucket) >= min_count
+    ]
+    result.sort(key=lambda b: b.avg_return, reverse=True)
+    return result
