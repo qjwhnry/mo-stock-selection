@@ -112,6 +112,7 @@ onMounted(loadDetail)
                   size="medium"
                   plain
                 >{{ c }}</van-tag>
+                <span v-if="data.concept_count > data.concepts.length" class="text-xs text-gray-400">+{{ data.concept_count - data.concepts.length }}</span>
               </div>
             </template>
           </van-cell>

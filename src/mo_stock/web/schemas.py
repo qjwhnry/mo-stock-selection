@@ -40,6 +40,7 @@ class StockItem(BaseModel):
     name: str
     industry: str
     concepts: list[str] = []
+    concept_count: int = 0
     final_score: float
     rule_score: float
     ai_score: float | None = None
@@ -76,6 +77,7 @@ class StockDetailResponse(BaseModel):
     name: str
     industry: str
     concepts: list[str] = []
+    concept_count: int = 0
     latest_scores: dict[str, int]
     score_details: dict[str, dict] = {}
     ai_score: float | None = None

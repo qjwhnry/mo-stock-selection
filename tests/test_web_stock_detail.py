@@ -48,6 +48,12 @@ CREATE TABLE IF NOT EXISTS ths_member (
     con_name VARCHAR(50), weight FLOAT, in_date DATE, out_date DATE,
     PRIMARY KEY (ts_code, con_code)
 );
+CREATE TABLE IF NOT EXISTS limit_concept_daily (
+    ts_code VARCHAR(20), trade_date DATE,
+    name VARCHAR(50), days INTEGER, up_stat VARCHAR(50),
+    cons_nums INTEGER, up_nums INTEGER, pct_chg FLOAT, rank INTEGER,
+    PRIMARY KEY (ts_code, trade_date)
+);
 """
 
 
@@ -96,6 +102,26 @@ def _make_test_db():
         s.execute(text(
             "INSERT INTO ths_member (ts_code, con_code, con_name) VALUES ('885328.TI', '600519.SH', '贵州茅台')"
         ))
+        s.execute(text(
+            "INSERT INTO limit_concept_daily (ts_code, trade_date, name, rank, up_nums) VALUES ('885412.TI', '2026-04-30', '白酒', 1, 5)"
+        ))
+        s.execute(text(
+            "INSERT INTO limit_concept_daily (ts_code, trade_date, name, rank, up_nums) VALUES ('885328.TI', '2026-04-30', '新能源车', 2, 3)"
+        ))
+        for i in range(1, 15):
+            concept_code = f"8859{i:02d}.TI"
+            concept_name = f"概念{i:02d}"
+            s.execute(
+                text("INSERT INTO ths_index (ts_code, name, type) VALUES (:code, :name, 'N')"),
+                {"code": concept_code, "name": concept_name},
+            )
+            s.execute(
+                text(
+                    "INSERT INTO ths_member (ts_code, con_code, con_name) "
+                    "VALUES (:code, '600519.SH', '贵州茅台')"
+                ),
+                {"code": concept_code},
+            )
         s.commit()
 
     def override():
@@ -155,7 +181,10 @@ def test_stock_detail_success_with_concepts(client):
     assert body["ts_code"] == "600519.SH"
     assert body["name"] == "贵州茅台"
     assert body["industry"] == "食品饮料"
-    assert set(body["concepts"]) == {"白酒", "新能源车"}
+    assert body["concept_count"] == 16
+    assert len(body["concepts"]) == 15
+    assert body["concepts"][:3] == ["白酒", "新能源车", "概念01"]
+    assert body["concepts"][-1] == "概念13"
     assert body["latest_scores"]["limit"] == 92
     assert body["recent_picks"][0]["final_score"] == 85.2
 

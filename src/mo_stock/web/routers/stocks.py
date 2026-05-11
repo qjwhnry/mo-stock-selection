@@ -12,6 +12,7 @@ from mo_stock.storage.models import (
     AiAnalysis,
     FilterScoreDaily,
     IndexMember,
+    LimitConceptDaily,
     SelectionResult,
     StockBasic,
     ThsIndex,
@@ -21,6 +22,8 @@ from mo_stock.web.deps import get_db
 from mo_stock.web.schemas import AiAnalysisData, RecentPick, StockDetailResponse
 
 router = APIRouter(tags=["stocks"])
+
+STOCK_DETAIL_CONCEPT_DISPLAY_LIMIT = 15
 
 
 @router.get("/stocks/{ts_code}", response_model=StockDetailResponse)
@@ -63,15 +66,6 @@ def get_stock_detail(
     index_member = db.query(IndexMember).filter(IndexMember.ts_code == ts_code).first()
     industry = index_member.l1_name if index_member and index_member.l1_name else (stock.industry or "未知")
 
-    # 3.5 获取概念/题材列表
-    concept_rows = db.execute(
-        select(ThsIndex.name)
-        .join(ThsMember, ThsMember.ts_code == ThsIndex.ts_code)
-        .where(ThsMember.con_code == ts_code)
-        .where(ThsIndex.name.isnot(None))
-    ).scalars().all()
-    concepts = [name for name in concept_rows if name]
-
     # 4. 获取维度分（含 detail）
     # 如果指定了 trade_date 则直接用，否则取最新有评分的日期
     target_date: date_type | None
@@ -88,6 +82,35 @@ def get_stock_detail(
             .first()
         )
         target_date = latest_score_record.trade_date if latest_score_record else None
+
+    # 4.5 获取概念/题材列表，按当日概念强度排序
+    if target_date:
+        concept_rows = db.execute(
+            select(ThsIndex.name)
+            .join(ThsMember, ThsMember.ts_code == ThsIndex.ts_code)
+            .outerjoin(
+                LimitConceptDaily,
+                (ThsMember.ts_code == LimitConceptDaily.ts_code)
+                & (LimitConceptDaily.trade_date == target_date),
+            )
+            .where(ThsMember.con_code == ts_code)
+            .where(ThsIndex.name.isnot(None))
+            .order_by(
+                LimitConceptDaily.rank.is_(None),
+                LimitConceptDaily.rank,
+                ThsIndex.name,
+            )
+        ).scalars().all()
+    else:
+        concept_rows = db.execute(
+            select(ThsIndex.name)
+            .join(ThsMember, ThsMember.ts_code == ThsIndex.ts_code)
+            .where(ThsMember.con_code == ts_code)
+            .where(ThsIndex.name.isnot(None))
+            .order_by(ThsIndex.name)
+        ).scalars().all()
+    all_concepts = [name for name in concept_rows if name]
+    concepts = all_concepts[:STOCK_DETAIL_CONCEPT_DISPLAY_LIMIT]
 
     latest_scores: dict[str, int] = {}
     latest_details: dict[str, dict] = {}
@@ -165,6 +188,7 @@ def get_stock_detail(
         name=stock.name,
         industry=industry,
         concepts=concepts,
+        concept_count=len(all_concepts),
         latest_scores=latest_scores,
         score_details=latest_details,
         ai_score=ai_score,

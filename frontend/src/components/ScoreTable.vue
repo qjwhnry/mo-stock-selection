@@ -122,13 +122,13 @@ function toggleOrder() {
             <span>{{ stock.ts_code }} · {{ stock.industry }}</span>
             <div v-if="stock.concepts.length" class="mt-0.5 flex flex-wrap gap-1">
               <van-tag
-                v-for="c in stock.concepts.slice(0, 5)"
+                v-for="c in stock.concepts"
                 :key="c"
                 type="primary"
                 size="medium"
                 plain
               >{{ c }}</van-tag>
-              <span v-if="stock.concepts.length > 5" class="text-gray-400">+{{ stock.concepts.length - 5 }}</span>
+              <span v-if="stock.concept_count > stock.concepts.length" class="text-gray-400">+{{ stock.concept_count - stock.concepts.length }}</span>
             </div>
           </div>
         </template>

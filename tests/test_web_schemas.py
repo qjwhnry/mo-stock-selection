@@ -56,6 +56,7 @@ def test_stock_item():
         name="贵州茅台",
         industry="食品饮料",
         concepts=["白酒", "新能源车"],
+        concept_count=12,
         final_score=85.2,
         rule_score=82.0,
         ai_score=90.0,
@@ -65,6 +66,7 @@ def test_stock_item():
     )
     assert item.ts_code == "600519.SH"
     assert item.concepts == ["白酒", "新能源车"]
+    assert item.concept_count == 12
 
 
 def test_stock_item_optional_ai():
@@ -90,9 +92,11 @@ def test_stock_detail_ai_null():
         name="贵州茅台",
         industry="食品饮料",
         concepts=["白酒"],
+        concept_count=3,
         latest_scores={"limit": 92},
         ai_analysis=None,
         recent_picks=[],
     )
     assert resp.ai_analysis is None
     assert resp.concepts == ["白酒"]
+    assert resp.concept_count == 3

@@ -14,6 +14,7 @@ from mo_stock.storage.models import (
     DailyKline,
     FilterScoreDaily,
     IndexMember,
+    LimitConceptDaily,
     SelectionResult,
     StockBasic,
     ThsIndex,
@@ -52,6 +53,8 @@ VALID_SORT_BY = {
     "catalyst": None,
     "risk_liquidity": None,
 }
+
+REPORT_CONCEPT_DISPLAY_LIMIT = 5
 
 
 @router.get("/reports", response_model=ReportListResponse)
@@ -290,17 +293,31 @@ async def get_report_detail(
         for stock_row in stock_rows:
             name_map[stock_row.ts_code] = stock_row.name
 
-    # 批量查询概念/题材
+    # 批量查询概念/题材，按当日概念强度排序；接口只返回列表页展示所需数量。
     concepts_map: dict[str, list[str]] = {c: [] for c in ts_codes}
+    concept_count_map: dict[str, int] = dict.fromkeys(ts_codes, 0)
     if ts_codes:
         concept_rows = db.execute(
             select(ThsMember.con_code, ThsIndex.name)
             .join(ThsIndex, ThsMember.ts_code == ThsIndex.ts_code)
+            .outerjoin(
+                LimitConceptDaily,
+                (ThsMember.ts_code == LimitConceptDaily.ts_code)
+                & (LimitConceptDaily.trade_date == trade_date),
+            )
             .where(ThsMember.con_code.in_(ts_codes))
             .where(ThsIndex.name.isnot(None))
+            .order_by(
+                LimitConceptDaily.rank.is_(None),
+                LimitConceptDaily.rank,
+                ThsIndex.name,
+            )
         ).all()
         for con_code, concept_name in concept_rows:
-            concepts_map.setdefault(con_code, []).append(concept_name)
+            concept_count_map[con_code] = concept_count_map.get(con_code, 0) + 1
+            current = concepts_map.setdefault(con_code, [])
+            if len(current) < REPORT_CONCEPT_DISPLAY_LIMIT:
+                current.append(concept_name)
 
     # 组装 StockItem 列表
     stocks = []
@@ -312,6 +329,7 @@ async def get_report_detail(
                 name=name_map.get(r.ts_code, ""),
                 industry=industry_map.get(r.ts_code, ""),
                 concepts=concepts_map.get(r.ts_code, []),
+                concept_count=concept_count_map.get(r.ts_code, 0),
                 final_score=round(float(r.final_score), 1),
                 rule_score=round(float(r.rule_score), 1),
                 ai_score=round(float(r.ai_score), 1) if r.ai_score is not None else None,
