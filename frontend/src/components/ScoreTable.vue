@@ -76,6 +76,22 @@ function toggleOrder() {
   const newOrder = props.currentOrder === 'desc' ? 'asc' : 'desc'
   emit('sort', props.currentSort, newOrder)
 }
+
+/**
+ * 根据 ts_code 生成东方财富行情K线页链接
+ * 600519.SH → https://quote.eastmoney.com/concept/sh600519.html
+ * 000001.SZ → https://quote.eastmoney.com/concept/sz000001.html
+ * 430139.BJ → https://quote.eastmoney.com/concept/bj430139.html
+ * 格式不匹配时返回 null，模板侧通过 v-if 不渲染链接
+ */
+function klineUrl(tsCode: string): string | null {
+  const match = tsCode.match(/^(\d{6})\.(SH|SZ|BJ)$/)
+  if (!match) return null
+
+  const [, symbol, market] = match
+  const prefixMap: Record<string, string> = { SH: 'sh', SZ: 'sz', BJ: 'bj' }
+  return `https://quote.eastmoney.com/concept/${prefixMap[market]}${symbol}.html`
+}
 </script>
 
 <template>
@@ -151,14 +167,23 @@ function toggleOrder() {
         <!-- 展开内容：AI 摘要提示条 -->
         <AiSummary :summary="stock.ai_summary" />
 
-        <!-- 跳转个股详情页 -->
-        <div class="mt-2">
+        <!-- 跳转链接 -->
+        <div class="mt-2 flex items-center gap-4">
           <router-link
             :to="`/stock/${stock.ts_code}?strategy=${strategy}&trade_date=${tradeDate}`"
             class="text-blue-600 text-sm"
           >
             查看详情 →
           </router-link>
+          <a
+            v-if="klineUrl(stock.ts_code)"
+            :href="klineUrl(stock.ts_code)!"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="text-orange-500 text-sm"
+          >
+            K线图 ↗
+          </a>
         </div>
       </van-collapse-item>
     </van-collapse>
