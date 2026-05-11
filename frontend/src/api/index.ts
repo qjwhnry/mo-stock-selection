@@ -338,6 +338,8 @@ export interface RecentPick {
   trade_date: string            // 交易日期
   picked: boolean               // 是否被选中
   final_score: number           // 当日综合分
+  forward_return_5d: number | null  // 5 交易日后涨跌幅%
+  forward_return_10d: number | null // 10 交易日后涨跌幅%
 }
 
 /**

@@ -21,6 +21,7 @@ const HIDDEN_KEYS = new Set(['lhb_formula_version', 'small_l2_skip_leadership'])
 const props = defineProps<{
   scores: Record<string, number>
   scoreDetails?: Record<string, Record<string, any>>
+  scoreDiffs?: Record<string, number>
   strategy?: string
 }>()
 
@@ -84,6 +85,11 @@ function toggleDetail(dim: string) {
         <div class="flex items-center gap-1">
           <span class="font-medium">{{ scores[dim] ?? 0 }}</span>
           <span
+            v-if="scoreDiffs?.[dim] !== undefined && scoreDiffs[dim] !== 0"
+            class="score-trend"
+            :class="scoreDiffs[dim] > 0 ? 'text-red-500' : 'text-green-500'"
+          >{{ scoreDiffs[dim] > 0 ? '↑' : '↓' }}{{ Math.abs(scoreDiffs[dim]).toFixed(1) }}</span>
+          <span
             v-if="displayItemsMap[dim]?.length"
             class="text-blue-500 cursor-pointer text-[10px]"
             @click="toggleDetail(dim)"
@@ -115,6 +121,12 @@ function toggleDetail(dim: string) {
 </template>
 
 <style scoped>
+.score-trend {
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

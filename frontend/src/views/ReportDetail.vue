@@ -93,6 +93,19 @@ async function loadDetail(scrollAfter = false) {
 /**
  * 排序变化回调：更新排序参数并重新加载数据
  */
+/**
+ * 统计当日入选股票的行业分布（按数量降序）
+ */
+const sectorDistribution = computed(() => {
+  if (!data.value?.stocks) return []
+  const counts: Record<string, number> = {}
+  for (const s of data.value.stocks) {
+    const ind = s.industry || '未知'
+    counts[ind] = (counts[ind] || 0) + 1
+  }
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])
+})
+
 function onSort(column: string, newOrder: string) {
   sortBy.value = column
   order.value = newOrder
@@ -169,6 +182,16 @@ onMounted(() => loadDetail())
           />
         </van-popup>
 
+        <!-- 行业分布概览 -->
+        <div v-if="sectorDistribution.length > 0" class="sector-distro">
+          <span class="text-xs text-gray-400 mr-2">行业分布</span>
+          <span
+            v-for="[name, cnt] in sectorDistribution"
+            :key="name"
+            class="sector-tag"
+          >{{ name }} <strong>{{ cnt }}</strong></span>
+        </div>
+
         <!-- 股票列表（可折叠展开） -->
         <div data-stocks>
           <template v-if="data && data.stocks.length > 0">
@@ -187,3 +210,32 @@ onMounted(() => loadDetail())
     </div>
   </div>
 </template>
+
+<style scoped>
+.sector-distro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid rgba(31, 42, 37, 0.06);
+  box-shadow: 0 12px 30px rgba(31, 42, 37, 0.04);
+}
+
+.sector-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #374151;
+  background: #f3f4f6;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.sector-tag strong {
+  font-weight: 600;
+  color: #1f2a25;
+}
+</style>

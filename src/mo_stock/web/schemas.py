@@ -70,6 +70,8 @@ class RecentPick(BaseModel):
     trade_date: str
     picked: bool
     final_score: float
+    forward_return_5d: float | None = None
+    forward_return_10d: float | None = None
 
 
 class StockDetailResponse(BaseModel):

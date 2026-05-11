@@ -8,8 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from mo_stock.backtest.utils import trade_dates_between
 from mo_stock.storage.models import (
     AiAnalysis,
+    DailyKline,
     FilterScoreDaily,
     IndexMember,
     LimitConceptDaily,
@@ -174,14 +176,74 @@ def get_stock_detail(
         .all()
     )
 
-    recent_picks = [
-        RecentPick(
-            trade_date=row.trade_date.isoformat(),
-            picked=bool(row.picked),
-            final_score=round(float(row.final_score), 1),
+    recent_picks: list[RecentPick] = []
+
+    # 批量计算前向收益（需交易日历 + K 线数据）
+    fwd_enabled = bool(selection_rows)
+    if fwd_enabled:
+        try:
+            from datetime import timedelta
+
+            min_date = min(row.trade_date for row in selection_rows)
+            max_date = max(row.trade_date for row in selection_rows)
+            all_td = trade_dates_between(db, min_date, max_date + timedelta(days=20))
+        except Exception:
+            all_td = []
+            fwd_enabled = False
+
+    if fwd_enabled and all_td:
+        td_sorted = sorted(all_td)
+        needed = [d for d in td_sorted if d >= min_date]
+        klines = (
+            db.query(DailyKline)
+            .filter(
+                DailyKline.ts_code == ts_code,
+                DailyKline.trade_date.in_(needed),
+            )
+            .all()
         )
-        for row in selection_rows
-    ]
+        close_map: dict[date_type, float] = {
+            k.trade_date: k.close for k in klines if k.close is not None
+        }
+
+        for row in selection_rows:
+            fwd_5d: float | None = None
+            fwd_10d: float | None = None
+            entry_close = close_map.get(row.trade_date)
+            if entry_close and entry_close > 0:
+                try:
+                    idx = td_sorted.index(row.trade_date)
+                except ValueError:
+                    idx = -1
+                if idx >= 0:
+                    future_dates = td_sorted[idx + 1 : idx + 11]
+                    if len(future_dates) >= 5:
+                        exit_5 = close_map.get(future_dates[4])
+                        if exit_5 and exit_5 > 0:
+                            fwd_5d = round((exit_5 - entry_close) / entry_close * 100, 2)
+                    if len(future_dates) >= 10:
+                        exit_10 = close_map.get(future_dates[9])
+                        if exit_10 and exit_10 > 0:
+                            fwd_10d = round((exit_10 - entry_close) / entry_close * 100, 2)
+
+            recent_picks.append(
+                RecentPick(
+                    trade_date=row.trade_date.isoformat(),
+                    picked=bool(row.picked),
+                    final_score=round(float(row.final_score), 1),
+                    forward_return_5d=fwd_5d,
+                    forward_return_10d=fwd_10d,
+                )
+            )
+    else:
+        for row in selection_rows:
+            recent_picks.append(
+                RecentPick(
+                    trade_date=row.trade_date.isoformat(),
+                    picked=bool(row.picked),
+                    final_score=round(float(row.final_score), 1),
+                )
+            )
 
     return StockDetailResponse(
         ts_code=stock.ts_code,
