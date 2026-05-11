@@ -1,8 +1,9 @@
 """短线回测交易模拟测试。"""
 from __future__ import annotations
 
-import pytest
 from datetime import date
+
+import pytest
 
 from mo_stock.backtest.short_engine import _is_limit_down_locked, _simulate_holding_period
 from mo_stock.storage.models import DailyKline, TradeCal
