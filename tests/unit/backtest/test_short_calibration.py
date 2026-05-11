@@ -219,3 +219,24 @@ def test_dim_combination_analysis_filters_min_count_and_sorts() -> None:
     combos = dim_combination_analysis(trades, holding_days=1, min_count=3)
     assert len(combos) == 1
     assert combos[0].label == "lhb+limit"
+
+
+def test_exhaustion_quality_buckets_groups_by_score() -> None:
+    from mo_stock.backtest.calibration import exhaustion_quality_buckets
+
+    trades = [
+        _make_trade(net_realized_return_pct=-1.0, dim_detail={
+            "exhaustion": {"score": 30}}),  # 差
+        _make_trade(net_realized_return_pct=1.0, dim_detail={
+            "exhaustion": {"score": 60}}),  # 中
+        _make_trade(net_realized_return_pct=2.0, dim_detail={
+            "exhaustion": {"score": 85}}),  # 健康
+        _make_trade(net_realized_return_pct=3.0, dim_detail={
+            "exhaustion": {"score": 95}}),  # 健康
+    ]
+    buckets = exhaustion_quality_buckets(trades, holding_days=1)
+    labels = [b.label for b in buckets]
+    assert labels == ["差(<50)", "中(50-80)", "健康(>=80)"]
+    assert buckets[0].count == 1
+    assert buckets[2].count == 2
+    assert buckets[2].avg_return == pytest.approx(2.5)

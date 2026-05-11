@@ -224,3 +224,30 @@ def dim_combination_analysis(
     ]
     result.sort(key=lambda b: b.avg_return, reverse=True)
     return result
+
+
+def exhaustion_quality_buckets(
+    trades: Iterable[Any],
+    holding_days: int,
+    return_field: str = "net_realized_return_pct",
+) -> list[BucketStats]:
+    """按 exhaustion 分数分 3 档：差(<50) / 中(50-80) / 健康(>=80)。
+
+    回答"动量质量是否真的影响后续收益"——若健康档显著好于差档，
+    说明 exhaustion 维度有判别力。
+    """
+    rows = _filter_rows(trades, holding_days, return_field)
+
+    edges = [(0.0, 50.0, "差(<50)"),
+             (50.0, 80.0, "中(50-80)"),
+             (80.0, 100.01, "健康(>=80)")]
+    groups: list[tuple[str, list[float]]] = [(label, []) for _, _, label in edges]
+    for t, r in rows:
+        detail = getattr(t, "dim_detail", None) or {}
+        ex_score = float((detail.get("exhaustion") or {}).get("score") or 0)
+        for i, (low, high, label) in enumerate(edges):
+            if low <= ex_score < high:
+                groups[i][1].append(r)
+                break
+
+    return [_bucket_stats(label, bucket) for label, bucket in groups]
