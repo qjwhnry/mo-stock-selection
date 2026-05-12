@@ -51,20 +51,21 @@ def build_system_prompt() -> str:
 
 
 def build_methodology_prompt() -> str:
-    """段 2：评分方法学。当前 short AI 使用的 6 个规则维度。
+    """段 2：评分方法学。当前 short AI 使用的 7 个规则维度。
 
     注意：
     - swing 策略当前在 CLI / scheduler 中会自动跳过 AI，本 prompt 仍按 short 1-3
       交易日语境设计，不要复用为波段 5-20 交易日分析。
     """
     return """\
-# short 规则层：6 个维度
+# short 规则层：7 个维度
 
 | 维度 | 权重 | 数据源 | 含义 |
 |------|------|--------|------|
-| limit | 0.25 | limit_list | 异动涨停，含首板/连板/封单/反包 |
-| moneyflow | 0.25 | moneyflow + daily_kline | 主力资金净流入占比 + 大单结构 + 3 日累计（正加/负扣） |
-| lhb | 0.20 | lhb + lhb_seat_detail | 龙虎榜 base 60 + 席位结构 40（机构/游资/北向） |
+| limit | 0.18 | limit_list | 异动涨停，含当日涨停质量与 T-1 断板反包 |
+| limit_restart | 0.15 | limit_list + daily_kline | 最近涨停 T-2~T-5 后缩量回调、量价重启 |
+| moneyflow | 0.22 | moneyflow + daily_kline | 主力资金净流入占比 + 大单结构 + 3 日累计（正加/负扣） |
+| lhb | 0.15 | lhb + lhb_seat_detail | 龙虎榜 base 60 + 席位结构 40（机构/游资/北向） |
 | sector | 0.10 | sw_daily + index_member + daily_kline | 申万二级行业涨幅 TOP N + 行业内领涨 |
 | theme | 0.10 | ths_daily + limit_concept + cmf | 同花顺概念涨幅 + 涨停最强概念 + 概念资金流 |
 | exhaustion | 0.10 | daily_kline（多日） | 短期动量质量：冲高回落 / 量价背离 / 连涨 / 动量衰减（5日涨幅和MA5偏离已禁用） |
@@ -130,7 +131,8 @@ def build_dynamic_stock_prompt(
     """段 4：当日规则层命中信号 + 行情快照。
 
     dim_scores 只含"该股有正向信号"的维度；缺失维度不渲染，避免 AI 把空信号
-    理解成负面证据。当前 short 维度最多来自 limit / moneyflow / lhb / sector / theme。
+    理解成负面证据。当前 short 维度最多来自 limit / limit_restart /
+    moneyflow / lhb / sector / theme。
     """
     # 规则维度块（只渲染有命中的）
     dim_blocks: list[str] = []

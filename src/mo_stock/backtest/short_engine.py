@@ -24,6 +24,7 @@ from mo_stock.filters.base import ScoreResult
 from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
 from mo_stock.filters.short.lhb_filter import LhbFilter
 from mo_stock.filters.short.limit_filter import LimitFilter
+from mo_stock.filters.short.limit_restart_filter import LimitRestartFilter
 from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
 from mo_stock.filters.short.sector_filter import SectorFilter
 from mo_stock.filters.short.theme_filter import ThemeFilter
@@ -158,6 +159,7 @@ def _rank_short_candidates(
 ) -> list[dict[str, Any]]:
     filters = [
         LimitFilter(weights=cfg.get("limit_filter", {})),
+        LimitRestartFilter(weights=cfg.get("limit_restart_filter", {})),
         MoneyflowFilter(weights=cfg.get("moneyflow_filter", {})),
         LhbFilter(weights=cfg.get("lhb_filter", {})),
         SectorFilter(weights=cfg.get("sector_filter", {})),

@@ -2,17 +2,19 @@
 # 短线选股权重配置（可热调，无需改代码）
 #
 # 当前执行口径：
-# - run-once 实际运行 6 个短线维度：limit / moneyflow / lhb / sector / theme / exhaustion。
+# - run-once 实际运行 7 个短线维度：
+#   limit / limit_restart / moneyflow / lhb / sector / theme / exhaustion。
 # - exhaustion 是 v2.6 新增的短期动量质量检测维度，替代原 sentiment 预留位。
 # - 所有维度均会出分，固定分母 = 1.00，纯规则 rule_score 理论上限 100。
 # dimension_weights 总和保持 1.00，便于 rule_score 与 AI 分处在稳定的 0-100 量纲。
 # ==============================================================
 
-# 6 个权重项；全部已实现。
+# 7 个权重项；全部已实现。
 dimension_weights:
-  limit: 0.25       # 异动涨停
-  moneyflow: 0.25   # 主力资金流向
-  lhb: 0.20         # 龙虎榜（base 60 + seat 40）
+  limit: 0.18       # 异动涨停（当日涨停质量 + T-1 断板反包）
+  limit_restart: 0.15  # 历史涨停后回调重启（T-2~T-5）
+  moneyflow: 0.22   # 主力资金流向
+  lhb: 0.15         # 龙虎榜（base 60 + seat 40）
   sector: 0.10      # 申万二级行业 + 行业内领涨确认
   theme: 0.10       # 同花顺概念 + 涨停最强 + 资金流（v2.1 新增独立维度）
   exhaustion: 0.10  # 短期动量质量检测（v2.6 替代 sentiment 预留位）
@@ -72,6 +74,16 @@ limit_filter:
       score: 20
     - threshold: 10.0
       score: 30
+
+# 涨停回调重启维度细则
+# 职责：最近一次涨停在 T-2~T-5，今日未涨停，识别缩量回调后的重启信号。
+# 当前阈值为先验值，需通过短线回测继续校准。
+limit_restart_filter:
+  lookback_min_days: 2
+  lookback_max_days: 5
+  abnormal_limit_volume_ratio: 3.0
+  min_prev20_volume_days: 10
+  multi_limit_penalty_per_extra: 15
 
 # 资金流维度细则（满分 100：today 0-50 + ratio 0-30 + rolling 0-20）
 moneyflow_filter:

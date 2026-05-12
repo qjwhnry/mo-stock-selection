@@ -90,6 +90,22 @@ class TestTranslateLimit:
         assert isinstance(evidences, list)
 
 
+class TestTranslateLimitRestart:
+    def test_renders_restart_evidence(self) -> None:
+        evidences = _translate_dim_detail("limit_restart", {
+            "limit_date": "2026-05-08",
+            "days_since_limit": 2,
+            "support_level": "full",
+            "volume_vs_limit_day": 0.3,
+            "volume_vs_prev5": 0.83,
+            "multi_limit_penalty": 15,
+        })
+        text = " ".join(evidences)
+        assert "2026-05-08" in text
+        assert "前5日均量" in text
+        assert "多次涨停" in text
+
+
 class TestTranslateSector:
     def test_rank_bonus(self) -> None:
         evidences = _translate_dim_detail("sector", {

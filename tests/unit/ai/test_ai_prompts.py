@@ -2,9 +2,9 @@
 
 覆盖：
 - system prompt 含免责声明 + JSON schema 约束
-- methodology prompt 含 6 维度（limit/moneyflow/lhb/sector/theme/exhaustion）
+- methodology prompt 含 7 维度（limit/limit_restart/moneyflow/lhb/sector/theme/exhaustion）
 - static_stock prompt 接受 stock_basic / kline 摘要
-- dynamic_stock prompt 把 6 维度 detail 完整渲染给 AI
+- dynamic_stock prompt 把规则维度 detail 完整渲染给 AI
 """
 from __future__ import annotations
 
@@ -40,10 +40,10 @@ class TestSystemPrompt:
 
 
 class TestMethodologyPrompt:
-    def test_includes_all_6_dimensions(self) -> None:
-        """v2.6 后规则层是 6 维：limit / moneyflow / lhb / sector / theme / exhaustion。"""
+    def test_includes_all_7_dimensions(self) -> None:
+        """短线规则层是 7 维：新增 limit_restart。"""
         p = build_methodology_prompt()
-        for dim in ("limit", "moneyflow", "lhb", "sector", "theme", "exhaustion"):
+        for dim in ("limit", "limit_restart", "moneyflow", "lhb", "sector", "theme", "exhaustion"):
             assert dim in p
 
     def test_short_term_horizon(self) -> None:

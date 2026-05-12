@@ -22,6 +22,7 @@ from mo_stock.filters.base import load_weights_yaml
 from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
 from mo_stock.filters.short.lhb_filter import LhbFilter
 from mo_stock.filters.short.limit_filter import LimitFilter
+from mo_stock.filters.short.limit_restart_filter import LimitRestartFilter
 from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
 from mo_stock.filters.short.sector_filter import SectorFilter
 from mo_stock.filters.short.theme_filter import ThemeFilter
@@ -341,12 +342,16 @@ def _build_filters(strategy: str, cfg: dict):
     if strategy == "short":
         return [
             LimitFilter(weights=cfg.get("limit_filter", {})),
+            LimitRestartFilter(weights=cfg.get("limit_restart_filter", {})),
             MoneyflowFilter(weights=cfg.get("moneyflow_filter", {})),
             LhbFilter(weights=cfg.get("lhb_filter", {})),
             SectorFilter(weights=cfg.get("sector_filter", {})),
             ThemeFilter(weights=cfg.get("theme_filter", {})),
             ExhaustionFilter(weights=cfg.get("exhaustion_filter", {})),
-        ], ["limit", "moneyflow", "lhb", "sector", "theme", "exhaustion"]
+        ], [
+            "limit", "limit_restart", "moneyflow", "lhb",
+            "sector", "theme", "exhaustion",
+        ]
 
     return [
         TrendFilter(weights=cfg.get("trend_filter", {})),

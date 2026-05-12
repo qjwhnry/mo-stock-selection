@@ -1,7 +1,7 @@
 """把 selection_result 渲染成 Markdown 日报 + JSON 产出。
 
 报告按 strategy 隔离输出：
-- short 报告默认写到 data/reports/，展示 6 个已实现短线维度；exhaustion 是风险修正
+- short 报告默认写到 data/reports/，展示 7 个已实现短线维度；exhaustion 是风险修正
   维度，不单独作为候选准入信号。
 - swing 报告写到 data/reports/swing/，展示 7 个波段维度；当前 swing AI 自动跳过，因此
   AI 章节通常为空，但规则证据仍完整。
@@ -211,7 +211,7 @@ def _render_one_stock_section(
             evidence_str = "；".join(evidences) if evidences else "—"
             lines.append(f"| {_DIM_LABELS.get(dim, dim)} | {r.score:.1f} | {evidence_str} |")
         # 未命中维度不渲染，避免报告被空信号淹没。
-        # short 当前 6 个维度全部实现，只有该股真正命中的维度才展示证据。
+        # short 当前 7 个维度全部实现，只有该股真正命中的维度才展示证据。
     lines.append("")
 
     # 操作建议（AI 给出 entry/stop_loss 时才渲染）
@@ -321,6 +321,29 @@ def _translate_limit(detail: dict[str, Any]) -> list[str]:
         e.append(f"封单额加分 +{detail['seal_amount_bonus']}")
     if detail.get("open_times_penalty"):
         e.append(f"⚠️ 多次开板（-{detail['open_times_penalty']} 分）")
+    return e
+
+
+def _translate_limit_restart(detail: dict[str, Any]) -> list[str]:
+    """LimitRestartFilter detail → 报告用中文描述。"""
+    e: list[str] = []
+    if detail.get("limit_date"):
+        e.append(
+            f"最近涨停 {detail['limit_date']}，距今 {detail.get('days_since_limit', '?')} 个交易日"
+        )
+    if detail.get("support_level"):
+        label = {"full": "未破涨停收盘支撑", "partial": "守住涨停实体", "broken": "跌破涨停实体"}
+        e.append(label.get(detail["support_level"], "支撑状态未知"))
+    if detail.get("volume_vs_limit_day") is not None:
+        e.append(f"今日量/涨停日量 {detail['volume_vs_limit_day']:.2f}")
+    if detail.get("volume_vs_prev5") is not None:
+        e.append(f"今日量/前5日均量 {detail['volume_vs_prev5']:.2f}")
+    if detail.get("limit_day_volume_vs_prev20") is not None:
+        e.append(f"涨停日量/前20日均量 {detail['limit_day_volume_vs_prev20']:.2f}")
+    if detail.get("abnormal_limit_volume_penalty"):
+        e.append(f"⚠️ 涨停日异常放量（扣 {detail['abnormal_limit_volume_penalty']} 分）")
+    if detail.get("multi_limit_penalty"):
+        e.append(f"⚠️ 近5日多次涨停衰减（扣 {detail['multi_limit_penalty']} 分）")
     return e
 
 
@@ -509,13 +532,14 @@ def _translate_risk_liquidity(detail: dict[str, Any]) -> list[str]:
 
 
 _DIM_ORDER = [
-    "limit", "moneyflow", "lhb", "sector", "theme", "exhaustion",
+    "limit", "limit_restart", "moneyflow", "lhb", "sector", "theme", "exhaustion",
     "trend", "pullback", "moneyflow_swing", "sector_swing",
     "theme_swing", "catalyst", "risk_liquidity",
 ]
 
 _DIM_LABELS = {
     "limit": "涨停异动",
+    "limit_restart": "涨停重启",
     "moneyflow": "主力资金",
     "lhb": "龙虎榜",
     "sector": "行业强度",
@@ -541,6 +565,7 @@ def _ordered_dims(dim_scores: dict[str, FilterScoreDaily]) -> list[str]:
 # 维度 → 翻译器映射
 _DIM_TRANSLATORS = {
     "limit": _translate_limit,
+    "limit_restart": _translate_limit_restart,
     "moneyflow": _translate_moneyflow,
     "lhb": _translate_lhb,
     "sector": _translate_sector,

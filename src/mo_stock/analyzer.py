@@ -22,6 +22,7 @@ from mo_stock.filters.base import load_weights_yaml
 from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
 from mo_stock.filters.short.lhb_filter import LhbFilter
 from mo_stock.filters.short.limit_filter import LimitFilter
+from mo_stock.filters.short.limit_restart_filter import LimitRestartFilter
 from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
 from mo_stock.filters.short.sector_filter import SectorFilter
 from mo_stock.filters.short.theme_filter import ThemeFilter
@@ -93,6 +94,7 @@ def analyze_stock(
     #    说明：score_all 会扫描当日全市场数据，对单只股分析略显浪费，但保持
     #    与 run-once 完全一致的算法路径，避免代码分叉带来的策略漂移。
     limit_filter = LimitFilter(weights=cfg.get("limit_filter", {}))
+    limit_restart_filter = LimitRestartFilter(weights=cfg.get("limit_restart_filter", {}))
     mf_filter = MoneyflowFilter(weights=cfg.get("moneyflow_filter", {}))
     lhb_filter = LhbFilter(weights=cfg.get("lhb_filter", {}))
     sector_filter = SectorFilter(weights=cfg.get("sector_filter", {}))
@@ -101,6 +103,7 @@ def analyze_stock(
 
     all_results = [
         *limit_filter.score_all(session, trade_date),
+        *limit_restart_filter.score_all(session, trade_date),
         *mf_filter.score_all(session, trade_date),
         *lhb_filter.score_all(session, trade_date),
         *sector_filter.score_all(session, trade_date),

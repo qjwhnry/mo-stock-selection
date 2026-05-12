@@ -1,7 +1,7 @@
 # mo-stock 打分规则说明
 
 > 当前版本对应代码：[src/mo_stock/filters/](../src/mo_stock/filters/)、[src/mo_stock/scorer/combine.py](../src/mo_stock/scorer/combine.py)、[config/weights.yaml](../config/weights.yaml)
-> 文档生成：2026-04-25，最后更新：2026-04-29（v2.3：移除板块溢出 + 审计修复）
+> 文档生成：2026-04-25，最后更新：2026-05-12（新增 limit_restart 涨停回调重启维度）
 
 ## ⚡ 关键设计原则
 
@@ -13,23 +13,24 @@
 每个交易日 `mo-stock run-once` 会跑完整选股流程：
 
 ```
-ingest → 6 个 filter 各自打分 (0-100) → combine 加权融合 → 硬规则淘汰 → TOP 20 → 渲染报告
+ingest → 7 个 filter 各自打分 (0-100) → combine 加权融合 → 硬规则淘汰 → TOP 20 → 渲染报告
 ```
 
-**6 个维度**（`config/weights.yaml` 配置权重，v2.1 总和 = 1.00 固定分母）：
+**7 个维度**（`config/weights.yaml` 配置权重，总和 = 1.00 固定分母）：
 
 | 维度 | 权重 | 数据源 | 实现状态 |
 |------|------|--------|---------|
-| `limit` 异动涨停 | 0.25 | `limit_list` 表 | ✓ [LimitFilter](../src/mo_stock/filters/short/limit_filter.py) |
-| `moneyflow` 主力资金流向 | 0.25 | `moneyflow` + `daily_kline.amount` | ✓ [MoneyflowFilter](../src/mo_stock/filters/short/moneyflow_filter.py) |
-| `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail`（v2.1） | ✓ [LhbFilter](../src/mo_stock/filters/short/lhb_filter.py) |
+| `limit` 异动涨停 | 0.18 | `limit_list` 表 | ✓ [LimitFilter](../src/mo_stock/filters/short/limit_filter.py) |
+| `limit_restart` 涨停回调重启 | 0.15 | `limit_list` + `daily_kline` | ✓ [LimitRestartFilter](../src/mo_stock/filters/short/limit_restart_filter.py) |
+| `moneyflow` 主力资金流向 | 0.22 | `moneyflow` + `daily_kline.amount` | ✓ [MoneyflowFilter](../src/mo_stock/filters/short/moneyflow_filter.py) |
+| `lhb` 龙虎榜（base 60 + seat 40） | 0.15 | `lhb` + `lhb_seat_detail`（v2.1） | ✓ [LhbFilter](../src/mo_stock/filters/short/lhb_filter.py) |
 | `sector` 申万二级行业 | 0.10 | `sw_daily` + `index_member` + `daily_kline` | ✓ [SectorFilter](../src/mo_stock/filters/short/sector_filter.py) |
 | `theme` 同花顺概念 + 涨停最强 + 资金流（v2.1 新增） | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` | ✓ [ThemeFilter](../src/mo_stock/filters/short/theme_filter.py) |
 | `exhaustion` 短线动量质量 | 0.10 | `daily_kline`（近 11 日 OHLCV） | ✓ [ExhaustionFilter](../src/mo_stock/filters/short/exhaustion_filter.py) |
 
 每个维度独立打分，0-100 分。
 **只对该维度有正向信号的股 append 结果**（score=0 视为信号缺失，由综合分公式按 0 处理）。
-`exhaustion` 例外：作为动量质量维度，对所有候选股打分（需至少命中其它 5 维之一）。
+`exhaustion` 例外：作为动量质量维度，对所有候选股打分（需至少命中其它 6 个准入维度之一）。
 
 **v2.1 关键变化**：
 - 把"题材增强"从 sector 维度拆出独立 `theme` 维度，避免维度饱和（多数强势股触顶 100）
@@ -101,6 +102,39 @@ final_score = Σ(dim_score × weight) / Σ(全部权重)
 
 代码：[filters/short/limit_filter.py](../src/mo_stock/filters/short/limit_filter.py)
 配置：`weights.yaml: limit_filter`
+
+---
+
+## 3.5. limit_restart 维度（涨停回调重启）
+
+**目标**：识别最近一次涨停后完成缩量回调、今日出现企稳或放量重启的股票。
+
+**职责边界**：`limit_filter` 负责当日涨停质量与 T-1 涨停后的断板反包；
+`limit_restart` 只处理最近一次涨停距今天 **2-5 个交易日** 的股票。
+若 T-3 涨停后 T-1 又涨停，以最近一次 T-1 为准，交给 `limit_filter`，本维度不打分。
+
+**候选过滤**：
+
+| 条件 | 说明 |
+|---|---|
+| 最近一次涨停距今天 2-5 个交易日 | 查询 `limit_list.limit_type='U'` |
+| 今日涨停 | 本维度直接跳过，不产出 `limit_restart` 分数 |
+| ST / 次新 / 停牌等 | 仍由 hard_reject 统一兜底 |
+
+**打分结构**：
+
+| 模块 | 上限 | 说明 |
+|---|---:|---|
+| 回调质量 | 45 | 今日量/涨停日量、涨停后区间最低价是否守住支撑、距涨停天数 |
+| 重启信号 | 55 | 收阳、今日量/前 5 日均量、收盘重心、低开高走 |
+| 惩罚项 | 扣分 | 涨停日异常放量、多次涨停衰减 |
+
+**关键 detail 字段**：`volume_vs_limit_day`、`volume_vs_prev5`、
+`limit_day_volume_vs_prev20`、`min_low_since_limit`、`days_since_limit`、
+`support_level`、`limit_count_5d`。
+
+代码：[filters/short/limit_restart_filter.py](../src/mo_stock/filters/short/limit_restart_filter.py)
+配置：`weights.yaml: limit_restart_filter`
 
 ---
 
@@ -503,12 +537,12 @@ final = (0×0.25 + 18×0.25 + 55×0.20 + 45×0.10 + 0×0.10 + 95×0.10) / 1.00
 
 ## 10. 综合分理论上限
 
-**6 维全部归一到 100 之后**：
+**7 维全部归一到 100 之后**：
 
 ```
-理想最强股（6 维全各 100）：
-  = (100×0.25 + 100×0.25 + 100×0.20 + 100×0.10 + 100×0.10 + 100×0.10) / 1.00
-  = 25 + 25 + 20 + 10 + 10 + 10
+理想最强股（7 维全各 100）：
+  = (100×0.18 + 100×0.15 + 100×0.22 + 100×0.15 + 100×0.10 + 100×0.10 + 100×0.10) / 1.00
+  = 18 + 15 + 22 + 15 + 10 + 10 + 10
   = 100 分
 ```
 
@@ -522,10 +556,11 @@ final = (0×0.25 + 18×0.25 + 55×0.20 + 45×0.10 + 0×0.10 + 95×0.10) / 1.00
 | v2.1（4 维归一后） | **全 100** | **85** |
 | v2.1 起（5 维） | **全 100** | **90** |
 | 接入 exhaustion 后 | **全 100** | **100** |
+| 接入 limit_restart 后 | **全 100** | **100** |
 
 ### 实际更低的原因
 
-1. **6 维全亮的股不存在**：要求同时满足 涨停 + 主力大额净流入 + 龙虎榜上榜 + 板块第 1 + 题材第 1 + 动量健康 → 现实极少
+1. **7 维全亮的股不存在**：要求同时满足 涨停链路重启 + 主力大额净流入 + 龙虎榜上榜 + 板块第 1 + 题材第 1 + 动量健康 → 现实极少
 2. **每个维度内部满分极难**：limit 100 要求"早封 + 大封单 + 2 连板"等多重条件
 3. **exhaustion 维度惩罚**：多维度共振的强势股可能有量价背离等动量衰减信号，exhaustion 分数会打折扣
 
@@ -548,11 +583,12 @@ final = (0×0.25 + 18×0.25 + 55×0.20 + 45×0.10 + 0×0.10 + 95×0.10) / 1.00
 ### 调权重示例
 
 ```yaml
-# 把龙虎榜信号权重调高（原 0.20 → 0.30），其它相应调降
+# 把龙虎榜信号权重调高（原 0.15 → 0.25），其它相应调降
 dimension_weights:
-  limit: 0.20
-  moneyflow: 0.20
-  lhb: 0.30      # ← 提升
+  limit: 0.18
+  limit_restart: 0.12
+  moneyflow: 0.15
+  lhb: 0.25      # ← 提升
   sector: 0.10
   theme: 0.10
   exhaustion: 0.10
@@ -584,7 +620,7 @@ hard_reject:
 mo-stock analyze 600227.SH --date 2026-04-24
 ```
 
-输出该股 6 维度的详细 detail（各加分项、阈值命中情况），便于复盘"为什么没进 TOP 20"。
+输出该股 7 维度的详细 detail（各加分项、阈值命中情况），便于复盘"为什么没进 TOP 20"。
 
 ### SQL 查维度分布
 

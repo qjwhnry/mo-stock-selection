@@ -45,7 +45,7 @@ from mo_stock.storage.models import (
 from mo_stock.utils.stock_name import is_st_name as _is_st_name
 
 _SHORT_ADMISSION_DIMS = frozenset({
-    "limit", "moneyflow", "lhb", "sector", "theme",
+    "limit", "limit_restart", "moneyflow", "lhb", "sector", "theme",
 })
 _SHORT_RISK_ONLY_DIMS = frozenset({"exhaustion"})
 
