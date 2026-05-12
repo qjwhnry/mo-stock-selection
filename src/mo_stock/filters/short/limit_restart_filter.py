@@ -194,6 +194,12 @@ class LimitRestartFilter(FilterBase):
         detail["restart_score"] = restart_score
         detail["penalty"] = penalty
 
+        # 最小重启门槛：至少命中一个核心重启信号（收阳/重心上移/低开高走/量能恢复）
+        min_restart = int(self.weights.get("min_restart_score", 15))
+        if restart_score < min_restart:
+            detail["restart_below_min"] = True
+            return 0.0, detail
+
         return clamp(pullback_score + restart_score - penalty), detail
 
 

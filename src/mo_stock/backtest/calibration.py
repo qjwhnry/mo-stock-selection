@@ -11,7 +11,7 @@
 所有函数默认统计 net_realized_return_pct（扣费后真实净收益），可切换 return_field。
 所有函数为纯函数，输入 Iterable[Any] 只要含必要字段即可，方便单测用 SimpleNamespace。
 
-催化维度的定义：limit / moneyflow / lhb / sector / theme（不含 exhaustion）。
+催化维度的定义：limit / limit_restart / moneyflow / lhb / sector / theme（不含 exhaustion）。
 exhaustion 是动量质量维度，作为风险修饰，不算入"多维共振"。
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from math import isinf
 from statistics import mean
 from typing import Any
 
-CATALYST_DIMS = frozenset({"limit", "moneyflow", "lhb", "sector", "theme"})
+CATALYST_DIMS = frozenset({"limit", "limit_restart", "moneyflow", "lhb", "sector", "theme"})
 
 _BUCKET_EDGES: list[tuple[float, float, str]] = [
     (0.0, 30.0, "[0,30)"),
@@ -136,7 +136,7 @@ def catalyst_dims_groups(
 ) -> dict[str, BucketStats]:
     """按催化维度数（1/2/3/4+）分组，验证多维共振假设。
 
-    催化维度 = limit/moneyflow/lhb/sector/theme，不含 exhaustion。
+    催化维度 = limit/limit_restart/moneyflow/lhb/sector/theme，不含 exhaustion。
     从 dim_detail 数 score > 0 的命中维度（active_dims 字段把 exhaustion 也算进去了，
     会污染共振判读）。
     """
@@ -329,7 +329,7 @@ def render_markdown_report(
                                [_row(catalyst_groups[k]) for k in ["1", "2", "3", "4+"]]))
     lines.append("")
     lines.append("**判读**：多维共振假设成立时，4+ 应显著优于 1。"
-                 "催化维度 = limit/moneyflow/lhb/sector/theme（exhaustion 单独看）。")
+                 "催化维度 = limit/limit_restart/moneyflow/lhb/sector/theme（exhaustion 单独看）。")
     lines.append("")
 
     # §3 rank_in_day 分组

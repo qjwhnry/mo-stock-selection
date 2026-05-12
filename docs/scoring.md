@@ -440,7 +440,7 @@ score = clamp(min(best, max_theme_bonus), 0, 100)
 
 **数据源**：`daily_kline`（近 11 个交易日 OHLCV 数据）。
 
-**设计原则**：exhaustion 是动量质量维度——候选股需至少命中 limit/moneyflow/lhb/sector/theme 之一，
+**设计原则**：exhaustion 是动量质量维度——候选股需至少命中 limit/limit_restart/moneyflow/lhb/sector/theme 之一，
 然后 exhaustion 对这些候选股评估动量健康度。得分越高表示动量越健康，得分越低表示动量质量越差。
 5 日涨幅和 MA5 偏离信号已禁用（max=0），因为短线追势策略中强势股天然涨幅高、偏离均线远，
 惩罚它们等于惩罚最强候选。极端透支（5 日涨幅 > 25%）由 hard_reject 层直接淘汰。

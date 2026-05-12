@@ -115,24 +115,24 @@ def test_catalyst_dims_groups_excludes_exhaustion() -> None:
     from mo_stock.backtest.calibration import catalyst_dims_groups
 
     trades = [
-        # 1 个催化（limit），还有 exhaustion 不算
+        # 1 个催化（limit_restart），还有 exhaustion 不算
         _make_trade(net_realized_return_pct=1.0, dim_detail={
-            "limit": {"score": 50}, "exhaustion": {"score": 80},
+            "limit_restart": {"score": 50}, "exhaustion": {"score": 80},
         }),
-        # 2 个催化（limit + moneyflow）
+        # 2 个催化（limit + limit_restart）
         _make_trade(net_realized_return_pct=2.0, dim_detail={
-            "limit": {"score": 50}, "moneyflow": {"score": 30},
+            "limit": {"score": 50}, "limit_restart": {"score": 30},
         }),
         # 3 个催化
         _make_trade(net_realized_return_pct=3.0, dim_detail={
             "limit": {"score": 50}, "moneyflow": {"score": 30},
             "lhb": {"score": 40},
         }),
-        # 5 个催化全 → 4+ 组
+        # 6 个催化全 → 4+ 组（含 limit_restart，防回归）
         _make_trade(net_realized_return_pct=4.0, dim_detail={
-            "limit": {"score": 50}, "moneyflow": {"score": 30},
-            "lhb": {"score": 40}, "sector": {"score": 60},
-            "theme": {"score": 50},
+            "limit": {"score": 50}, "limit_restart": {"score": 30},
+            "moneyflow": {"score": 30}, "lhb": {"score": 40},
+            "sector": {"score": 60}, "theme": {"score": 50},
         }),
     ]
     groups = catalyst_dims_groups(trades, holding_days=1)

@@ -273,16 +273,17 @@ def test_multi_limit_penalty(sqlite_session) -> None:
 def test_zero_range_close_position_scores_zero(sqlite_session) -> None:
     today = date(2026, 5, 12)
     _seed_restart_case(sqlite_session, today=today, limit_day=date(2026, 5, 8))
+    # zero amplitude (high == low) + enough restart signal to pass min gate
     sqlite_session.merge(
         DailyKline(
             ts_code="000001.SZ",
             trade_date=today,
-            open=10.5,
+            open=10.3,
             high=10.5,
             low=10.5,
             close=10.5,
-            pre_close=10.4,
-            pct_chg=0.96,
+            pre_close=10.6,
+            pct_chg=-0.95,
             vol=300.0,
             amount=3150.0,
         )
@@ -292,3 +293,28 @@ def test_zero_range_close_position_scores_zero(sqlite_session) -> None:
     result = _score_map(LimitRestartFilter().score_all(sqlite_session, today))["000001.SZ"]
 
     assert result.detail["close_position_score"] == 0
+
+
+def test_below_min_restart_score_not_scored(sqlite_session) -> None:
+    """回调质量高但重启信号不足（restart_score < 15）→ 不产出分数。"""
+    today = date(2026, 5, 12)
+    _seed_restart_case(sqlite_session, today=today, limit_day=date(2026, 5, 8))
+    # 构造收跌、缩量、收盘在下半区、非低开高走 → restart = 0
+    sqlite_session.merge(
+        DailyKline(
+            ts_code="000001.SZ",
+            trade_date=today,
+            open=11.0,
+            high=11.0,
+            low=10.0,
+            close=10.1,
+            pre_close=10.5,
+            pct_chg=-3.81,
+            vol=100.0,        # 远低于前5日均量（~360），量能恢复 0
+            amount=1010.0,
+        )
+    )
+    sqlite_session.commit()
+
+    results = LimitRestartFilter().score_all(sqlite_session, today)
+    assert "000001.SZ" not in _score_map(results)

@@ -84,6 +84,7 @@ limit_restart_filter:
   abnormal_limit_volume_ratio: 3.0
   min_prev20_volume_days: 10
   multi_limit_penalty_per_extra: 15
+  min_restart_score: 15  # 最小重启信号分：需至少命中一个核心项（收阳/重心上移/低开高走/量能恢复）
 
 # 资金流维度细则（满分 100：today 0-50 + ratio 0-30 + rolling 0-20）
 moneyflow_filter:

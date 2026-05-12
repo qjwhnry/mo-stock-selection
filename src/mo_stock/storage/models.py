@@ -493,7 +493,7 @@ class FilterScoreDaily(Base):
     ts_code: Mapped[str] = mapped_column(String(12), index=True, comment="股票代码")
     dim: Mapped[str] = mapped_column(
         String(20), index=True,
-        comment="维度标识：limit / moneyflow / lhb / sector / theme / exhaustion",
+        comment="维度标识：limit / limit_restart / moneyflow / lhb / sector / theme / exhaustion",
     )
     score: Mapped[float] = mapped_column(Float, comment="本维度得分 0-100")
     detail: Mapped[dict | None] = mapped_column(

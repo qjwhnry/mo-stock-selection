@@ -68,7 +68,7 @@ def analyze_stock_with_ai(
         ts_code: 股票代码，如 "600519.SH"
         trade_date: 选股交易日
         rule_dim_scores: 该股已命中的规则维度得分 {dim: ScoreResult}（来自 filter_score_daily）。
-            short 通常包含 limit / moneyflow / lhb / sector / theme 的子集；
+            short 通常包含 limit / limit_restart / moneyflow / lhb / sector / theme 的子集；
             swing 通常包含 trend / pullback / moneyflow_swing 等 7 维度的子集。
         strategy: 策略标识，short 或 swing，决定使用哪套 prompt。
         regime_score: 大盘环境评分（swing 专用，由 combine_scores 传入，避免重复计算）。
