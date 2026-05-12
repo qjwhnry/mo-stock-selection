@@ -48,7 +48,7 @@ const sortOptions = computed(() => {
   ]
   const dims = props.strategy === 'swing'
     ? ['trend', 'pullback', 'moneyflow_swing', 'sector_swing', 'theme_swing', 'catalyst', 'risk_liquidity']
-    : ['limit', 'moneyflow', 'lhb', 'sector', 'theme']
+    : ['limit', 'limit_restart', 'moneyflow', 'lhb', 'sector', 'theme']
   const dimOpts = dims.map(d => ({ text: dimLabel(d), value: d }))
   return [...base, ...dimOpts]
 })

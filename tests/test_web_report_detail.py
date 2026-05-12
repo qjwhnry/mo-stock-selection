@@ -108,6 +108,10 @@ def _make_test_db():
             "VALUES ('2026-04-30', 'short', '600519.SH', 'moneyflow', 85.0)"
         ))
         s.execute(text(
+            "INSERT INTO filter_score_daily (trade_date, strategy, ts_code, dim, score) "
+            "VALUES ('2026-04-30', 'short', '600519.SH', 'limit_restart', 76.0)"
+        ))
+        s.execute(text(
             "INSERT INTO ths_index (ts_code, name, type) VALUES ('885328.TI', '新能源车', 'N')"
         ))
         s.execute(text(
@@ -194,8 +198,16 @@ def test_valid_detail_returns_200(client):
     assert stock["name"] == "贵州茅台"
     assert stock["final_score"] == 85.2
     assert stock["scores"]["limit"] == 92
+    assert stock["scores"]["limit_restart"] == 76
     assert stock["concept_count"] == 16
     assert stock["concepts"] == ["白酒", "新能源车", "概念01", "概念02", "概念03"]
+
+
+def test_sort_by_limit_restart_returns_200(client):
+    resp = client.get("/api/reports/2026-04-30?strategy=short&sort_by=limit_restart")
+    assert resp.status_code == 200
+    stock = resp.json()["stocks"][0]
+    assert stock["scores"]["limit_restart"] == 76
 
 
 def test_market_data_present(client):

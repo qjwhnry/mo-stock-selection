@@ -43,13 +43,14 @@ api.interceptors.response.use(
 
 /**
  * 维度标签映射表
- * - short 策略：limit（涨停异动）、moneyflow（资金流向）、lhb（龙虎榜）、sector（板块）、theme（题材）
+ * - short 策略：limit（涨停异动）、limit_restart（涨停重启）、moneyflow（资金流向）、lhb（龙虎榜）、sector（板块）、theme（题材）
  * - swing 策略：trend（趋势结构）、pullback（回踩承接）、moneyflow_swing（波段资金）、
  *   sector_swing（行业持续）、theme_swing（题材持续）、catalyst（短线催化）、risk_liquidity（风险流动性）
  */
 export const DIM_LABELS: Record<string, string> = {
   // short 维度
   limit: '涨停异动',
+  limit_restart: '涨停重启',
   moneyflow: '资金流向',
   lhb: '龙虎榜',
   sector: '板块',
@@ -93,6 +94,28 @@ export const DETAIL_LABELS: Record<string, string> = {
   today_pct_chg: '今日涨跌%',
   hard_fail: '淘汰原因',
   open_penalty: '炸板扣分',
+  // limit_restart 维度
+  volume_vs_limit_day: '今日量/涨停日量',
+  volume_vs_prev5: '今日量/前5日均量',
+  limit_day_volume_vs_prev20: '涨停日量/前20日均量',
+  insufficient_prev20_volume: '前20日量样本不足',
+  min_low_since_limit: '涨停后最低价',
+  limit_date: '最近涨停日',
+  days_since_limit: '距涨停交易日',
+  support_level: '支撑状态',
+  limit_count_5d: '近5日涨停次数',
+  volume_shrink_score: '缩量分',
+  support_score: '支撑分',
+  days_since_limit_score: '回调天数分',
+  positive_candle_score: '收阳分',
+  volume_restore_score: '量能恢复分',
+  close_position_score: '收盘重心分',
+  low_open_high_close_score: '低开高走分',
+  pullback_score: '回调质量分',
+  restart_score: '重启信号分',
+  abnormal_limit_volume_penalty: '涨停日异常量扣分',
+  multi_limit_penalty: '多涨停衰减扣分',
+  penalty: '总扣分',
   // moneyflow 维度
   net_mf_wan: '主力净流入(万)',
   intraday_pct: '日内涨跌%',

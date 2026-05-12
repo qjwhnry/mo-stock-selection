@@ -40,6 +40,7 @@ VALID_SORT_BY = {
     "ai_score": SelectionResult.ai_score,
     # short dimensions
     "limit": None,
+    "limit_restart": None,
     "moneyflow": None,
     "lhb": None,
     "sector": None,
