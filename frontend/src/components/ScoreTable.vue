@@ -22,6 +22,7 @@ const props = defineProps<{
   tradeDate: string          // 当前报告日期
   currentSort: string       // 当前排序列名
   currentOrder: string      // 当前排序方向（desc/asc）
+  showSort?: boolean        // 是否显示排序控件，默认 true
 }>()
 
 // 向父组件发射排序变化事件
@@ -97,8 +98,8 @@ function klineUrl(tsCode: string): string | null {
 <template>
   <div class="space-y-3">
 
-    <!-- 排序控制栏 -->
-    <van-cell-group inset>
+    <!-- 排序控制栏（仅在 showSort !== false 时显示） -->
+    <van-cell-group v-if="props.showSort !== false" inset>
       <!-- 当前排序字段（点击弹出选择器） -->
       <van-field
         :model-value="sortLabel"

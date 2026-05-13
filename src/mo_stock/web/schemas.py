@@ -58,6 +58,13 @@ class ReportDetailResponse(BaseModel):
     available_sectors: list[str]
 
 
+class DimensionTopResponse(BaseModel):
+    trade_date: str
+    strategy: str
+    dim: str
+    stocks: list[StockItem]
+
+
 class AiAnalysisData(BaseModel):
     thesis: str
     key_catalysts: list[str] | None = None

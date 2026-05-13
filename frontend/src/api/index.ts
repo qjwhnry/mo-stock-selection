@@ -344,6 +344,16 @@ export interface ReportDetailResponse {
 }
 
 /**
+ * 维度专项榜响应：按指定维度得分排序的股票列表
+ */
+export interface DimensionTopResponse {
+  trade_date: string
+  strategy: string
+  dim: string
+  stocks: StockItem[]
+}
+
+/**
  * AI 分析数据：个股深度分析结果
  */
 export interface AiAnalysisData {
@@ -561,6 +571,24 @@ export function fetchReportDetail(
 ) {
   return api.get<ReportDetailResponse>(`/reports/${date}`, {
     params: { strategy, sort_by: sortBy, order, sector, keyword },
+  })
+}
+
+/**
+ * 获取维度专项榜：按指定维度得分降序取 Top N 股票
+ * @param date 交易日期 YYYY-MM-DD
+ * @param dim 维度名称，如 'lhb' / 'limit' / 'moneyflow'
+ * @param strategy 策略类型
+ * @param limit 返回数量（默认 20）
+ */
+export function fetchDimensionTop(
+  date: string,
+  dim: string,
+  strategy = 'short',
+  limit = 20,
+) {
+  return api.get<DimensionTopResponse>(`/reports/${date}/dimension-top`, {
+    params: { dim, strategy, limit },
   })
 }
 

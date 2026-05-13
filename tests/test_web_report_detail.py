@@ -83,6 +83,29 @@ def _make_test_db():
             "INSERT INTO stock_basic (ts_code, symbol, name, industry, updated_at) "
             "VALUES ('600519.SH', '600519', '贵州茅台', '食品饮料', :now)"
         ), {"now": now})
+        stock_rows = [
+            ("000001.SZ", "000001", "平安银行", "银行", 0),
+            ("000002.SZ", "000002", "万科A", "房地产", 0),
+            ("000003.SZ", "000003", "缺日线股", "测试", 0),
+            ("000004.SZ", "000004", "*ST测试", "测试", 1),
+            ("000005.SZ", "000005", "零量股", "测试", 0),
+        ]
+        for ts_code, symbol, name, industry, is_st in stock_rows:
+            s.execute(
+                text(
+                    "INSERT INTO stock_basic "
+                    "(ts_code, symbol, name, industry, is_st, updated_at) "
+                    "VALUES (:ts_code, :symbol, :name, :industry, :is_st, :now)"
+                ),
+                {
+                    "ts_code": ts_code,
+                    "symbol": symbol,
+                    "name": name,
+                    "industry": industry,
+                    "is_st": is_st,
+                    "now": now,
+                },
+            )
         s.execute(text(
             "INSERT INTO index_member (ts_code, l1_code, l1_name) "
             "VALUES ('600519.SH', '801125', '食品饮料')"
@@ -95,6 +118,22 @@ def _make_test_db():
             "INSERT INTO daily_kline (ts_code, trade_date, open, high, low, close, pre_close, pct_chg, vol, amount) "
             "VALUES ('000300.SH', '2026-04-30', 3850, 3880, 3840, 3876, 3841, 0.9, 5e7, 5e9)"
         ))
+        daily_rows = [
+            ("600519.SH", 1600, 1.0, 1000),
+            ("000001.SZ", 12, 2.0, 2000),
+            ("000002.SZ", 8, 1.5, 2000),
+            ("000004.SZ", 3, 4.0, 2000),
+            ("000005.SZ", 5, 0.0, 0),
+        ]
+        for ts_code, close, pct_chg, vol in daily_rows:
+            s.execute(
+                text(
+                    "INSERT INTO daily_kline "
+                    "(ts_code, trade_date, open, high, low, close, pre_close, pct_chg, vol, amount) "
+                    "VALUES (:ts_code, '2026-04-30', :close, :close, :close, :close, :close, :pct_chg, :vol, 100000)"
+                ),
+                {"ts_code": ts_code, "close": close, "pct_chg": pct_chg, "vol": vol},
+            )
         s.execute(text(
             "INSERT INTO selection_result (trade_date, strategy, ts_code, rank, rule_score, ai_score, final_score, picked, created_at) "
             "VALUES ('2026-04-30', 'short', '600519.SH', 1, 82.0, 90.0, 85.2, 1, :now)"
@@ -111,6 +150,22 @@ def _make_test_db():
             "INSERT INTO filter_score_daily (trade_date, strategy, ts_code, dim, score) "
             "VALUES ('2026-04-30', 'short', '600519.SH', 'limit_restart', 76.0)"
         ))
+        lhb_scores = [
+            ("000004.SZ", 100.0),  # ST，必须过滤
+            ("000005.SZ", 99.0),   # vol=0，必须过滤
+            ("000003.SZ", 98.0),   # 无当日日线，必须过滤
+            ("000001.SZ", 95.0),
+            ("000002.SZ", 95.0),   # 同分，按代码排在 000001.SZ 后
+            ("600519.SH", 80.0),
+        ]
+        for ts_code, score in lhb_scores:
+            s.execute(
+                text(
+                    "INSERT INTO filter_score_daily (trade_date, strategy, ts_code, dim, score) "
+                    "VALUES ('2026-04-30', 'short', :ts_code, 'lhb', :score)"
+                ),
+                {"ts_code": ts_code, "score": score},
+            )
         s.execute(text(
             "INSERT INTO ths_index (ts_code, name, type) VALUES ('885328.TI', '新能源车', 'N')"
         ))
@@ -181,6 +236,10 @@ class TestReportDetailValidation:
         resp = client.get("/api/reports/2026-04-30?order=sideways")
         assert resp.status_code == 400
 
+    def test_dimension_top_invalid_dim(self, client):
+        resp = client.get("/api/reports/2026-04-30/dimension-top?strategy=short&dim=bad_dim")
+        assert resp.status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # SQLite 集成——精确断言 200
@@ -208,6 +267,23 @@ def test_sort_by_limit_restart_returns_200(client):
     assert resp.status_code == 200
     stock = resp.json()["stocks"][0]
     assert stock["scores"]["limit_restart"] == 76
+
+
+def test_dimension_top_filters_st_suspended_and_orders_by_code(client):
+    resp = client.get("/api/reports/2026-04-30/dimension-top?strategy=short&dim=lhb&limit=20")
+
+    assert resp.status_code == 200
+    stocks = resp.json()["stocks"]
+    codes = [s["ts_code"] for s in stocks]
+
+    assert codes == ["000001.SZ", "000002.SZ", "600519.SH"]
+    assert "000003.SZ" not in codes
+    assert "000004.SZ" not in codes
+    assert "000005.SZ" not in codes
+    assert stocks[0]["scores"]["lhb"] == 95
+    assert stocks[1]["scores"]["lhb"] == 95
+    assert stocks[0]["picked"] is False
+    assert stocks[2]["picked"] is True
 
 
 def test_market_data_present(client):

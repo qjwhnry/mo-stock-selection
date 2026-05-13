@@ -13,7 +13,7 @@
 
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { fetchReportDetail, type ReportDetailResponse } from '../api'
+import { fetchReportDetail, fetchDimensionTop, dimLabel, type ReportDetailResponse, type DimensionTopResponse } from '../api'
 import MarketOverview from '../components/MarketOverview.vue'
 import ScoreTable from '../components/ScoreTable.vue'
 
@@ -112,6 +112,68 @@ function onSort(column: string, newOrder: string) {
   loadDetail(true)
 }
 
+// ================= 维度专项榜 =================
+const showDimTop = ref(false)               // 是否展开维度专项榜
+const dimTopLoading = ref(false)            // 维度专项榜加载状态
+const dimTopData = ref<DimensionTopResponse | null>(null)  // 维度专项榜数据
+const dimTopError = ref('')                // 维度专项榜错误信息
+const dimTopDim = ref('')                   // 当前选中的维度
+const showDimPicker = ref(false)            // 维度选择器弹窗
+
+/** 维度专项榜可选维度（与策略相关，不含 exhaustion / risk_liquidity 等纯风险维度） */
+const dimTopOptions = computed(() => {
+  if (strategy === 'swing') {
+    const dims = ['trend', 'pullback', 'moneyflow_swing', 'sector_swing', 'theme_swing', 'catalyst']
+    return dims.map(d => ({ text: dimLabel(d), value: d }))
+  }
+  // short 策略：排除 exhaustion（纯风险维度，不能独立选股）
+  const dims = ['limit', 'limit_restart', 'moneyflow', 'lhb', 'sector', 'theme']
+  return dims.map(d => ({ text: dimLabel(d), value: d }))
+})
+
+/** 维度选择器确认回调 */
+function onDimPickerConfirm({ selectedValues }: { selectedValues: string[] }) {
+  const selected = selectedValues[0]
+  if (selected) {
+    dimTopDim.value = selected
+    dimTopData.value = null   // 切换维度时清空旧榜单，避免旧数据残留
+    dimTopError.value = ''
+    loadDimTop()
+  }
+  showDimPicker.value = false
+}
+
+/** 切换维度专项榜展开/收起 */
+function toggleDimTop() {
+  showDimTop.value = !showDimTop.value
+  if (showDimTop.value && dimTopDim.value && !dimTopData.value && !dimTopLoading.value) {
+    loadDimTop()
+  }
+}
+
+/** 加载维度专项榜数据 */
+async function loadDimTop() {
+  if (!dimTopDim.value) return
+  const requestDim = dimTopDim.value
+  dimTopLoading.value = true
+  dimTopError.value = ''
+  try {
+    const { data: resp } = await fetchDimensionTop(date, requestDim, strategy)
+    if (dimTopDim.value === requestDim) {
+      dimTopData.value = resp
+    }
+  } catch (e: any) {
+    if (dimTopDim.value === requestDim) {
+      dimTopData.value = null
+      dimTopError.value = e?.response?.data?.detail || '加载失败'
+    }
+  } finally {
+    if (dimTopDim.value === requestDim) {
+      dimTopLoading.value = false
+    }
+  }
+}
+
 // 组件挂载时加载数据
 onMounted(() => loadDetail())
 </script>
@@ -205,6 +267,80 @@ onMounted(() => loadDetail())
             />
           </template>
           <van-empty v-else description="当日无入选股票" />
+        </div>
+
+        <!-- 维度专项榜：按单一维度从全候选池排名，独立于综合选股结果 -->
+        <div class="dim-top-section mt-6">
+          <div class="flex items-center justify-between" :class="{ 'mb-3': showDimTop }">
+            <div
+              class="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer"
+              @click="toggleDimTop"
+            >
+              <span>{{ showDimTop ? '▼' : '▶' }} 维度专项榜</span>
+              <span class="text-xs text-gray-400 font-normal">
+                （从全候选池按单维度排名，独立于综合入选名单）
+              </span>
+            </div>
+            <span v-if="dimTopDim" class="text-xs text-blue-500 bg-blue-50 px-2 py-1 rounded">
+              当前：{{ dimLabel(dimTopDim) }}
+            </span>
+          </div>
+
+          <template v-if="showDimTop">
+            <!-- 维度选择器 -->
+            <van-cell-group inset class="mb-3">
+              <van-field
+                :model-value="dimTopDim ? dimLabel(dimTopDim) : '请选择维度'"
+                is-link
+                readonly
+                label="排名依据"
+                placeholder="请选择维度"
+                @click="showDimPicker = true"
+              />
+            </van-cell-group>
+
+            <!-- 维度选择弹窗 -->
+            <van-popup v-model:show="showDimPicker" position="bottom" round>
+              <van-picker
+                :columns="dimTopOptions"
+                @confirm="onDimPickerConfirm"
+                @cancel="showDimPicker = false"
+              />
+            </van-popup>
+
+            <!-- 加载中 -->
+            <div v-if="dimTopLoading" class="py-6 text-center">
+              <van-loading size="20px">加载中...</van-loading>
+            </div>
+
+            <!-- 请求失败 -->
+            <van-empty v-else-if="dimTopError" :description="dimTopError" />
+
+            <!-- 结果列表 -->
+            <template v-else-if="dimTopData && dimTopData.stocks.length > 0">
+              <div class="text-xs text-gray-400 px-2 mb-2">
+                共 {{ dimTopData.stocks.length }} 只，
+                <span class="text-green-600 font-medium">{{ dimTopData.stocks.filter(s => s.picked).length }} 只</span>
+                已入选今日综合名单
+              </div>
+              <ScoreTable
+                :stocks="dimTopData.stocks"
+                :strategy="strategy"
+                :trade-date="date"
+                :current-sort="dimTopDim"
+                :current-order="'desc'"
+                :show-sort="false"
+              />
+            </template>
+
+            <!-- 零结果：该维度无候选 -->
+            <van-empty v-else-if="dimTopDim && dimTopData" description="该维度暂无候选" />
+
+            <!-- 未选择维度时的提示 -->
+            <div v-else-if="!dimTopDim" class="py-6 text-center text-sm text-gray-400">
+              请先选择排名依据维度
+            </div>
+          </template>
         </div>
       </template>
     </div>

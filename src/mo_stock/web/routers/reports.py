@@ -22,6 +22,7 @@ from mo_stock.storage.models import (
 )
 from mo_stock.web.deps import get_db
 from mo_stock.web.schemas import (
+    DimensionTopResponse,
     IndexSnapshot,
     MarketData,
     ReportDetailResponse,
@@ -363,4 +364,164 @@ async def get_report_detail(
         market=market,
         stocks=stocks,
         available_sectors=available_sectors,
+    )
+
+
+_SHORT_DIMS = {"limit", "limit_restart", "moneyflow", "lhb", "sector", "theme", "exhaustion"}
+_SWING_DIMS = {"trend", "pullback", "moneyflow_swing", "sector_swing", "theme_swing", "catalyst", "risk_liquidity"}
+
+
+@router.get("/reports/{trade_date}/dimension-top", response_model=DimensionTopResponse)
+async def get_dimension_top(
+    db: Annotated[Session, Depends(get_db)],
+    trade_date: date,
+    dim: str = Query(..., description="维度名称，如 lhb / limit / moneyflow"),
+    strategy: str = Query(default="short", description="策略标识"),
+    limit: int = Query(default=20, ge=5, le=50, description="返回数量"),
+) -> DimensionTopResponse:
+    """获取指定维度的 Top N 股票（独立于综合选股结果）。
+
+    从全候选池按该维度得分降序取前 N 只，过滤 ST 和停牌；
+    返回结构与 StockItem 一致，picked 标记是否在当日综合入选名单中。
+    """
+    if strategy not in VALID_STRATEGIES:
+        raise HTTPException(status_code=400, detail=f"非法 strategy: {strategy}")
+    valid_dims = _SHORT_DIMS if strategy == "short" else _SWING_DIMS
+    if dim not in valid_dims:
+        raise HTTPException(status_code=400, detail=f"非法 dim: {dim}，{strategy} 策略有效维度: {sorted(valid_dims)}")
+
+    # 主查询：按维度分降序取 Top N，过滤 ST 和停牌
+    base_query = (
+        select(
+            FilterScoreDaily.ts_code,
+            FilterScoreDaily.score,
+            StockBasic.name,
+        )
+        .join(StockBasic, FilterScoreDaily.ts_code == StockBasic.ts_code)
+        .join(DailyKline, (FilterScoreDaily.ts_code == DailyKline.ts_code) & (DailyKline.trade_date == trade_date))
+        .where(FilterScoreDaily.trade_date == trade_date)
+        .where(FilterScoreDaily.strategy == strategy)
+        .where(FilterScoreDaily.dim == dim)
+        .where(FilterScoreDaily.score > 0)
+        .where(DailyKline.vol > 0)  # 排除停牌：必须有当日行情且成交量 > 0
+        .where(StockBasic.is_st.is_(False))
+        .where(~func.upper(func.trim(StockBasic.name)).like("ST%"))
+        .where(~func.upper(func.trim(StockBasic.name)).like("*ST%"))
+        .order_by(FilterScoreDaily.score.desc(), FilterScoreDaily.ts_code.asc())  # 同分按代码稳定排序
+        .limit(limit)
+    )
+    rows = db.execute(base_query).all()
+    ts_codes = [r.ts_code for r in rows]
+    name_from_main = {r.ts_code: r.name for r in rows}
+
+    if not ts_codes:
+        return DimensionTopResponse(trade_date=str(trade_date), strategy=strategy, dim=dim, stocks=[])
+
+    # 批量查询所有维度分
+    scores_map: dict[str, dict[str, int]] = {}
+    details_map: dict[str, dict[str, dict]] = {}
+    score_rows = db.execute(
+        select(FilterScoreDaily)
+        .where(FilterScoreDaily.trade_date == trade_date)
+        .where(FilterScoreDaily.strategy == strategy)
+        .where(FilterScoreDaily.ts_code.in_(ts_codes))
+    ).scalars().all()
+    for sr in score_rows:
+        scores_map.setdefault(sr.ts_code, {})[sr.dim] = int(sr.score)
+        details_map.setdefault(sr.ts_code, {})[sr.dim] = sr.detail or {}
+
+    # 批量查询 selection_result（获取 final_score / rule_score / ai_score / picked / rank）
+    sel_map: dict[str, dict] = {}
+    sel_rows = db.execute(
+        select(SelectionResult)
+        .where(SelectionResult.trade_date == trade_date)
+        .where(SelectionResult.strategy == strategy)
+        .where(SelectionResult.ts_code.in_(ts_codes))
+    ).scalars().all()
+    for sel_row in sel_rows:
+        sel_map[sel_row.ts_code] = {
+            "final_score": float(sel_row.final_score),
+            "rule_score": float(sel_row.rule_score),
+            "ai_score": float(sel_row.ai_score) if sel_row.ai_score is not None else None,
+            "picked": sel_row.picked,
+            "rank": sel_row.rank if sel_row.picked else 0,
+        }
+
+    # 批量查询 AI 分析
+    thesis_map: dict[str, str] = {}
+    ai_rows = db.execute(
+        select(AiAnalysis)
+        .where(AiAnalysis.trade_date == trade_date)
+        .where(AiAnalysis.strategy == strategy)
+        .where(AiAnalysis.ts_code.in_(ts_codes))
+    ).scalars().all()
+    for ai_row in ai_rows:
+        if ai_row.thesis:
+            thesis = ai_row.thesis
+            if len(thesis) > 100:
+                thesis = thesis[:100] + "..."
+            thesis_map[ai_row.ts_code] = thesis
+
+    # 批量查询行业
+    industry_map: dict[str, str] = {}
+    idx_rows = db.execute(
+        select(IndexMember)
+        .where(IndexMember.ts_code.in_(ts_codes))
+    ).scalars().all()
+    for idx_row in idx_rows:
+        if idx_row.l1_name:
+            industry_map[idx_row.ts_code] = idx_row.l1_name
+
+    # 批量查询概念（与报告详情一致，按当日概念强度排序）
+    concepts_map: dict[str, list[str]] = {c: [] for c in ts_codes}
+    concept_count_map: dict[str, int] = dict.fromkeys(ts_codes, 0)
+    concept_rows = db.execute(
+        select(ThsMember.con_code, ThsIndex.name)
+        .join(ThsIndex, ThsMember.ts_code == ThsIndex.ts_code)
+        .outerjoin(
+            LimitConceptDaily,
+            (ThsMember.ts_code == LimitConceptDaily.ts_code)
+            & (LimitConceptDaily.trade_date == trade_date),
+        )
+        .where(ThsMember.con_code.in_(ts_codes))
+        .where(ThsIndex.name.isnot(None))
+        .order_by(
+            LimitConceptDaily.rank.is_(None),
+            LimitConceptDaily.rank,
+            ThsIndex.name,
+        )
+    ).all()
+    for con_code, concept_name in concept_rows:
+        concept_count_map[con_code] = concept_count_map.get(con_code, 0) + 1
+        current = concepts_map.setdefault(con_code, [])
+        if len(current) < REPORT_CONCEPT_DISPLAY_LIMIT:
+            current.append(concept_name)
+
+    # 组装 StockItem 列表，按维度分降序排列，同分按代码稳定排序
+    stocks: list[StockItem] = []
+    for rank_idx, ts_code in enumerate(ts_codes, start=1):
+        sel = sel_map.get(ts_code, {})
+        stocks.append(
+            StockItem(
+                rank=rank_idx,
+                ts_code=ts_code,
+                name=name_from_main.get(ts_code, ""),
+                industry=industry_map.get(ts_code, ""),
+                concepts=concepts_map.get(ts_code, []),
+                concept_count=concept_count_map.get(ts_code, 0),
+                final_score=sel.get("final_score", 0.0),
+                rule_score=sel.get("rule_score", 0.0),
+                ai_score=sel.get("ai_score"),
+                scores=scores_map.get(ts_code, {}),
+                score_details=details_map.get(ts_code, {}),
+                ai_summary=thesis_map.get(ts_code),
+                picked=sel.get("picked", False),
+            )
+        )
+
+    return DimensionTopResponse(
+        trade_date=str(trade_date),
+        strategy=strategy,
+        dim=dim,
+        stocks=stocks,
     )
