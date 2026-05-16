@@ -53,6 +53,8 @@ data/cache/
 data/logs/
 data/reports/*.md
 data/reports/*.json
+data/reports/swing/*.md
+data/reports/swing/*.json
 !data/reports/.gitkeep
 
 # 数据库文件（如果有本地 SQLite 备份）
