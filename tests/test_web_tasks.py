@@ -1,4 +1,5 @@
 """任务执行与调度 API 测试。"""
+from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ def _reset_state():
             "enabled": None, "skip_enhanced": None,
             "skip_ai": None, "timezone": None,
             "auto_catch_up": None,
+            "last_error": None,
         })
     yield
 
@@ -149,6 +151,7 @@ def test_scheduler_start_save_failure_resets_placeholder(client):
     with tasks_mod._sched_lock:
         assert tasks_mod._sched_state["status"] == "stopped"
         assert tasks_mod._sched_state["scheduler"] is None
+        assert "db down" in tasks_mod._sched_state["last_error"]
 
 
 def test_scheduler_start_invalid_timezone(client):
@@ -326,6 +329,27 @@ def test_execute_background_task_error_writes_error():
 
 
 def test_scheduler_status_stopped(client):
-    resp = client.get("/api/scheduler/status")
+    with patch("mo_stock.scheduler.state.load_latest_run", return_value=None):
+        resp = client.get("/api/scheduler/status")
     assert resp.status_code == 200
     assert resp.json()["status"] == "stopped"
+
+
+def test_scheduler_status_includes_latest_run(client):
+    latest = SimpleNamespace(
+        trade_date=date(2026, 5, 11),
+        strategy="short",
+        source="scheduled",
+        status="failed",
+        started_at=datetime(2026, 5, 11, 21, 0),
+        finished_at=datetime(2026, 5, 11, 21, 1),
+        error_message="db timeout",
+    )
+    with patch("mo_stock.scheduler.state.load_latest_run", return_value=latest):
+        resp = client.get("/api/scheduler/status")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["last_run_trade_date"] == "2026-05-11"
+    assert body["last_run_status"] == "failed"
+    assert body["last_run_error"] == "db timeout"

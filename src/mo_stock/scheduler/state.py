@@ -37,6 +37,19 @@ class SchedulerRuntimeConfig:
     misfire_grace_minutes: int
 
 
+@dataclass(frozen=True)
+class SchedulerRunSnapshot:
+    """调度执行历史的只读快照，用于 Web 状态展示。"""
+
+    trade_date: date
+    strategy: str
+    source: str
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    error_message: str | None
+
+
 def ensure_scheduler_tables() -> None:
     """创建调度相关表。
 
@@ -188,6 +201,28 @@ def has_selection_result(
         SelectionResult.strategy == strategy,
     )
     return int(session.scalar(stmt) or 0) > 0
+
+
+def load_latest_run(*, strategy: str | None = None) -> SchedulerRunSnapshot | None:
+    """读取最近一次调度执行记录。"""
+    ensure_scheduler_tables()
+    with get_session() as session:
+        stmt = select(SchedulerRun)
+        if strategy is not None:
+            stmt = stmt.where(SchedulerRun.strategy == strategy)
+        stmt = stmt.order_by(SchedulerRun.id.desc()).limit(1)
+        run = session.scalar(stmt)
+        if run is None:
+            return None
+        return SchedulerRunSnapshot(
+            trade_date=run.trade_date,
+            strategy=run.strategy,
+            source=run.source,
+            status=run.status,
+            started_at=run.started_at,
+            finished_at=run.finished_at,
+            error_message=run.error_message,
+        )
 
 
 def _count_stmt(model: type) -> Select[tuple[int]]:

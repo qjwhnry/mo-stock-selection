@@ -60,8 +60,8 @@ const runForm = reactive({
 
 const schedForm = reactive({
   strategy: 'short',
-  cronHour: 15,
-  cronMinute: 30,
+  cronHour: 21,
+  cronMinute: 0,
   skipAi: false,
 })
 
@@ -502,7 +502,25 @@ onUnmounted(() => {
               <van-cell title="执行规则" :value="cronFriendly(schedStatus.cron || '')" />
               <van-cell v-if="schedStatus.next_run" title="下次执行" :value="schedStatus.next_run" />
             </van-cell-group>
-            <van-empty v-else-if="schedStatus" description="调度器未启动" :image-size="60" />
+            <van-cell-group v-if="schedStatus?.last_run_status" inset title="最近执行">
+              <van-cell v-if="schedStatus.last_run_trade_date" title="交易日期" :value="schedStatus.last_run_trade_date" />
+              <van-cell title="状态" :value="schedStatus.last_run_status" />
+              <van-cell v-if="schedStatus.last_run_started_at" title="开始时间" :value="schedStatus.last_run_started_at" />
+              <van-cell v-if="schedStatus.last_run_finished_at" title="结束时间" :value="schedStatus.last_run_finished_at" />
+              <van-cell v-if="schedStatus.last_run_error" title="失败原因" :value="schedStatus.last_run_error" />
+            </van-cell-group>
+            <van-notice-bar
+              v-if="schedStatus?.last_error"
+              color="#ee0a24"
+              background="#ffe1e1"
+              left-text="调度异常"
+              :text="schedStatus.last_error"
+            />
+            <van-empty
+              v-if="schedStatus && schedStatus.status !== 'running' && !schedStatus.last_error"
+              description="调度器未启动"
+              :image-size="60"
+            />
           </div>
         </van-tab>
       </van-tabs>

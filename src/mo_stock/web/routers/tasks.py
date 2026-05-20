@@ -379,6 +379,7 @@ _sched_state: dict = {
     "skip_ai": None,
     "timezone": None,
     "auto_catch_up": None,
+    "last_error": None,
 }
 
 
@@ -392,16 +393,22 @@ def _start_scheduler_thread(config) -> None:
 
     from mo_stock.scheduler.daily_job import register_scheduler_jobs
 
-    sched = BlockingScheduler(timezone=config.timezone)
-    register_scheduler_jobs(sched, config)
-
-    with _sched_lock:
-        _sched_state["scheduler"] = sched
-
     try:
+        sched = BlockingScheduler(timezone=config.timezone)
+        register_scheduler_jobs(sched, config)
+
+        with _sched_lock:
+            _sched_state["scheduler"] = sched
+            _sched_state["last_error"] = None
+
         sched.start()
     except (KeyboardInterrupt, SystemExit):
         pass
+    except Exception as exc:
+        logger.exception("Web scheduler 启动或运行失败")
+        with _sched_lock:
+            _sched_state["scheduler"] = None
+            _sched_state["last_error"] = str(exc)
     finally:
         with _sched_lock:
             _sched_state["status"] = "stopped"
@@ -432,6 +439,7 @@ def autostart_scheduler_from_db() -> None:
             "skip_ai": runtime_cfg.skip_ai,
             "timezone": runtime_cfg.timezone,
             "auto_catch_up": runtime_cfg.auto_catch_up,
+            "last_error": None,
         })
 
     t = threading.Thread(
@@ -466,6 +474,7 @@ async def start_scheduler(config: SchedulerConfig) -> dict:
             "skip_ai": config.skip_ai,
             "timezone": config.timezone,
             "auto_catch_up": config.auto_catch_up,
+            "last_error": None,
         })
 
     from mo_stock.scheduler.state import save_runtime_config
@@ -482,7 +491,7 @@ async def start_scheduler(config: SchedulerConfig) -> dict:
             auto_catch_up=config.auto_catch_up,
             misfire_grace_minutes=config.misfire_grace_minutes,
         )
-    except Exception:
+    except Exception as exc:
         with _sched_lock:
             _sched_state.update({
                 "status": "stopped",
@@ -494,6 +503,7 @@ async def start_scheduler(config: SchedulerConfig) -> dict:
                 "skip_ai": None,
                 "timezone": None,
                 "auto_catch_up": None,
+                "last_error": str(exc),
             })
         raise
 
@@ -508,6 +518,7 @@ async def start_scheduler(config: SchedulerConfig) -> dict:
             "skip_ai": runtime_cfg.skip_ai,
             "timezone": runtime_cfg.timezone,
             "auto_catch_up": runtime_cfg.auto_catch_up,
+            "last_error": None,
         })
 
     t = threading.Thread(
@@ -534,6 +545,7 @@ async def stop_scheduler() -> dict:
         _sched_state["scheduler"] = None
         _sched_state["cron"] = None
         _sched_state["enabled"] = False
+        _sched_state["last_error"] = None
 
     save_runtime_config(enabled=False)
 
@@ -559,6 +571,7 @@ async def get_scheduler_status() -> SchedulerStatusResponse:
         skip_ai = _sched_state.get("skip_ai")
         timezone = _sched_state.get("timezone")
         auto_catch_up = _sched_state.get("auto_catch_up")
+        last_error = _sched_state.get("last_error")
 
         next_run = None
         if status == "running" and _sched_state.get("scheduler"):
@@ -577,6 +590,14 @@ async def get_scheduler_status() -> SchedulerStatusResponse:
         timezone = db_cfg.timezone if timezone is None else timezone
         auto_catch_up = db_cfg.auto_catch_up if auto_catch_up is None else auto_catch_up
 
+    latest_run = None
+    try:
+        from mo_stock.scheduler.state import load_latest_run
+
+        latest_run = load_latest_run(strategy=strategy)
+    except Exception:
+        logger.exception("读取最近调度执行记录失败")
+
     return SchedulerStatusResponse(
         status=status,
         status_scope="web_process",
@@ -588,4 +609,15 @@ async def get_scheduler_status() -> SchedulerStatusResponse:
         skip_ai=skip_ai,
         timezone=timezone,
         auto_catch_up=auto_catch_up,
+        last_error=last_error,
+        last_run_trade_date=latest_run.trade_date.isoformat() if latest_run else None,
+        last_run_strategy=latest_run.strategy if latest_run else None,
+        last_run_source=latest_run.source if latest_run else None,
+        last_run_status=latest_run.status if latest_run else None,
+        last_run_started_at=latest_run.started_at.isoformat() if latest_run else None,
+        last_run_finished_at=(
+            latest_run.finished_at.isoformat()
+            if latest_run and latest_run.finished_at else None
+        ),
+        last_run_error=latest_run.error_message if latest_run else None,
     )

@@ -70,6 +70,31 @@ def test_has_successful_scheduler_run(scheduler_state_db) -> None:
         )
 
 
+def test_load_latest_run_by_strategy(scheduler_state_db) -> None:
+    short_id = state.start_run(
+        trade_date=date(2026, 5, 11),
+        strategy="short",
+        source="scheduled",
+    )
+    state.finish_run(short_id, status="success")
+    swing_id = state.start_run(
+        trade_date=date(2026, 5, 12),
+        strategy="swing",
+        source="catch_up",
+    )
+    state.finish_run(swing_id, status="failed", error_message="boom")
+
+    latest_any = state.load_latest_run()
+    latest_short = state.load_latest_run(strategy="short")
+
+    assert latest_any is not None
+    assert latest_any.strategy == "swing"
+    assert latest_any.error_message == "boom"
+    assert latest_short is not None
+    assert latest_short.strategy == "short"
+    assert latest_short.status == "success"
+
+
 def test_mark_stale_running_runs_failed(scheduler_state_db) -> None:
     now = datetime.now(UTC)
     stale = SchedulerRun(

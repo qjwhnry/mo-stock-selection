@@ -697,6 +697,14 @@ export interface SchedulerStatusResponse {
   strategy: string | null          // 调度中的策略类型
   cron: string | null             // Cron 表达式
   next_run: string | null          // 下次执行时间
+  last_error?: string | null       // 调度器线程启动/运行错误
+  last_run_trade_date?: string | null
+  last_run_strategy?: string | null
+  last_run_source?: string | null
+  last_run_status?: string | null
+  last_run_started_at?: string | null
+  last_run_finished_at?: string | null
+  last_run_error?: string | null
 }
 
 /**
@@ -772,10 +780,10 @@ export function fetchTaskStatus() {
  * 启动定时调度器（每日收盘后自动执行选股）
  * @param strategy 策略类型
  * @param skipAi 是否跳过 AI 分析
- * @param cronHour 定时执行小时（默认 15，即下午 3 点）
- * @param cronMinute 定时执行分钟（默认 30）
+ * @param cronHour 定时执行小时（默认 21，即晚上 9 点）
+ * @param cronMinute 定时执行分钟（默认 0）
  */
-export function startScheduler(strategy: string, skipAi = false, cronHour = 15, cronMinute = 30) {
+export function startScheduler(strategy: string, skipAi = false, cronHour = 21, cronMinute = 0) {
   return api.post<{ message: string; cron: string }>('/scheduler/start', {
     strategy,
     skip_ai: skipAi,

@@ -325,6 +325,14 @@ class SchedulerStatusResponse(BaseModel):
     skip_ai: bool | None = None
     timezone: str | None = None
     auto_catch_up: bool | None = None
+    last_error: str | None = None
+    last_run_trade_date: str | None = None
+    last_run_strategy: str | None = None
+    last_run_source: str | None = None
+    last_run_status: str | None = None
+    last_run_started_at: str | None = None
+    last_run_finished_at: str | None = None
+    last_run_error: str | None = None
 
 
 def _parse_iso_date(value: str, *, field_name: str) -> date:
