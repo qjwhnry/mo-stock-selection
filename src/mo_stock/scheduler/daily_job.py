@@ -276,7 +276,7 @@ def load_enabled_runtime_config() -> SchedulerRuntimeConfig | None:
 
 
 def _register_catch_up_job_if_needed(scheduler, runtime_cfg: SchedulerRuntimeConfig) -> None:
-    """启动时若错过今日调度且仍在宽限期内，注册一次性补跑任务。"""
+    """启动时若错过今日调度且仍在当天，注册一次性补跑任务。"""
     if not runtime_cfg.auto_catch_up:
         return
 
@@ -289,7 +289,12 @@ def _register_catch_up_job_if_needed(scheduler, runtime_cfg: SchedulerRuntimeCon
     )
     if now < scheduled_at:
         return
-    if now > scheduled_at + timedelta(minutes=runtime_cfg.misfire_grace_minutes):
+    end_of_day = datetime.combine(
+        now.date() + timedelta(days=1),
+        time.min,
+        tzinfo=tz,
+    )
+    if now >= end_of_day:
         return
 
     trade_date = now.date()

@@ -145,7 +145,7 @@ def test_register_scheduler_jobs_uses_configured_timezone(monkeypatch) -> None:
 
 
 def test_register_catch_up_job_when_missed_within_grace(monkeypatch) -> None:
-    """启动时间错过调度点但仍在宽限期内时，注册一次性补跑。"""
+    """启动时间错过调度点但仍在当天时，注册一次性补跑。"""
     from mo_stock.scheduler import daily_job
     from mo_stock.scheduler.state import SchedulerRuntimeConfig
 
@@ -188,3 +188,48 @@ def test_register_catch_up_job_when_missed_within_grace(monkeypatch) -> None:
     assert len(scheduler.jobs) == 1
     assert scheduler.jobs[0]["kwargs"]["id"] == "daily_stock_selection_catch_up"
     assert scheduler.jobs[0]["kwargs"]["kwargs"]["trade_date"] == date(2026, 5, 11)
+
+
+def test_register_catch_up_job_when_missed_after_old_grace(monkeypatch) -> None:
+    """即使超过 60 分钟，只要仍是当天也应补跑，避免晚间重启漏选。"""
+    from mo_stock.scheduler import daily_job
+    from mo_stock.scheduler.state import SchedulerRuntimeConfig
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):  # noqa: ANN001
+            return datetime(2026, 5, 11, 23, 30, tzinfo=tz)
+
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.jobs: list[dict[str, Any]] = []
+
+        def add_job(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            self.jobs.append({"args": args, "kwargs": kwargs})
+
+    @contextmanager
+    def fake_session():
+        yield object()
+
+    runtime_cfg = SchedulerRuntimeConfig(
+        enabled=True,
+        strategy="short",
+        skip_enhanced=False,
+        skip_ai=True,
+        cron_hour=21,
+        cron_minute=10,
+        timezone="Asia/Shanghai",
+        auto_catch_up=True,
+        misfire_grace_minutes=60,
+    )
+    scheduler = FakeScheduler()
+    monkeypatch.setattr(daily_job, "datetime", FixedDatetime)
+    monkeypatch.setattr(daily_job, "get_session", fake_session)
+    monkeypatch.setattr(daily_job.repo, "is_trade_date", lambda session, trade_date: True)
+    monkeypatch.setattr(daily_job, "has_successful_scheduler_run", lambda *args, **kwargs: False)
+    monkeypatch.setattr(daily_job, "has_selection_result", lambda *args, **kwargs: False)
+
+    daily_job._register_catch_up_job_if_needed(scheduler, runtime_cfg)
+
+    assert len(scheduler.jobs) == 1
+    assert scheduler.jobs[0]["kwargs"]["id"] == "daily_stock_selection_catch_up"
