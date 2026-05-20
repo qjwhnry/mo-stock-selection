@@ -113,6 +113,37 @@ def test_run_daily_pipeline_with_history_records_failure(monkeypatch) -> None:
     assert calls == [(8, {"status": "failed", "error_message": "boom"})]
 
 
+def test_register_scheduler_jobs_uses_configured_timezone(monkeypatch) -> None:
+    """CronTrigger 必须按配置时区排程，避免 Docker UTC 环境把 21:00 解释成 UTC。"""
+    from mo_stock.scheduler import daily_job
+    from mo_stock.scheduler.state import SchedulerRuntimeConfig
+
+    class FakeScheduler:
+        def __init__(self) -> None:
+            self.jobs: list[dict[str, Any]] = []
+
+        def add_job(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            self.jobs.append({"args": args, "kwargs": kwargs})
+
+    runtime_cfg = SchedulerRuntimeConfig(
+        enabled=True,
+        strategy="short",
+        skip_enhanced=False,
+        skip_ai=True,
+        cron_hour=21,
+        cron_minute=10,
+        timezone="Asia/Shanghai",
+        auto_catch_up=False,
+        misfire_grace_minutes=60,
+    )
+    scheduler = FakeScheduler()
+
+    daily_job.register_scheduler_jobs(scheduler, runtime_cfg)
+
+    trigger = scheduler.jobs[0]["kwargs"]["trigger"]
+    assert str(trigger.timezone) == "Asia/Shanghai"
+
+
 def test_register_catch_up_job_when_missed_within_grace(monkeypatch) -> None:
     """启动时间错过调度点但仍在宽限期内时，注册一次性补跑。"""
     from mo_stock.scheduler import daily_job

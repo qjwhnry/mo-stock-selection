@@ -250,6 +250,7 @@ def register_scheduler_jobs(scheduler, runtime_cfg: SchedulerRuntimeConfig) -> N
             day_of_week="mon-fri",
             hour=runtime_cfg.cron_hour,
             minute=runtime_cfg.cron_minute,
+            timezone=ZoneInfo(runtime_cfg.timezone),
         ),
         id="daily_stock_selection",
         name="每日 A 股选股流程",
