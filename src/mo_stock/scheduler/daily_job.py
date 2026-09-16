@@ -19,22 +19,9 @@ from apscheduler.triggers.date import DateTrigger
 from loguru import logger
 
 from mo_stock.filters.base import load_weights_yaml
-from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
-from mo_stock.filters.short.lhb_filter import LhbFilter
-from mo_stock.filters.short.limit_filter import LimitFilter
-from mo_stock.filters.short.limit_restart_filter import LimitRestartFilter
-from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
-from mo_stock.filters.short.sector_filter import SectorFilter
-from mo_stock.filters.short.theme_filter import ThemeFilter
-from mo_stock.filters.swing.catalyst_filter import CatalystFilter
 from mo_stock.filters.swing.market_regime_filter import MarketRegimeFilter
-from mo_stock.filters.swing.moneyflow_swing_filter import MoneyflowSwingFilter
-from mo_stock.filters.swing.pullback_filter import PullbackFilter
-from mo_stock.filters.swing.risk_liquidity_filter import RiskLiquidityFilter
-from mo_stock.filters.swing.sector_swing_filter import SectorSwingFilter
-from mo_stock.filters.swing.theme_swing_filter import ThemeSwingFilter
-from mo_stock.filters.swing.trend_filter import TrendFilter
 from mo_stock.ingest.ingest_daily import DailyIngestor
+from mo_stock.pipeline import CN_TZ, assert_lhb_data_available, build_filters
 from mo_stock.report.render_md import render_daily_report
 from mo_stock.scheduler.state import (
     SchedulerRuntimeConfig,
@@ -50,37 +37,15 @@ from mo_stock.scorer.combine import combine_scores, replace_filter_scores
 from mo_stock.storage import repo
 from mo_stock.storage.db import get_session
 
-# A 股交易时区，所有时点判断都基于此（UTC+8）
-CN_TZ = ZoneInfo("Asia/Shanghai")
-
-# 龙虎榜数据由交易所于 T 日盘后（约 15:30 之后）发布，调度必须晚于此刻
-# 否则 LhbFilter 会用"还没出"的数据 → look-ahead bias。
-LHB_AVAILABLE_AFTER = time(15, 30)
-
-
-def _assert_lhb_data_available(trade_date: date, now: datetime | None = None) -> None:
-    """断言：当前已晚于 T 日 15:30，龙虎榜数据可用。
-
-    防御 P0-1：若运维误把调度提前到盘中（如 14:00），会用未来的龙虎榜信号
-    打分，等价于"用未来数据选当前股票"——量化里的 look-ahead bias。
-
-    注意：仅当 trade_date == 当日 时才校验；回填历史日期不会触发。
-    """
-    now = now or datetime.now(CN_TZ)
-    today = now.date()
-    if trade_date != today:
-        return  # 历史回填，数据早已可用
-    if now.time() < LHB_AVAILABLE_AFTER:
-        raise RuntimeError(
-            f"调度时点 {now.strftime('%H:%M:%S')} 早于龙虎榜发布时间 15:30；"
-            f"提前选股会使用未来数据，已阻止运行。请晚于 15:30 后再触发。"
-        )
+# 保留原私有名称，兼容已有调用与测试；实现统一由 pipeline 模块维护。
+_assert_lhb_data_available = assert_lhb_data_available
+_build_filters = build_filters
 
 
 def run_daily_pipeline(
     trade_date: date | None = None, *,
     skip_enhanced: bool = False,
-    skip_ai: bool = False,
+    skip_ai: bool = True,
     strategy: str = "short",
 ) -> None:
     """每日端到端流程（与 cli.run_once 内部一致）。
@@ -167,7 +132,7 @@ def run_daily_pipeline(
 def run_daily_pipeline_with_history(
     trade_date: date | None = None, *,
     skip_enhanced: bool = False,
-    skip_ai: bool = False,
+    skip_ai: bool = True,
     strategy: str = "short",
     source: str = "scheduled",
 ) -> None:
@@ -342,32 +307,3 @@ def _weights_path_for_strategy(strategy: str) -> Path:
     root = Path(__file__).resolve().parent.parent.parent.parent
     filename = "weights.yaml" if strategy == "short" else "weights_swing.yaml"
     return root / "config" / filename
-
-
-def _build_filters(strategy: str, cfg: dict):
-    if strategy == "short":
-        return [
-            LimitFilter(weights=cfg.get("limit_filter", {})),
-            LimitRestartFilter(weights=cfg.get("limit_restart_filter", {})),
-            MoneyflowFilter(weights=cfg.get("moneyflow_filter", {})),
-            LhbFilter(weights=cfg.get("lhb_filter", {})),
-            SectorFilter(weights=cfg.get("sector_filter", {})),
-            ThemeFilter(weights=cfg.get("theme_filter", {})),
-            ExhaustionFilter(weights=cfg.get("exhaustion_filter", {})),
-        ], [
-            "limit", "limit_restart", "moneyflow", "lhb",
-            "sector", "theme", "exhaustion",
-        ]
-
-    return [
-        TrendFilter(weights=cfg.get("trend_filter", {})),
-        PullbackFilter(weights=cfg.get("pullback_filter", {})),
-        MoneyflowSwingFilter(weights=cfg.get("moneyflow_swing_filter", {})),
-        SectorSwingFilter(weights=cfg.get("sector_swing_filter", {})),
-        ThemeSwingFilter(weights=cfg.get("theme_swing_filter", {})),
-        CatalystFilter(weights=cfg.get("catalyst_filter", {})),
-        RiskLiquidityFilter(weights=cfg.get("risk_liquidity_filter", {})),
-    ], [
-        "trend", "pullback", "moneyflow_swing", "sector_swing",
-        "theme_swing", "catalyst", "risk_liquidity",
-    ]

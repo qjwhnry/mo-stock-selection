@@ -233,7 +233,7 @@ class LhbSeatsResponse(BaseModel):
 class RunTaskRequest(BaseModel):
     strategy: str = "short"
     trade_date: str | None = None
-    skip_ai: bool = False
+    skip_ai: bool = True
     skip_enhanced: bool = False
     force: bool = False
 
@@ -306,7 +306,7 @@ class TaskStatusResponse(BaseModel):
 class SchedulerConfig(BaseModel):
     strategy: str = "short"
     skip_enhanced: bool = False
-    skip_ai: bool = False
+    skip_ai: bool = True
     cron_hour: int = Field(default=21, ge=0, le=23)
     cron_minute: int = Field(default=0, ge=0, le=59)
     timezone: str = "Asia/Shanghai"

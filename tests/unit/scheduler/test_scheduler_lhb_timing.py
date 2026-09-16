@@ -55,6 +55,17 @@ def test_scheduler_builds_swing_filters_and_dims() -> None:
     assert [f.dim for f in filters] == dims
 
 
+def test_scheduler_builds_all_short_filters_and_dims() -> None:
+    """短线手工与调度入口必须共用完整的 7 个规则维度。"""
+    filters, dims = _build_filters("short", {})
+
+    assert dims == [
+        "limit", "limit_restart", "moneyflow", "lhb",
+        "sector", "theme", "exhaustion",
+    ]
+    assert [f.dim for f in filters] == dims
+
+
 def test_run_daily_pipeline_with_history_records_success(monkeypatch) -> None:
     """调度执行成功时写入 success。"""
     from mo_stock.scheduler import daily_job

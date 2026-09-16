@@ -185,7 +185,7 @@ mo-stock run-once                              # 跑今日
 mo-stock run-once --date 2026-04-22            # 指定某个交易日
 mo-stock run-once --date 2026-04-22 --skip-ingest      # 跳过采集，仅重算评分 + 报告
 mo-stock run-once --date 2026-04-22 --skip-enhanced    # 只跑 7 个 CORE 步骤，跳过题材/席位增强
-mo-stock run-once --date 2026-04-22 --skip-ai          # 跳过 AI 阶段，final_score 使用 rule_score
+mo-stock run-once --date 2026-04-22 --with-ai          # 显式启用 AI 融合（默认跳过）
 mo-stock run-once --date 2026-04-26 --force            # 允许在非交易日运行
 ```
 
@@ -193,11 +193,11 @@ mo-stock run-once --date 2026-04-26 --force            # 允许在非交易日�
 - `--date`（可选）：选股日 `YYYY-MM-DD`，**默认今日**
 - `--skip-ingest`：跳过 Tushare 数据拉取步骤。用于数据已在库、只需重算打分 / 报告的场景
 - `--skip-enhanced`：只跑 7 个 CORE ingest 步骤（daily_kline / index_daily / daily_basic / limit_list / moneyflow / lhb / sw_daily），跳过 5 个 ENHANCED 步骤（ths_daily / limit_concept / concept_moneyflow / top_inst / hm_detail）。Tushare 限速时或调试用
-- `--skip-ai`：跳过 combine 的 AI 分析阶段，`ai_score=None`，`final_score` 直接回退为 `rule_score`。Anthropic API 故障 / 调试 / 控制成本时使用
-- `--strategy short|swing`：策略选择（默认 `short`）。`short`：6 个已实现短线维度（limit / moneyflow / lhb / sector / theme / exhaustion）；`swing`：7 维度波段选股 + market_regime 控制
+- `--skip-ai/--with-ai`：默认跳过 AI，`final_score=rule_score`；只有显式传 `--with-ai` 才启用 AI 融合
+- `--strategy short|swing`：策略选择（默认 `short`）。`short`：7 个短线维度（limit / limit_restart / moneyflow / lhb / sector / theme / exhaustion）；`swing`：7 维度波段选股 + market_regime 控制
 - `--force`：允许在非交易日（周末 / 节假日）运行（默认会被拒绝）
 
-**v2.2 后 AI 成本估算**（默认开启）：
+**AI 成本估算**（仅 `--with-ai` 时产生）：
 - TOP 50 候选股 × 单次调用 ~3-5k input + ~600 output tokens
 - 每天 ~250k input + 30k output tokens（cache 命中后实际计费量约 1/3）
 - 月成本 ≈ $5-15（按 Sonnet 4.6 当前价格基准；价格可能变动）
@@ -205,8 +205,8 @@ mo-stock run-once --date 2026-04-26 --force            # 允许在非交易日�
 **流程细节：**
 1. 数据拉取（`DailyIngestor.ingest_one_day`）—— CORE 7 步 + ENHANCED 5 步
 2. 加载权重配置 `config/weights.yaml`
-3. 规则层打分（v2.5 起 6 维度：`limit` + `moneyflow` + `lhb` + `sector` + `theme` + `exhaustion`）
-4. 综合打分（6 个权重项固定分母 1.0）+ 硬规则过滤 → 取 TOP N（默认 20）
+3. 规则层打分（7 维度：`limit` + `limit_restart` + `moneyflow` + `lhb` + `sector` + `theme` + `exhaustion`）
+4. 综合打分（7 个权重项固定分母 1.0）+ 硬规则过滤 → 取 TOP N（默认 20）
 5. 渲染 Markdown + JSON 报告到 `data/reports/YYYY-MM-DD.{md,json}`
 
 **幂等性：** 同一交易日重跑会 `upsert` `selection_result`，不会报唯一键冲突。
@@ -238,14 +238,14 @@ mo-stock run-once --date 2026-04-26 --skip-enhanced
 
 只填 daily_kline（含指数日线）/ daily_basic / limit_list / moneyflow / lhb / sw_daily 这些核心表。
 ThemeFilter 在这种模式下会因 ths_daily / limit_concept_daily 缺数据而无打分，
-但其它 4 维度仍正常工作（题材维度按 0 计入综合分）。
+但其它 6 维度仍正常工作（题材维度按 0 计入综合分）。
 
-### AI 融合工作流（v2.2）
+### AI 融合工作流（当前默认暂停）
 
-默认开启 AI 分析（无需任何额外参数）：
+默认使用纯规则分；需要实验 AI 融合时显式开启：
 
 ```bash
-mo-stock run-once --date 2026-04-26
+mo-stock run-once --date 2026-04-26 --with-ai
 ```
 
 流程：规则层候选 → TOP 50 候选 → Claude AI 分析 → 有 ai_score 时按 rule × 0.6 + ai × 0.4 融合，
@@ -254,14 +254,13 @@ mo-stock run-once --date 2026-04-26
 **AI 缺失的优雅降级**：单股 AI 失败 → ai_score=None → final_score 降级为 rule_score。
 其它股仍能正常入选，AI 失败不阻断流程。
 
-**整体跳过 AI**：
+**纯规则模式（默认）**：
 
 ```bash
 mo-stock run-once --date 2026-04-26 --skip-ai
 ```
 
-跳过后所有候选的 `ai_score` 都为 NULL，`final_score` 直接使用 `rule_score`。
-Anthropic API 故障时可以立即降级使用。
+所有候选的 `ai_score` 都为 NULL，`final_score` 直接使用 `rule_score`。
 
 **报告"选出原因"**（自动生成，无需配置）：
 - markdown：每只入选股展示 AI 论点 + 关键信号 + 选出维度证据表（按 strategy 翻译已命中维度 detail）+ 操作建议（入场/止损）+ 风险
@@ -386,7 +385,7 @@ mo-stock run-once --date 2026-04-22
 
     mo-stock backtest --strategy short --start 2026-01-01 --end 2026-04-30 --top-n 20 --holding-days 1,2,3,5
 
-回测复刻 `run-once --skip-ai` 的规则层口径：6 个短线维度、硬规则、排序 tie-breaker 和板块 cap。
+回测复刻 `run-once --skip-ai` 的规则层口径：7 个短线维度、硬规则、排序 tie-breaker 和板块 cap。
 结果写入 `short_backtest_trade`，并生成 `data/reports/short-backtest-*.md`。
 
 可选参数：

@@ -626,7 +626,7 @@ class SchedulerConfig(Base):
         Boolean, default=False, comment="是否跳过 ENHANCED 数据同步步骤",
     )
     skip_ai: Mapped[bool] = mapped_column(
-        Boolean, default=False, comment="是否跳过 AI 分析",
+        Boolean, default=True, comment="是否跳过 AI 分析",
     )
     cron_hour: Mapped[int] = mapped_column(
         Integer, default=21, comment="每日触发小时，Asia/Shanghai 语义，0-23",

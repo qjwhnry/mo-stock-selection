@@ -55,14 +55,14 @@ const metadataForm = reactive({
 const runForm = reactive({
   strategy: 'short',
   tradeDate: '',
-  skipAi: false,
+  skipAi: true,
 })
 
 const schedForm = reactive({
   strategy: 'short',
   cronHour: 21,
   cronMinute: 0,
-  skipAi: false,
+  skipAi: true,
 })
 
 const taskStatus = ref<TaskStatusResponse | null>(null)

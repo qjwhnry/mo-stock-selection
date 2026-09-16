@@ -1,8 +1,8 @@
 # mo-stock-selection — 项目约定
 
-A 股批量选股系统：**短线（short）** 6 个已实现规则维度（limit / moneyflow / lhb / sector / theme / exhaustion），
+A 股批量选股系统：**短线（short）** 7 个已实现规则维度（limit / limit_restart / moneyflow / lhb / sector / theme / exhaustion），
 以及 **波段（swing）** 7 维度趋势选股
-+ **Codex AI 深度分析**。仅做选股与报告，**不接券商、不自动下单**。
++ 可选 AI 深度分析。仅做选股与报告，**不接券商、不自动下单**。
 
 ## 双策略架构
 
@@ -10,13 +10,17 @@ A 股批量选股系统：**短线（short）** 6 个已实现规则维度（lim
 
 | 策略 | 周期 | 维度数 | 权重文件 |
 |------|------|--------|---------|
-| `short`（默认） | 1-3 交易日 | 6 个已实现维度（limit / moneyflow / lhb / sector / theme / exhaustion） | `config/weights.yaml` |
+| `short`（默认） | 1-3 交易日 | 7 个已实现维度（limit / limit_restart / moneyflow / lhb / sector / theme / exhaustion） | `config/weights.yaml` |
 | `swing` | 5-20 交易日 | 7 维 + market_regime 组合层控制 | `config/weights_swing.yaml` |
 
 三表（`selection_result` / `filter_score_daily` / `ai_analysis`）通过 `strategy` 字段隔离。
 波段持仓状态由 `swing_position` 表管理（区分 `backtest` / `live` 模式）。
 
-## AI 层流程
+## AI 层状态与流程
+
+AI 分析代码和历史表仍保留，但当前生产选股因 AI 评分降低准确性而暂停 AI 分数参与排序。当前结果通常为 `ai_score=NULL`、`final_score=rule_score`，报告必须称为“纯规则模式”；只有实际存在 `ai_score` 时才可描述为 AI 融合结果。
+
+重新启用后的流程：
 
 ```
 规则层维度 → 综合分排序 → 取 TOP 50 → analyze_stock_with_ai (Codex SDK + 4 段 prompt cache)
@@ -31,10 +35,11 @@ A 股批量选股系统：**短线（short）** 6 个已实现规则维度（lim
 
 | 维度 | 权重 | 数据源 |
 |------|------|--------|
-| `limit` 异动涨停 | 0.25 | `limit_list` |
-| `moneyflow` 主力资金流向 | 0.25 | `moneyflow` + `daily_kline.amount` |
-| `lhb` 龙虎榜（base 60 + seat 40） | 0.20 | `lhb` + `lhb_seat_detail` |
-| `sector` 申万一级行业 | 0.10 | `sw_daily` + `index_member` |
+| `limit` 异动涨停 | 0.18 | `limit_list` |
+| `limit_restart` 涨停回调重启 | 0.15 | `limit_list` + `daily_kline` |
+| `moneyflow` 主力资金流向 | 0.22 | `moneyflow` + `daily_kline.amount` |
+| `lhb` 龙虎榜（base 60 + seat 40） | 0.15 | `lhb` + `lhb_seat_detail` |
+| `sector` 申万二级行业 | 0.10 | `sw_daily` + `index_member` |
 | `theme` 同花顺概念 + 涨停最强 + 资金流 | 0.10 | `ths_daily` + `limit_concept_daily` + `ths_concept_moneyflow` |
 | `exhaustion` 短期动量质量检测 | 0.10 | `daily_kline`（OHLCV 多日窗口）—— 替代原 sentiment 预留位 |
 
@@ -123,7 +128,7 @@ mo-stock scheduler [--strategy short|swing]  # 生产常驻
 
 | 路径 | 作用 |
 |------|------|
-| `src/mo_stock/filters/` | 短线 6 维 + 波段 7 维规则打分 |
+| `src/mo_stock/filters/` | 短线 7 维 + 波段 7 维规则打分 |
 | `src/mo_stock/filters/swing_utils.py` | 波段工具函数（MA / ATR / 量比计算） |
 | `src/mo_stock/scorer/combine.py` | 综合分（固定分母）+ 硬规则 + strategy 路由 + regime 控制 |
 | `src/mo_stock/data_sources/tushare_client.py` | Tushare 接口封装（含 `index_daily` 指数日线） |
@@ -152,7 +157,7 @@ mo-stock scheduler [--strategy short|swing]  # 生产常驻
 3. ~~ingest_one_day 中 4 个核心步骤被注释~~ ✅ v2.1 已解开
 4. ~~THS 概念板块接入~~ ✅ v2.1 已接入（独立 ThemeFilter 维度）
 5. ~~龙虎榜机构 / 游资分离~~ ✅ v2.1 已接入（lhb_seat_detail 表 + seat_type 分类）
-6. **AI prompt 质量持续优化**（v2.2 后用真实数据观察 thesis 输出，按需迭代 prompts.py）
-7. **AI 成本监控**（v2.2 后建议每周看 ai_analysis 表的 token usage 总和）
+6. **AI 评分暂时停用**（重新启用前需先完成独立回测，证明加入 AI 后优于纯规则排序）
+7. **AI 成本监控**（重新启用后再统计 ai_analysis 表的 token usage）
 8. ~~波段策略 Phase 0-2~~ ✅ 已实现（Phase 2.5 回测校准待做）
 9. **波段阈值校准**（Phase 2.5：回测结果达标后才进入 Phase 3 报告 + Phase 4 AI）

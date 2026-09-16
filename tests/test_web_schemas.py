@@ -4,6 +4,8 @@ from mo_stock.web.schemas import (
     MarketData,
     ReportListItem,
     ReportListResponse,
+    RunTaskRequest,
+    SchedulerConfig,
     StockDetailResponse,
     StockItem,
 )
@@ -100,3 +102,9 @@ def test_stock_detail_ai_null():
     assert resp.ai_analysis is None
     assert resp.concepts == ["白酒"]
     assert resp.concept_count == 3
+
+
+def test_manual_and_scheduler_requests_skip_ai_by_default():
+    """Web 手动执行与新建调度默认使用纯规则分。"""
+    assert RunTaskRequest().skip_ai is True
+    assert SchedulerConfig().skip_ai is True

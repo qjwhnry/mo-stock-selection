@@ -713,7 +713,7 @@ export interface SchedulerStatusResponse {
  * @param tradeDate 指定交易日期（可选，不传时后端默认当天）
  * @param skipAi 是否跳过 AI 分析阶段
  */
-export function runTask(strategy: string, tradeDate?: string, skipAi = false) {
+export function runTask(strategy: string, tradeDate?: string, skipAi = true) {
   return api.post<TaskStatusResponse>('/tasks/run', {
     strategy,
     trade_date: tradeDate || null,
@@ -783,7 +783,7 @@ export function fetchTaskStatus() {
  * @param cronHour 定时执行小时（默认 21，即晚上 9 点）
  * @param cronMinute 定时执行分钟（默认 0）
  */
-export function startScheduler(strategy: string, skipAi = false, cronHour = 21, cronMinute = 0) {
+export function startScheduler(strategy: string, skipAi = true, cronHour = 21, cronMinute = 0) {
   return api.post<{ message: string; cron: string }>('/scheduler/start', {
     strategy,
     skip_ai: skipAi,

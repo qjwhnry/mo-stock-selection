@@ -34,21 +34,9 @@ from config.settings import settings
 from mo_stock.analyzer import analyze_stock
 from mo_stock.backtest import run_short_backtest, run_swing_backtest
 from mo_stock.filters.base import load_weights_yaml
-from mo_stock.filters.short.exhaustion_filter import ExhaustionFilter
-from mo_stock.filters.short.lhb_filter import LhbFilter
-from mo_stock.filters.short.limit_filter import LimitFilter
-from mo_stock.filters.short.moneyflow_filter import MoneyflowFilter
-from mo_stock.filters.short.sector_filter import SectorFilter
-from mo_stock.filters.short.theme_filter import ThemeFilter
-from mo_stock.filters.swing.catalyst_filter import CatalystFilter
 from mo_stock.filters.swing.market_regime_filter import MarketRegimeFilter
-from mo_stock.filters.swing.moneyflow_swing_filter import MoneyflowSwingFilter
-from mo_stock.filters.swing.pullback_filter import PullbackFilter
-from mo_stock.filters.swing.risk_liquidity_filter import RiskLiquidityFilter
-from mo_stock.filters.swing.sector_swing_filter import SectorSwingFilter
-from mo_stock.filters.swing.theme_swing_filter import ThemeSwingFilter
-from mo_stock.filters.swing.trend_filter import TrendFilter
 from mo_stock.ingest.ingest_daily import DailyIngestor
+from mo_stock.pipeline import assert_lhb_data_available, build_filters
 from mo_stock.report.render_md import render_daily_report
 from mo_stock.scorer.combine import combine_scores, replace_filter_scores
 from mo_stock.storage.db import engine, get_session
@@ -235,7 +223,12 @@ def backfill(days: int, end: str | None) -> None:
 @click.option("--date", "date_str", default=None, help="选股日 YYYY-MM-DD，默认今日")
 @click.option("--skip-ingest", is_flag=True, help="跳过数据拉取步骤（用于已经有数据时的重算）")
 @click.option("--skip-enhanced", is_flag=True, help="只跑 CORE ingest，跳过题材/席位增强（5 步）")
-@click.option("--skip-ai", is_flag=True, help="跳过 AI 分析；final_score 直接使用 rule_score")
+@click.option(
+    "--skip-ai/--with-ai",
+    default=True,
+    show_default=True,
+    help="默认跳过 AI 分析；使用 --with-ai 显式启用",
+)
 @click.option("--strategy", default="short", show_default=True, help="策略：short / swing")
 @click.option("--force", is_flag=True, help="允许在非交易日运行（默认会拒绝）")
 def run_once(
@@ -246,6 +239,7 @@ def run_once(
     strategy = _validate_strategy(strategy)
     trade_date = _parse_date(date_str) if date_str else date.today()
     _ensure_trade_date(trade_date, force=force, kind="run-once")
+    assert_lhb_data_available(trade_date)
     logger.info("=== run-once {} strategy={} (skip_ai={}) ===", trade_date, strategy, skip_ai)
 
     # ---------- 1. 数据拉取 ----------
@@ -262,32 +256,8 @@ def run_once(
     if "market_regime_control" in cfg:
         combine_cfg["market_regime_control"] = cfg["market_regime_control"]
 
-    if strategy == "short":
-        filters = [
-            LimitFilter(weights=cfg.get("limit_filter", {})),
-            MoneyflowFilter(weights=cfg.get("moneyflow_filter", {})),
-            LhbFilter(weights=cfg.get("lhb_filter", {})),
-            SectorFilter(weights=cfg.get("sector_filter", {})),
-            ThemeFilter(weights=cfg.get("theme_filter", {})),
-            ExhaustionFilter(weights=cfg.get("exhaustion_filter", {})),
-        ]
-        dims = ["limit", "moneyflow", "lhb", "sector", "theme", "exhaustion"]
-        regime_score = None
-    else:
-        filters = [
-            TrendFilter(weights=cfg.get("trend_filter", {})),
-            PullbackFilter(weights=cfg.get("pullback_filter", {})),
-            MoneyflowSwingFilter(weights=cfg.get("moneyflow_swing_filter", {})),
-            SectorSwingFilter(weights=cfg.get("sector_swing_filter", {})),
-            ThemeSwingFilter(weights=cfg.get("theme_swing_filter", {})),
-            CatalystFilter(weights=cfg.get("catalyst_filter", {})),
-            RiskLiquidityFilter(weights=cfg.get("risk_liquidity_filter", {})),
-        ]
-        dims = [
-            "trend", "pullback", "moneyflow_swing", "sector_swing",
-            "theme_swing", "catalyst", "risk_liquidity",
-        ]
-        regime_score = None
+    filters, dims = build_filters(strategy, cfg)
+    regime_score = None
 
     with get_session() as session:
         all_scores = []
