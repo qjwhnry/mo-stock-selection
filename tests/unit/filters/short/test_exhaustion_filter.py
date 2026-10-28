@@ -4,9 +4,14 @@
 """
 from __future__ import annotations
 
+from datetime import date
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 import pytest
 
 from mo_stock.filters.short.exhaustion_filter import (
+    ExhaustionFilter,
     _compute_ma5,
     _count_consecutive_up,
     _penalty_5d_return,
@@ -52,6 +57,50 @@ def _upper_shadow_klines(
         _kline(pre_close),
         _kline(close, open_=open_, high=high, low=low),
     ]
+
+
+class TestScoreAll:
+    @pytest.mark.parametrize("historical_close", [0.0, -10.0])
+    @pytest.mark.parametrize("penalty_max", [0, 35])
+    def test_invalid_5d_close_does_not_interrupt_batch(
+        self, monkeypatch, historical_close: float, penalty_max: int,
+    ) -> None:
+        """历史价格无效时省略五日涨幅，正常股票仍完整出分。"""
+        trade_dates = [date(2026, 10, day) for day in (12, 13, 14, 15, 16, 19)]
+        rows = []
+        for ts_code, first_close in (
+            ("000001.SZ", historical_close),
+            ("600000.SH", 10.0),
+        ):
+            for day, close in zip(
+                trade_dates, [first_close, 11.0, 12.0, 13.0, 14.0, 15.0], strict=True,
+            ):
+                rows.append(SimpleNamespace(
+                    ts_code=ts_code, trade_date=day,
+                    **_kline(close, vol=1000),
+                ))
+        session = MagicMock()
+        session.execute.return_value.all.return_value = rows
+        monkeypatch.setattr(
+            "mo_stock.filters.short.exhaustion_filter.repo.get_recent_trade_dates",
+            lambda *_: list(reversed(trade_dates)),
+        )
+        scorer = ExhaustionFilter(weights={"penalty_5d_return_max": penalty_max})
+
+        scores = {
+            result.ts_code: result
+            for result in scorer.score_all(session, trade_dates[-1])
+        }
+
+        assert set(scores) == {"000001.SZ", "600000.SH"}
+        invalid = scores["000001.SZ"]
+        assert "ret_5d_pct" not in invalid.detail
+        assert invalid.detail["close"] == 15.0
+        assert 0 <= invalid.score <= 100
+        healthy = scores["600000.SH"]
+        assert healthy.detail["ret_5d_pct"] == pytest.approx(50.0)
+        assert healthy.detail["ma5"] == pytest.approx(13.0)
+        assert healthy.score == pytest.approx(75.0 if penalty_max == 0 else 52.5)
 
 
 # ---------- _compute_ma5 ----------

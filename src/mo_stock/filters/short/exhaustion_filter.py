@@ -152,8 +152,8 @@ class ExhaustionFilter(FilterBase):
 
             # 记录关键原始数据供 AI / 报告使用
             detail["close"] = close_today
-            if len(klines) >= 6 and klines[-6]["close"] is not None:
-                close_5d = klines[-6]["close"]
+            # 与惩罚计算保持一致：历史收盘价非正时不计算收益率。
+            if len(klines) >= 6 and (close_5d := klines[-6]["close"]) is not None and close_5d > 0:
                 ret_5d = (close_today - close_5d) / close_5d * 100
                 detail["ret_5d_pct"] = round(ret_5d, 2)
 
